@@ -1,0 +1,4 @@
+echo ".env" > .gitignore
+echo "__pycache__/" >> .gitignore
+echo "*.pyc" >> .gitignore
+echo ".streamlit/secrets.toml" >> .gitignore
