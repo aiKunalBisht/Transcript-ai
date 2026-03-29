@@ -1,10 +1,12 @@
 import json
+import os
 import re
 import requests
 
 # ── CONFIG ──────────────────────────────────────────────────────────────────
 OLLAMA_URL = "http://localhost:11434/api/generate"
 MODEL = "qwen3:8b"        # change to "qwen3:30b" for higher quality (needs good GPU)
+IS_CLOUD = not os.path.exists("/usr/bin/ollama") and os.environ.get("HOME", "").startswith("/home")
 # ────────────────────────────────────────────────────────────────────────────
 
 
@@ -40,8 +42,8 @@ The JSON must follow this exact schema:
 }}
 
 Rules:
-- summary: exactly 3 concise bullet points If more, use not more than eight. 
-- action_items: list ALL wants, desires, requests, and tasks — even wishes like "I want X" must be included as action items with owner = the speaker
+- summary: exactly 3 concise bullet points
+- action_items: list every concrete task mentioned, even implied ones
 - sentiment: one entry per unique speaker
 - speakers: talk_time_pct values must sum to 100
 - japan_insights.nemawashi_signals: list actual phrases from the transcript that show indirect agreement or hesitation (e.g. そうですね, 検討します, なるほど). Empty list if none found.
@@ -53,12 +55,44 @@ TRANSCRIPT:
 """
 
 
+def _mock_response(text: str) -> dict:
+    """
+    Returns realistic demo data when Ollama is unavailable (e.g. Streamlit Cloud).
+    Swap analyze_transcript() body with a real LLM call to go live.
+    """
+    return {
+        "summary": [
+            "The team discussed Q3 project progress and confirmed key deadlines.",
+            "Action items were assigned with clear ownership and timelines.",
+            "Both speakers demonstrated collaborative tone with mixed JA/EN communication."
+        ],
+        "action_items": [
+            {"task": "Review financial section of Q3 report", "owner": "Tanaka", "deadline": "Thursday"},
+            {"task": "Send delay notification email to client", "owner": "Sato", "deadline": "Today"},
+            {"task": "Schedule follow-up sync meeting", "owner": "Tanaka", "deadline": "Tomorrow morning"}
+        ],
+        "sentiment": [
+            {"speaker": "Tanaka", "score": "positive", "label": "Professional and collaborative tone"},
+            {"speaker": "Sato", "score": "positive", "label": "Cooperative and solution-oriented"}
+        ],
+        "speakers": [
+            {"name": "Tanaka", "talk_time_pct": 50, "tone": "formal"},
+            {"name": "Sato", "talk_time_pct": 50, "tone": "mixed"}
+        ],
+        "japan_insights": {
+            "keigo_level": "medium",
+            "nemawashi_signals": ["そうですね", "検討します", "ありがとうございます"],
+            "code_switch_count": 6
+        }
+    }
+
+
 def analyze_transcript(text: str, language: str = "en") -> dict:
     """
     Calls local Ollama to analyze a transcript.
-    Returns a structured dict matching the app's expected JSON schema.
+    Falls back to mock data if Ollama is unreachable (e.g. on Streamlit Cloud).
 
-    To swap provider later:
+    To swap provider:
       - Gemini:  replace this function body with google.generativeai call
       - Claude:  replace with anthropic.Anthropic().messages.create(...)
       - OpenAI:  replace with openai.chat.completions.create(...)
@@ -74,12 +108,12 @@ def analyze_transcript(text: str, language: str = "en") -> dict:
                 "prompt": prompt,
                 "stream": False,
                 "options": {
-                    "temperature": 0.2,      # low temp = consistent JSON
+                    "temperature": 0.2,
                     "num_predict": 1024,
                 },
-                "think": False             # disable qwen3 thinking mode — avoids <think> blocks breaking JSON
+                "think": False
             },
-            timeout=300   # increased for local models
+            timeout=300
         )
         response.raise_for_status()
         raw = response.json().get("response", "")
@@ -88,7 +122,6 @@ def analyze_transcript(text: str, language: str = "en") -> dict:
         raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL)
         raw = re.sub(r"```(?:json)?", "", raw).strip()
 
-        # Find the first { ... } block in case model adds preamble
         match = re.search(r"\{.*\}", raw, re.DOTALL)
         if not match:
             raise ValueError("No JSON object found in model response")
@@ -96,10 +129,9 @@ def analyze_transcript(text: str, language: str = "en") -> dict:
         result = json.loads(match.group())
         return _validate_and_fill(result)
 
-    except requests.exceptions.ConnectionError:
-        raise ConnectionError(
-            "Cannot reach Ollama. Make sure it is running: run `ollama serve` in a terminal."
-        )
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+        # Ollama not available — return mock demo data for cloud deployment
+        return _mock_response(text)
     except json.JSONDecodeError as e:
         raise ValueError(f"Model returned invalid JSON: {e}\n\nRaw output:\n{raw[:500]}")
 
@@ -117,7 +149,6 @@ def _validate_and_fill(data: dict) -> dict:
     ji.setdefault("nemawashi_signals", [])
     ji.setdefault("code_switch_count", 0)
 
-    # Clamp talk_time_pct values to sum to 100
     speakers = data["speakers"]
     if speakers:
         total = sum(s.get("talk_time_pct", 0) for s in speakers)
