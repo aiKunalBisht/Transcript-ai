@@ -11,7 +11,7 @@
 **AI-powered meeting transcript analyzer optimized for Japanese business culture.**
 Extract action items, sentiment, speaker breakdowns, and Japan-specific insights — 100% free, runs locally.
 
-[🚀 Live Demo](#demo) · [📖 Installation](#installation) · [🗺️ Roadmap](#roadmap) · [⭐ Star this repo](https://github.com/Titankunal/Transcript-ai)
+## 🚀 [Live Demo → transcript-ai-qkuqcld42yym54zxmyhhby.streamlit.app](https://transcript-ai-qkuqcld42yym54zxmyhhby.streamlit.app/)
 
 </div>
 
@@ -25,18 +25,11 @@ Extract action items, sentiment, speaker breakdowns, and Japan-specific insights
 
 ### Analysis Results — Meeting Summary
 ![Summary Tab](screenshots/summary.png)
-*3-bullet TL;DR summary with tabs for Action Items, Sentiment, Speakers, and Japan Insights. About panel shows Japan-specific features.*
+*3-bullet TL;DR summary with tabs for Action Items, Sentiment, Speakers, and Japan Insights*
 
 ### Japan Business Intelligence Tab
 ![Japan Insights](screenshots/japan.png)
-*Keigo register detection (medium), 4 nemawashi signals extracted in Japanese (同意します, 分かりました, 素晴らしい, 了解しました), and 10 code-switches detected mid-conversation*
-
----
-
-## 🎬 Demo
-
-> 🎥 Record a demo GIF using [ScreenToGif](https://www.screentogif.com/) (free) — load the sample transcript, click Analyze, and show all 5 tabs.
-> Save as `screenshots/demo.gif` and it will appear here automatically.
+*Keigo register detection, 4 nemawashi signals in Japanese, and 10 code-switches detected mid-conversation*
 
 ---
 
@@ -60,8 +53,6 @@ Japanese business communication is uniquely challenging for AI:
 | **Indirect refusal** | "We will consider it" often means "No" | Flags ambiguous sentiment per speaker |
 
 ### 📈 Why It Scales Into Any Industry
-
-This isn't a toy. The same architecture plugs directly into:
 
 | Industry | Use case |
 |---|---|
@@ -133,30 +124,17 @@ One JSON schema. Infinite industries.
 
 ---
 
-## 🚀 Installation
+## 🚀 Run Locally
 
 ### Prerequisites
 - Python 3.10+
 - [Ollama](https://ollama.com) installed
 
-### 1. Clone the repo
 ```bash
 git clone https://github.com/Titankunal/Transcript-ai.git
 cd Transcript-ai
-```
-
-### 2. Install dependencies
-```bash
 pip install -r requirements.txt
-```
-
-### 3. Pull the AI model
-```bash
 ollama pull qwen3:8b
-```
-
-### 4. Run the app
-```bash
 python -m streamlit run app.py
 ```
 
@@ -164,9 +142,9 @@ Open **http://localhost:8501** 🎉
 
 ---
 
-## 🔄 Swapping the AI Provider
+## 🔄 Swap the AI Provider
 
-`analyzer.py` is designed for one-line provider swaps. The JSON schema stays identical — nothing else changes.
+`analyzer.py` is designed for one-line provider swaps. The JSON schema stays identical.
 
 **→ Claude (Anthropic)**
 ```python
@@ -189,35 +167,6 @@ response = model.generate_content(build_prompt(text, language))
 return json.loads(response.text)
 ```
 
-Store your key in `.streamlit/secrets.toml`:
-```toml
-ANTHROPIC_API_KEY = "your_key_here"
-```
-
----
-
-## 🗺️ Roadmap
-
-### ✅ v1.0 — Complete
-- [x] Core transcript analysis pipeline
-- [x] Japan-specific intelligence layer (keigo, nemawashi, code-switching)
-- [x] Streamlit UI with 5 tabbed result views
-- [x] Local LLM via Ollama — free, private, no API key
-- [x] JSON export + analysis history
-
-### 🔨 v1.1 — Coming Soon
-- [ ] Audio file input (`.mp3`, `.wav`) with Whisper transcription
-- [ ] Real-time streaming analysis
-- [ ] Multi-language support (Korean, Mandarin)
-- [ ] Confidence scores per action item
-
-### 🚀 v2.0 — Future Vision
-- [ ] CRM integration (Salesforce, HubSpot)
-- [ ] Slack / Teams bot deployment
-- [ ] Custom keigo dictionary per company
-- [ ] Dashboard with trend analysis across multiple meetings
-- [ ] REST API for enterprise integration
-
 ---
 
 ## 🛠️ Tech Stack
@@ -227,23 +176,13 @@ ANTHROPIC_API_KEY = "your_key_here"
 | Frontend | Streamlit |
 | AI Model | Ollama + qwen3:8b |
 | Language Detection | langdetect |
-| Export | Python json |
-| Deployment | Streamlit Community Cloud |
+| Deployment | Streamlit Community Cloud (free) |
 
 ---
 
 ## 🤝 Contributing
 
-Contributions are welcome! Especially:
-- Additional Japanese business culture patterns
-- New language support
-- CRM integrations
-
-```bash
-git checkout -b feature/your-feature
-git commit -m "Add your feature"
-git push origin feature/your-feature
-```
+Contributions welcome — especially Japanese business culture patterns, new language support, and CRM integrations.
 
 ---
 
