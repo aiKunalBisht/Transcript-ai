@@ -189,7 +189,17 @@ def analyze_transcript(text: str, language: str = "en") -> dict:
             raise ValueError("No JSON object found in model response")
 
         result = json.loads(match.group())
-        return _validate_and_fill(result)
+        result = _validate_and_fill(result)
+
+        # Fix 1: override LLM code-switch count with deterministic rule-based count
+        try:
+            from evaluator import count_code_switches
+            result["japan_insights"]["code_switch_count"] = count_code_switches(text)
+            result["japan_insights"]["code_switch_source"] = "rule_based"
+        except ImportError:
+            pass  # evaluator.py not present — use LLM count
+
+        return result
 
     except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
         return _mock_response(text)
