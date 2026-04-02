@@ -1,0 +1,344 @@
+{
+  "summary": [
+    "The team is finalizing the architectural shift from local Ollama to Groq LPU integration for the Tokyo rollout.",
+    "Concerns were raised about data privacy and compliance with APPI regulations regarding data transfer to the cloud.",
+    "A pre-processing layer was implemented to mask personal information before sending data to Groq endpoints.",
+    "The team is addressing the challenge of detecting 'Soft Rejections' in Japanese business communication for sentiment analysis.",
+    "There is a discussion about adjusting the production schedule for next Monday due to ongoing bug fixes."
+  ],
+  "action_items": [
+    {
+      "task": "Implement and confirm the pre-processing layer for PII masking",
+      "owner": "NAME_1",
+      "deadline": "immediate",
+      "confidence": 0.4,
+      "grounding": {
+        "task_token_overlap": 0.667,
+        "task_semantic": 0.149,
+        "task_effective": 0.667,
+        "owner_score": 0.0,
+        "deadline_score": 0.0
+      },
+      "hallucination_flag": false,
+      "semantic_grounding": 0.149
+    },
+    {
+      "task": "Ensure the soft_rejection_detector.py is operational for sentiment analysis",
+      "owner": "NAME_2",
+      "deadline": "immediate",
+      "confidence": 0.131,
+      "grounding": {
+        "task_token_overlap": 0.0,
+        "task_semantic": 0.218,
+        "task_effective": 0.218,
+        "owner_score": 0.0,
+        "deadline_score": 0.0
+      },
+      "hallucination_flag": false,
+      "semantic_grounding": 0.218
+    },
+    {
+      "task": "Prepare the fallback deployment script",
+      "owner": "NAME_1",
+      "deadline": "immediate",
+      "confidence": 0.6,
+      "grounding": {
+        "task_token_overlap": 1.0,
+        "task_semantic": 0.091,
+        "task_effective": 1.0,
+        "owner_score": 0.0,
+        "deadline_score": 0.0
+      },
+      "hallucination_flag": false,
+      "semantic_grounding": 0.091
+    },
+    {
+      "task": "Inform clients of the 'final adjustment' status",
+      "owner": "NAME_3",
+      "deadline": "immediate",
+      "confidence": 0.057,
+      "grounding": {
+        "task_token_overlap": 0.0,
+        "task_semantic": 0.095,
+        "task_effective": 0.095,
+        "owner_score": 0.0,
+        "deadline_score": 0.0
+      },
+      "hallucination_flag": true,
+      "flag_reason": "Task 'Inform clients of the 'final adjustment'' has low transcript grounding (score: 0.0) — may be hallucinated",
+      "semantic_grounding": 0.095
+    }
+  ],
+  "sentiment": [
+    {
+      "speaker": "NAME_1",
+      "score": "neutral",
+      "label": "Neutral concern about data privacy"
+    },
+    {
+      "speaker": "NAME_2",
+      "score": "neutral",
+      "label": "Neutral concern about sentiment detection"
+    },
+    {
+      "speaker": "NAME_3",
+      "score": "neutral",
+      "label": "Neutral confirmation of client communication"
+    }
+  ],
+  "speakers": [
+    {
+      "name": "NAME_1",
+      "talk_time_pct": 30,
+      "tone": "formal"
+    },
+    {
+      "name": "NAME_2",
+      "talk_time_pct": 25,
+      "tone": "formal"
+    },
+    {
+      "name": "NAME_3",
+      "talk_time_pct": 25,
+      "tone": "formal"
+    },
+    {
+      "name": "First",
+      "talk_time_pct": 20,
+      "tone": "formal"
+    }
+  ],
+  "japan_insights": {
+    "keigo_level": "high",
+    "nemawashi_signals": [
+      "検討します",
+      "検討させてください",
+      "承知いたしました"
+    ],
+    "code_switch_count": 32,
+    "keigo_source": "mecab",
+    "code_switch_source": "rule_based"
+  },
+  "verification": {
+    "action_items": {
+      "verified": [
+        {
+          "task": "Implement and confirm the pre-processing layer for PII masking",
+          "owner": "NAME_1",
+          "deadline": "immediate",
+          "confidence": 0.4,
+          "grounding": {
+            "task_token_overlap": 0.667,
+            "task_semantic": 0.149,
+            "task_effective": 0.667,
+            "owner_score": 0.0,
+            "deadline_score": 0.0
+          },
+          "hallucination_flag": false,
+          "semantic_grounding": 0.149
+        },
+        {
+          "task": "Ensure the soft_rejection_detector.py is operational for sentiment analysis",
+          "owner": "NAME_2",
+          "deadline": "immediate",
+          "confidence": 0.131,
+          "grounding": {
+            "task_token_overlap": 0.0,
+            "task_semantic": 0.218,
+            "task_effective": 0.218,
+            "owner_score": 0.0,
+            "deadline_score": 0.0
+          },
+          "hallucination_flag": false,
+          "semantic_grounding": 0.218
+        },
+        {
+          "task": "Prepare the fallback deployment script",
+          "owner": "NAME_1",
+          "deadline": "immediate",
+          "confidence": 0.6,
+          "grounding": {
+            "task_token_overlap": 1.0,
+            "task_semantic": 0.091,
+            "task_effective": 1.0,
+            "owner_score": 0.0,
+            "deadline_score": 0.0
+          },
+          "hallucination_flag": false,
+          "semantic_grounding": 0.091
+        }
+      ],
+      "flagged": [
+        {
+          "task": "Inform clients of the 'final adjustment' status",
+          "owner": "NAME_3",
+          "deadline": "immediate",
+          "confidence": 0.057,
+          "grounding": {
+            "task_token_overlap": 0.0,
+            "task_semantic": 0.095,
+            "task_effective": 0.095,
+            "owner_score": 0.0,
+            "deadline_score": 0.0
+          },
+          "hallucination_flag": true,
+          "flag_reason": "Task 'Inform clients of the 'final adjustment'' has low transcript grounding (score: 0.0) — may be hallucinated",
+          "semantic_grounding": 0.095
+        }
+      ],
+      "total": 4,
+      "verified_count": 3,
+      "flagged_count": 1,
+      "avg_confidence": 0.297,
+      "hallucination_rate": 0.25
+    },
+    "summary": {
+      "verified": [
+        {
+          "text": "The team is finalizing the architectural shift from local Ollama to Groq LPU integration for the Tokyo rollout.",
+          "grounding_score": 0.727,
+          "hallucination_flag": false
+        },
+        {
+          "text": "Concerns were raised about data privacy and compliance with APPI regulations regarding data transfer to the cloud.",
+          "grounding_score": 0.364,
+          "hallucination_flag": false
+        },
+        {
+          "text": "A pre-processing layer was implemented to mask personal information before sending data to Groq endpoints.",
+          "grounding_score": 0.364,
+          "hallucination_flag": false
+        },
+        {
+          "text": "The team is addressing the challenge of detecting 'Soft Rejections' in Japanese business communication for sentiment analysis.",
+          "grounding_score": 0.182,
+          "hallucination_flag": false
+        },
+        {
+          "text": "There is a discussion about adjusting the production schedule for next Monday due to ongoing bug fixes.",
+          "grounding_score": 0.25,
+          "hallucination_flag": false
+        }
+      ],
+      "flagged": [],
+      "verified_count": 5,
+      "flagged_count": 0,
+      "total": 5
+    },
+    "sentiment_speakers": {
+      "verified": [],
+      "flagged": [
+        {
+          "speaker": "NAME_1",
+          "score": "neutral",
+          "label": "Neutral concern about data privacy",
+          "speaker_grounding": 0.0,
+          "hallucination_flag": true,
+          "flag_reason": "Speaker 'NAME_1' not found in transcript — may be hallucinated"
+        },
+        {
+          "speaker": "NAME_2",
+          "score": "neutral",
+          "label": "Neutral concern about sentiment detection",
+          "speaker_grounding": 0.0,
+          "hallucination_flag": true,
+          "flag_reason": "Speaker 'NAME_2' not found in transcript — may be hallucinated"
+        },
+        {
+          "speaker": "NAME_3",
+          "score": "neutral",
+          "label": "Neutral confirmation of client communication",
+          "speaker_grounding": 0.0,
+          "hallucination_flag": true,
+          "flag_reason": "Speaker 'NAME_3' not found in transcript — may be hallucinated"
+        }
+      ],
+      "verified_count": 0,
+      "flagged_count": 3
+    },
+    "overall_hallucination_risk": 0.333,
+    "risk_label": "MEDIUM",
+    "flagged_total": 4,
+    "total_claims": 12,
+    "note": "Items with hallucination_flag=True are low-confidence — verify manually"
+  },
+  "soft_rejections": {
+    "detected": [
+      {
+        "phrase": "検討します",
+        "reading": "We will consider it",
+        "intent": "LIKELY_REJECTION",
+        "confidence": 0.72,
+        "severity": "MEDIUM",
+        "speaker": "Unknown",
+        "context": "erence call.\n\n分かりました。技術的な裏付けは十分そうですね。ただ、営業担当として一つ気になることがあります。最近の商談で、先方の担当者が「前向きに【検討します】」とおっしゃっていました。これをAIがどう解釈するかが重要です。We all know that in a Japanese business context,",
+        "explanation": "In Japanese business, 'We will consider it' without a specific timeline almost always means No. If followed by a deadline, it may be genuine."
+      },
+      {
+        "phrase": "前向きに検討",
+        "reading": "Positive consideration",
+        "intent": "UNCERTAIN",
+        "confidence": 0.55,
+        "severity": "MEDIUM",
+        "speaker": "Unknown",
+        "context": "inference call.\n\n分かりました。技術的な裏付けは十分そうですね。ただ、営業担当として一つ気になることがあります。最近の商談で、先方の担当者が「【前向きに検討】します」とおっしゃっていました。これをAIがどう解釈するかが重要です。We all know that in a Japanese business conte",
+        "explanation": "'Positive consideration' sounds optimistic but is often used when the speaker cannot commit. Outcome genuinely uncertain."
+      },
+      {
+        "phrase": "そうですね",
+        "reading": "That's right / I see",
+        "intent": "HESITATION",
+        "confidence": 0.25,
+        "severity": "LOW",
+        "speaker": "Unknown",
+        "context": "nalysis/ folder, completely separate from the inference call.\n\n分かりました。技術的な裏付けは十分【そうですね】。ただ、営業担当として一つ気になることがあります。最近の商談で、先方の担当者が「前向きに検討します」とおっしゃっていました。これをAIがどう解釈するかが重要です",
+        "explanation": "Ambiguous. Can be genuine agreement OR a filler to avoid disagreement. Context determines meaning."
+      }
+    ],
+    "high_signals": [],
+    "medium_signals": [
+      {
+        "phrase": "検討します",
+        "reading": "We will consider it",
+        "intent": "LIKELY_REJECTION",
+        "confidence": 0.72,
+        "severity": "MEDIUM",
+        "speaker": "Unknown",
+        "context": "erence call.\n\n分かりました。技術的な裏付けは十分そうですね。ただ、営業担当として一つ気になることがあります。最近の商談で、先方の担当者が「前向きに【検討します】」とおっしゃっていました。これをAIがどう解釈するかが重要です。We all know that in a Japanese business context,",
+        "explanation": "In Japanese business, 'We will consider it' without a specific timeline almost always means No. If followed by a deadline, it may be genuine."
+      },
+      {
+        "phrase": "前向きに検討",
+        "reading": "Positive consideration",
+        "intent": "UNCERTAIN",
+        "confidence": 0.55,
+        "severity": "MEDIUM",
+        "speaker": "Unknown",
+        "context": "inference call.\n\n分かりました。技術的な裏付けは十分そうですね。ただ、営業担当として一つ気になることがあります。最近の商談で、先方の担当者が「【前向きに検討】します」とおっしゃっていました。これをAIがどう解釈するかが重要です。We all know that in a Japanese business conte",
+        "explanation": "'Positive consideration' sounds optimistic but is often used when the speaker cannot commit. Outcome genuinely uncertain."
+      }
+    ],
+    "low_signals": [
+      {
+        "phrase": "そうですね",
+        "reading": "That's right / I see",
+        "intent": "HESITATION",
+        "confidence": 0.25,
+        "severity": "LOW",
+        "speaker": "Unknown",
+        "context": "nalysis/ folder, completely separate from the inference call.\n\n分かりました。技術的な裏付けは十分【そうですね】。ただ、営業担当として一つ気になることがあります。最近の商談で、先方の担当者が「前向きに検討します」とおっしゃっていました。これをAIがどう解釈するかが重要です",
+        "explanation": "Ambiguous. Can be genuine agreement OR a filler to avoid disagreement. Context determines meaning."
+      }
+    ],
+    "total_signals": 3,
+    "rejection_count": 1,
+    "hesitation_count": 1,
+    "uncertain_count": 1,
+    "risk_level": "HIGH",
+    "risk_summary": "Multiple rejection signals detected. The meeting likely ended without agreement.",
+    "cultural_note": "In Japanese business culture, direct refusal is avoided. These patterns indicate the speaker's true intent through indirect language. Always follow up in writing to confirm."
+  },
+  "_provider": "ollama",
+  "_duration_ms": 93896.4,
+  "_cached_at": "2026-04-02T07:53:07.365062"
+}
