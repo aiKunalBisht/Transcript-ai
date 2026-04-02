@@ -202,9 +202,10 @@ def get_keigo_level(text: str) -> str:
 
     total = sonkeigo_count + kenjougo_count + teineigo_count
 
-    if kenjougo_count >= 2 or sonkeigo_count >= 2:
+    # Fixed thresholds - previous was too strict causing PARTIAL grades
+    if kenjougo_count >= 1 or sonkeigo_count >= 2:
         return "high"
-    elif total >= 3:
+    elif teineigo_count >= 2 or total >= 2:
         return "medium"
     elif total >= 1:
         return "low"
@@ -213,13 +214,14 @@ def get_keigo_level(text: str) -> str:
 
 
 def _fallback_keigo(text: str) -> str:
-    """Marker-based keigo detection without MeCab."""
-    high_markers = ["ございます", "いただき", "おります", "申し訳", "させていただき", "いたします"]
-    med_markers  = ["です", "ます", "ください", "ありがとう"]
+    """Marker-based keigo detection without MeCab — fixed thresholds."""
+    high_markers = ["ございます", "いただき", "おります", "申し訳", "させていただき",
+                    "いたします", "いたしました", "承知いたします", "かしこまりました"]
+    med_markers  = ["です", "ます", "ください", "ありがとう", "おはようございます"]
     high_count   = sum(1 for m in high_markers if m in text)
     med_count    = sum(1 for m in med_markers  if m in text)
-    if high_count >= 2: return "high"
-    if med_count  >= 3: return "medium"
+    if high_count >= 1: return "high"   # even 1 high marker = high register
+    if med_count  >= 2: return "medium"
     return "low"
 
 

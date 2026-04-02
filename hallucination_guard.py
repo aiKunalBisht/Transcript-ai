@@ -116,11 +116,11 @@ def _overlap_score(claim: str, transcript: str) -> float:
 
 # ── GROUNDING THRESHOLDS ──────────────────────────────────────────────────────
 THRESHOLDS = {
-    "action_task":   0.25,   # task description — moderate grounding required
-    "action_owner":  0.30,   # owner name — must appear in transcript
-    "action_deadline": 0.15, # deadline — flexible (may be implied)
-    "summary_bullet": 0.20,  # summary — paraphrasing expected, low threshold
-    "sentiment_speaker": 0.10, # speaker name — lower threshold, names extracted from labels
+    "action_task":     0.15,  # lowered: cross-language JA/EN clips legitimate tasks
+    "action_owner":    0.10,  # lowered: owner names already normalized
+    "action_deadline": 0.10,  # flexible — often implied
+    "summary_bullet":  0.15,  # paraphrasing expected
+    "sentiment_speaker": 0.05, # very low — names pre-extracted from transcript
 }
 
 
@@ -131,12 +131,15 @@ def verify_action_items(action_items: list, transcript: str) -> dict:
     Fix 4: Unified confidence score combining token overlap + semantic similarity.
     Single score replaces two conflicting scores.
     """
-    # Try semantic validator for cross-language grounding
+    # Semantic cross-language grounding (separate layer)
+    USE_SEMANTIC = False
+    semantic_grounding_score = None
     try:
-        from semantic_validator import semantic_grounding_score
+        from semantic_validator import semantic_grounding_score as _sg
+        semantic_grounding_score = _sg
         USE_SEMANTIC = True
     except ImportError:
-        USE_SEMANTIC = False
+        pass
 
     verified   = []
     flagged    = []

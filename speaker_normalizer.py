@@ -10,9 +10,9 @@ import re
 
 # Common role suffixes to strip
 ROLE_PATTERNS = [
-    r"\s*\([^)]+\)",        # (Director), (PM), (Sales)
-    r"\s*【[^】]+】",        # 【部長】
-    r"\s*(さん|様|くん|ちゃん|先生|部長|課長|社長|専務|常務|係長|主任|San|san)",
+    r"\s*\([^)]*\)",
+    r"\s*【[^】]*】",
+    r"\s*(さん|様|くん|ちゃん|先生|部長|課長|社長|専務|常務|係長|主任|San|san)\s*",
 ]
 
 # Kanji↔Romaji common name pairs for cross-script matching
@@ -54,9 +54,6 @@ def normalize_speaker_name(raw: str) -> str:
     "Dev)"              → "" (malformed role label)
     """
     name = raw.strip()
-
-    # Strip malformed labels starting with ( or ending with )
-    name = re.sub(r"^[(]|[)]$", "", name).strip()
 
     # Apply role pattern stripping
     for pattern in ROLE_PATTERNS:

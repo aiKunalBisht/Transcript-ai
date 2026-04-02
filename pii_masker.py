@@ -143,9 +143,14 @@ def mask_transcript(text: str, mask_timestamps: bool = False) -> tuple[str, PIIM
             masked = masked.replace(name, placeholder)
 
     # 5. Speaker labels (e.g. "Tanaka:", "Sarah:")
+    # NOTE: We mask speaker names in labels too, but keep a speaker registry
+    # so the analysis knows who is who even after masking
     speaker_pattern = re.compile(r"\b([A-Z][a-z]+(?:\s[A-Z][a-z]+)?)\s*(?=:)")
+    found_speakers = speaker_pattern.findall(masked)
+    for speaker in found_speakers:
+        pii.add("NAME", speaker)   # register in PII map
     masked = speaker_pattern.sub(
-        lambda m: pii.add("NAME", m.group(1)) + (m.group()[len(m.group(1)):]),
+        lambda m: pii.reverse.get(m.group(1), pii.add("NAME", m.group(1))) + (m.group()[len(m.group(1)):]),
         masked
     )
 

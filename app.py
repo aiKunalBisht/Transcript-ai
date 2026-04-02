@@ -306,8 +306,11 @@ if run_analysis and final_text:
             results = analyze_transcript(text_to_analyze, active_lang)
 
         # Restore real names in results
+        # CRITICAL ORDER: restore PII BEFORE speaker normalization
+        # Otherwise normalizer sees [NAME_2] and cannot resolve identities
         if pii_mask is not None:
             results = restore_pii_in_result(results, pii_mask)
+            pii_mask = None  # mark as restored so we don't restore twice
 
         progress_bar.progress(85, text="🎨 Formatting results…")
         time.sleep(0.3)

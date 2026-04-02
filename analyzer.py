@@ -38,11 +38,27 @@ def _summary_instruction(text: str) -> str:
     else:              return "summary: as many bullets as needed (min 8) — never compress"
 
 
+def _extract_speaker_hint(text: str) -> str:
+    """Pre-extract speakers to hint LLM — prevents missing speakers."""
+    import re
+    pattern = re.compile(r"^([A-Za-z぀-鿿][^\n:：\[\]]{0,30}?)\s*[:：]", re.MULTILINE)
+    found = pattern.findall(text)
+    # Clean and deduplicate
+    seen, clean = set(), []
+    for name in found:
+        n = re.sub(r"\s*\([^)]*\)", "", name).strip()
+        if n and n.lower() not in seen and not re.match(r"^[0-9]+$", n):
+            seen.add(n.lower())
+            clean.append(n)
+    return ", ".join(clean[:10]) if clean else "Not detected"
+
+
 def build_prompt(text: str, language: str) -> str:
     lang_hint = (
         "Transcript contains Japanese and English. Extract Japanese phrases as-is."
         if language in ("ja", "mixed") else "Transcript is in English."
     )
+    speakers_hint = _extract_speaker_hint(text)
     return f"""You are an expert meeting analyst for Japanese business culture.
 {lang_hint}
 
@@ -62,11 +78,14 @@ Return ONLY valid JSON. No markdown, no backticks, no explanation.
 
 Rules:
 - {_summary_instruction(text)}
-- CRITICAL: owner/speaker/name = first name only. Never include (Director), (PM), (Sales) etc.
-- action_items: every explicit task, request, commitment in transcript
-- talk_time_pct values must sum to 100
-- nemawashi_signals: actual phrases showing indirect agreement/hesitation/soft refusal
-- Return ONLY the JSON object.
+- owner/speaker/name: FIRST NAME ONLY. No roles. No (Director). No (PM).
+- List ALL speakers found in transcript — do not skip any
+- action_items: every explicit task or commitment
+- talk_time_pct must sum to 100
+- Return ONLY JSON.
+
+SPEAKERS FOUND IN TRANSCRIPT (include ALL of these):
+{speakers_hint}
 
 TRANSCRIPT:
 {text}
@@ -226,7 +245,10 @@ def analyze_transcript(text: str, language: str = "en") -> dict:
         get_cached = set_cache = None
 
     prompt     = build_prompt(text, language)
-    max_tokens = min(2048, max(1024, len(text.split()) * 3))
+    # Speed fix: reduce token budget — JSON output is compact
+    # 800 tokens handles most transcripts, 1200 for very long ones
+    words = len(text.split())
+    max_tokens = min(1200, max(600, words * 2))
     provider_used = "unknown"
     last_error    = None
 
