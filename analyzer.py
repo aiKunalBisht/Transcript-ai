@@ -18,15 +18,16 @@ import requests
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 PROVIDER     = os.getenv("TRANSCRIPT_AI_PROVIDER", "auto")
 # "auto"   → try Groq first, fall back to Ollama, then mock
-# "groq"   → Groq only (fail if no key)
-# "ollama" → Ollama only (fail if offline)
-# "mock"   → always return mock (testing)
+# "groq"   → Groq only
+# "ollama" → Ollama only
+# "mock"   → always mock (testing)
 
-OLLAMA_URL   = "http://localhost:11434/api/generate"
-OLLAMA_MODEL = "qwen3:8b"
+# C1 FIX: All URLs configurable via env vars — not hardcoded
+OLLAMA_URL   = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:8b")
 GROQ_URL     = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL   = "llama-3.1-8b-instant"
-MAX_RETRIES  = 2
+GROQ_MODEL   = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+MAX_RETRIES  = int(os.getenv("TRANSCRIPT_AI_MAX_RETRIES", "2"))
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -93,7 +94,8 @@ TRANSCRIPT:
 
 
 def _get_groq_key() -> str:
-    key = os.getenv("GROQ_API_KEY", "") or os.getenv("groq_api_key", "")
+    # Q3 FIX: Standardized to GROQ_API_KEY only
+    key = os.getenv("GROQ_API_KEY", "")
     if not key:
         try:
             import streamlit as st
@@ -130,13 +132,26 @@ def _call_ollama(prompt: str, max_tokens: int) -> str:
 
 
 def _parse(raw: str) -> dict:
-    """Fix 4: Consistent parsing — strips all provider-specific wrappers."""
+    """
+    C4 FIX: Robust JSON parsing — handles nested braces, multiple objects,
+    provider-specific wrappers. Uses JSONDecoder.raw_decode() for correctness.
+    """
+    # Strip thinking blocks and markdown fences
     raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL)
     raw = re.sub(r"```(?:json)?|```", "", raw).strip()
-    match = re.search(r"\{.*\}", raw, re.DOTALL)
-    if not match:
-        raise ValueError("No JSON in response")
-    return json.loads(match.group())
+
+    # Find first valid JSON object using raw_decode (stops at first complete object)
+    decoder = json.JSONDecoder()
+    for i, char in enumerate(raw):
+        if char == "{":
+            try:
+                obj, _ = decoder.raw_decode(raw, i)
+                if isinstance(obj, dict):
+                    return obj
+            except json.JSONDecodeError:
+                continue
+
+    raise ValueError(f"No valid JSON object found in response (first 200 chars): {raw[:200]}")
 
 
 def _try_providers(prompt: str, max_tokens: int) -> tuple[str, str]:
@@ -184,37 +199,51 @@ def _try_providers(prompt: str, max_tokens: int) -> tuple[str, str]:
 
 
 def _mock_response(text: str, reason: str = "") -> dict:
+    """
+    U2 FIX: Mock response is now clearly labeled as DEMO DATA.
+    Does NOT use fake hardcoded names (Priya, Sato, Tanaka).
+    Extracts actual speaker names from transcript for honest placeholders.
+    User is clearly informed this is not a real analysis.
+    """
+    # Extract real speaker names from transcript for honest placeholders
+    speaker_names = []
+    colon_pat = re.compile(r"(?:^|\n)([A-Za-z\u3040-\u9FFF][^\n:]{0,20}?)\s*[::]", re.MULTILINE)
+    for m in colon_pat.finditer(text):
+        raw = m.group(1).strip()
+        clean = re.sub(r"\s*\([^)]*\)", "", raw).strip()
+        if clean and len(clean) >= 2 and not re.match(r"^\d+$", clean) and clean not in speaker_names:
+            speaker_names.append(clean)
+
+    if not speaker_names:
+        speaker_names = ["Speaker A", "Speaker B"]
+
+    n = len(speaker_names)
+    pct = round(100 / n)
+    speakers = [{"name": name, "talk_time_pct": pct, "tone": "formal"} for name in speaker_names]
+    sentiment = [{"speaker": name, "score": "neutral", "label": "Demo mode — not analyzed"} for name in speaker_names]
+
     words = len(text.split())
-    if words < 200:
-        summary = ["Team discussed updates.", "Action items assigned.", "Mixed JA/EN used."]
-    elif words < 600:
-        summary = ["Meeting opened with progress review.", "Concerns raised and addressed.",
-                   "Budget adjustments discussed.", "Action items assigned.", "Follow-up scheduled."]
-    else:
-        summary = ["Meeting opened with project overview.", "Security and compliance addressed.",
-                   "Technical architecture confirmed.", "Soft rejection signals detected.",
-                   "Action items assigned to team.", "Materials to be prepared by weekend.",
-                   "Monday sync scheduled.", "Risk proposal to be resubmitted."]
+    summary_count = 3 if words < 200 else 5 if words < 600 else 7
+
     return {
-        "summary": summary,
+        "summary": [f"⚠️ DEMO MODE: Real analysis unavailable ({reason or 'AI offline'})."] +
+                   [f"Transcript has {words} words and {n} detected speakers."] +
+                   ["Connect to Groq (free) or Ollama to see real analysis."] * (summary_count - 2),
         "action_items": [
-            {"task": "Prepare security audit", "owner": "Priya", "deadline": "Friday EOD"},
-            {"task": "Submit revised proposal", "owner": "Sato",  "deadline": "Monday"},
+            {"task": "⚠️ Demo mode — connect AI provider for real action items",
+             "owner": speaker_names[0] if speaker_names else "Unknown",
+             "deadline": "N/A"}
         ],
-        "sentiment": [
-            {"speaker": "Tanaka", "score": "neutral", "label": "Cautiously evaluating"},
-            {"speaker": "Sato",   "score": "neutral", "label": "Professional"},
-        ],
-        "speakers": [
-            {"name": "Tanaka", "talk_time_pct": 50, "tone": "formal"},
-            {"name": "Sato",   "talk_time_pct": 50, "tone": "formal"},
-        ],
+        "sentiment": sentiment,
+        "speakers":  speakers,
         "japan_insights": {
-            "keigo_level": "high",
-            "nemawashi_signals": ["検討します", "承知いたしました"],
-            "code_switch_count": 4
+            "keigo_level": "unknown",
+            "nemawashi_signals": [],
+            "code_switch_count": 0
         },
-        "_mock_reason": reason
+        "_mock_reason":   reason,
+        "_demo_mode":     True,
+        "_demo_warning":  "This is demo data. Real transcript not analyzed. Add GROQ_API_KEY for real analysis."
     }
 
 
