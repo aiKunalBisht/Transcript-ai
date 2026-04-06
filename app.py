@@ -41,7 +41,7 @@ try:
 except ImportError:
     PII_AVAILABLE = False
 
-# Audio processor (MP4/MP3/WAV)
+# Audio processor
 try:
     from audio_processor import (
         transcribe_audio, format_transcript_with_timestamps,
@@ -50,6 +50,13 @@ try:
     AUDIO_AVAILABLE = True
 except ImportError:
     AUDIO_AVAILABLE = False
+
+# Streaming
+try:
+    from analyzer import stream_transcript_groq
+    STREAMING_AVAILABLE = True
+except ImportError:
+    STREAMING_AVAILABLE = False
 
 # Evaluator — graceful import
 try:
@@ -175,6 +182,15 @@ with st.sidebar:
             st.markdown("<div style='color:#34d399; font-size:0.78rem;'>✅ APPI compliant mode ON</div>", unsafe_allow_html=True)
     else:
         pii_enabled = False
+
+    # Streaming mode toggle
+    if STREAMING_AVAILABLE:
+        st.markdown("<hr style='border-color:rgba(255,255,255,0.08); margin:0.8rem 0;'/>", unsafe_allow_html=True)
+        st.markdown("<div class='section-header'>⚡ Analysis Mode</div>", unsafe_allow_html=True)
+        stream_mode = st.toggle("Stream results live", value=False,
+                                help="See summary as it generates — requires Groq API key")
+    else:
+        stream_mode = False
 
     st.markdown("<hr style='border-color:rgba(255,255,255,0.08); margin:1rem 0;'/>", unsafe_allow_html=True)
     st.markdown("<div class='section-header'>🕘 Recent Analyses</div>", unsafe_allow_html=True)
@@ -388,6 +404,17 @@ if run_analysis and final_text:
     st.session_state.history = add_to_history(st.session_state.history, history_entry)
     st.success("✅ Analysis complete!")
     st.rerun()
+
+
+# ── STREAMING MODE ─────────────────────────────────────────────────────────
+if "stream_mode" in dir() and stream_mode and final_text and not run_analysis:
+    if st.button("⚡ Stream Live Summary", key="stream_btn", use_container_width=False):
+        st.markdown("<div class='section-header'>⚡ Live Summary Stream</div>", unsafe_allow_html=True)
+        try:
+            st.write_stream(stream_transcript_groq(final_text, 
+                st.session_state.get("current_language", "en")))
+        except Exception as e:
+            st.error(f"Streaming error: {e}")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Results dashboard

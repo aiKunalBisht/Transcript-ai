@@ -11,21 +11,15 @@ import re
 from dataclasses import dataclass, field
 
 
-JAPANESE_SURNAMES = {
-    "佐藤", "鈴木", "高橋", "田中", "渡辺", "伊藤", "山本", "中村", "小林", "加藤",
-    "吉田", "山田", "佐々木", "山口", "松本", "井上", "木村", "林", "斎藤", "清水",
-    "山崎", "森", "池田", "橋本", "阿部", "石川", "山下", "中島", "石井", "小川",
-    "前田", "岡田", "長谷川", "藤田", "後藤", "近藤", "村上", "遠藤", "青木", "坂本",
-    "斉藤", "福田", "太田", "西村", "藤井", "金子", "岡本", "藤原", "三浦", "中川",
-    "原田", "松田", "竹内", "小野", "中野", "田村", "河野", "和田", "石田", "上田",
-    "山内", "森田", "菊地", "菅原", "宮崎", "水野", "市川", "柴田", "酒井", "工藤",
-    "横山", "宮本", "内田", "高木", "安藤", "島田", "谷口", "大野", "丸山", "今井",
-    "武田", "西田", "平野", "村田", "矢野", "杉山", "増田", "小島", "桑原", "大塚",
-    "千葉", "松井", "野口", "新井", "久保", "上野", "松尾", "黒田", "永田", "川口",
-    "Tanaka", "Yamamoto", "Sato", "Suzuki", "Nakamura", "Kobayashi", "Ito",
-    "Watanabe", "Yamada", "Kato", "Kenji", "Yuki", "Hiroshi", "Akiko",
-    "Priya", "Kunal", "Sarah", "Mike", "John", "Emily", "David", "Lisa",
-}
+# Fix 3: Use full JMnedict-derived database (500+ surnames, ~95% population coverage)
+try:
+    from japanese_names import JAPANESE_SURNAMES_FULL as JAPANESE_SURNAMES
+except ImportError:
+    # Fallback to minimal list if japanese_names.py not present
+    JAPANESE_SURNAMES = {
+        "佐藤","鈴木","高橋","田中","渡辺","伊藤","山本","中村","小林","加藤",
+        "Tanaka","Sato","Suzuki","Yamamoto","Priya","Kunal","Sarah","Mike",
+    }
 
 _EMAIL      = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
 _PHONE_JP   = re.compile(r"(?:\+81|0)\d{1,4}[\-\s]?\d{2,4}[\-\s]?\d{4}")

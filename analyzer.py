@@ -112,19 +112,83 @@ def _call_groq(prompt: str, max_tokens: int) -> str:
     r = requests.post(
         GROQ_URL,
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={"model": GROQ_MODEL, "messages": [{"role": "user", "content": prompt}],
-              "temperature": 0.2, "max_tokens": max_tokens},
+        json={
+            "model": GROQ_MODEL,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.2,
+            "max_tokens": max_tokens,
+            "response_format": {"type": "json_object"},  # structured output guarantee
+        },
         timeout=30
     )
     r.raise_for_status()
     return r.json()["choices"][0]["message"]["content"]
 
 
+def stream_transcript_groq(text: str, language: str = "en"):
+    """
+    Streams analysis token-by-token via Groq API.
+    Use with Streamlit: st.write_stream(stream_transcript_groq(text, lang))
+
+    Yields text chunks as they arrive — user sees summary building in real time.
+    Note: streaming returns raw text not JSON, so we stream the summary only.
+    """
+    api_key = _get_groq_key()
+    if not api_key:
+        yield "⚠️ No Groq API key. Add GROQ_API_KEY for streaming."
+        return
+
+    # Streaming-friendly prompt — ask for readable text not JSON
+    stream_prompt = f"""You are an expert meeting analyst for Japanese business culture.
+Analyze this transcript and write a clear meeting summary with key points, action items, and any notable Japanese business communication patterns observed.
+Be concise and professional.
+
+TRANSCRIPT:
+{text[:3000]}"""  # cap for streaming
+
+    try:
+        import requests
+        r = requests.post(
+            GROQ_URL,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={
+                "model":    GROQ_MODEL,
+                "messages": [{"role": "user", "content": stream_prompt}],
+                "temperature": 0.3,
+                "max_tokens":  1000,
+                "stream":   True,
+            },
+            stream=True,
+            timeout=60
+        )
+        r.raise_for_status()
+        for line in r.iter_lines():
+            if line:
+                line = line.decode("utf-8")
+                if line.startswith("data: ") and line != "data: [DONE]":
+                    import json as _json
+                    try:
+                        chunk = _json.loads(line[6:])
+                        delta = chunk["choices"][0]["delta"].get("content", "")
+                        if delta:
+                            yield delta
+                    except Exception:
+                        continue
+    except Exception as e:
+        yield f"Stream error: {str(e)[:80]}"
+
+
 def _call_ollama(prompt: str, max_tokens: int) -> str:
     r = requests.post(
         OLLAMA_URL,
-        json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False,
-              "options": {"temperature": 0.2, "num_predict": max_tokens}, "think": False},
+        json={
+            "model":   OLLAMA_MODEL,
+            "prompt":  prompt,
+            "stream":  False,
+            "format":  "json",   # structured output — Ollama enforces valid JSON
+            "options": {"temperature": 0.2, "num_predict": max_tokens},
+            "think":   False
+        },
         timeout=300
     )
     r.raise_for_status()

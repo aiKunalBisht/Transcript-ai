@@ -15,42 +15,14 @@ ROLE_PATTERNS = [
     r"\s*(さん|様|くん|ちゃん|先生|部長|課長|社長|専務|常務|係長|主任|San|san)\s*",
 ]
 
-# Kanji↔Romaji name pairs for cross-script matching
-# U1 HONEST LIMITATION: This covers top surnames only.
-# Production solution would use a full Japanese name dictionary or NER model.
-# Current coverage: top 30 surnames (~60% of Japanese population by frequency)
-KNOWN_NAME_PAIRS = {
-    "田中": ["tanaka", "Tanaka"],
-    "佐藤": ["sato", "Sato"],
-    "鈴木": ["suzuki", "Suzuki"],
-    "高橋": ["takahashi", "Takahashi"],
-    "伊藤": ["ito", "Ito"],
-    "渡辺": ["watanabe", "Watanabe"],
-    "山本": ["yamamoto", "Yamamoto"],
-    "中村": ["nakamura", "Nakamura"],
-    "小林": ["kobayashi", "Kobayashi"],
-    "加藤": ["kato", "Kato"],
-    "吉田": ["yoshida", "Yoshida"],
-    "山田": ["yamada", "Yamada"],
-    "山口": ["yamaguchi", "Yamaguchi"],
-    "松本": ["matsumoto", "Matsumoto"],
-    "井上": ["inoue", "Inoue"],
-    "木村": ["kimura", "Kimura"],
-    "斎藤": ["saito", "Saito"],
-    "清水": ["shimizu", "Shimizu"],
-    "森": ["mori", "Mori"],
-    "池田": ["ikeda", "Ikeda"],
-    "橋本": ["hashimoto", "Hashimoto"],
-    "阿部": ["abe", "Abe"],
-    "石川": ["ishikawa", "Ishikawa"],
-    "前田": ["maeda", "Maeda"],
-    "後藤": ["goto", "Goto"],
-    "近藤": ["kondo", "Kondo"],
-    "村上": ["murakami", "Murakami"],
-    "長谷川": ["hasegawa", "Hasegawa"],
-    "藤田": ["fujita", "Fujita"],
-    "岡田": ["okada", "Okada"],
-}
+# Fix 3: Use full JMnedict-derived database
+try:
+    from japanese_names import ROMAJI_TO_KANJI as _ROMAJI_TO_KANJI_FULL, KANJI_TO_ROMAJI
+    KNOWN_NAME_PAIRS = {k: [v, v.capitalize()] for k, v in KANJI_TO_ROMAJI.items()}
+except ImportError:
+    KNOWN_NAME_PAIRS = {"田中":["tanaka","Tanaka"],"鈴木":["suzuki","Suzuki"]}
+    _ROMAJI_TO_KANJI_FULL = {}
+
 # Build reverse map
 _ROMAJI_TO_KANJI = {}
 for kanji, romaji_list in KNOWN_NAME_PAIRS.items():

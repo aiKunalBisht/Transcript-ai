@@ -1,0 +1,312 @@
+{
+  "summary": [
+    "プロジェクト「Sakura」の最終同期が開始され、Groq LPUへの移行が決定した。",
+    "クライアント側はデータの国外移転に対して慎重であり、APPI complianceに関する懸念が残っている。",
+    "田中部長は、個人情報保護のためのPIIマスキング処理を実施しており、データはセマンティックのみを含む。",
+    "「検討します」は日本のビジネス文脈ではソフトな拒否と解釈され、システムはこれを「リスク信号」と判定する。",
+    "次の月曜日の生産スケジュールについて、調整が必要であるとの意見が出された。"
+  ],
+  "action_items": [
+    {
+      "task": "クライアントに「最終調整中」というステータスで伝える",
+      "owner": "佐藤",
+      "deadline": "今日の夕方",
+      "confidence": 0.974,
+      "grounding": {
+        "task_token_overlap": 0.956,
+        "task_semantic": 0.073,
+        "task_effective": 0.956,
+        "owner_score": 1.0,
+        "deadline_score": 1.0
+      },
+      "hallucination_flag": false,
+      "semantic_grounding": 0.073
+    },
+    {
+      "task": "QAチームからの最終報告を待って正式な回答を出す",
+      "owner": "鈴木",
+      "deadline": "今日の夕方",
+      "confidence": 0.953,
+      "grounding": {
+        "task_token_overlap": 0.921,
+        "task_semantic": 0.159,
+        "task_effective": 0.921,
+        "owner_score": 1.0,
+        "deadline_score": 1.0
+      },
+      "hallucination_flag": false,
+      "semantic_grounding": 0.159
+    }
+  ],
+  "sentiment": [
+    {
+      "speaker": "鈴木",
+      "score": "neutral",
+      "label": "営業担当としての懸念"
+    },
+    {
+      "speaker": "田中",
+      "score": "neutral",
+      "label": "技術的な対応策の確認"
+    },
+    {
+      "speaker": "佐藤",
+      "score": "neutral",
+      "label": "システムの仕組みに関する説明"
+    },
+    {
+      "speaker": "鈴木",
+      "score": "neutral",
+      "label": "ソフトな拒否の検出に関する懸念"
+    },
+    {
+      "speaker": "田中",
+      "score": "neutral",
+      "label": "スケジュール調整に関する意見"
+    }
+  ],
+  "speakers": [
+    {
+      "name": "鈴木",
+      "talk_time_pct": 15,
+      "tone": "formal"
+    },
+    {
+      "name": "田中",
+      "talk_time_pct": 20,
+      "tone": "formal"
+    },
+    {
+      "name": "佐藤",
+      "talk_time_pct": 15,
+      "tone": "formal"
+    },
+    {
+      "name": "Kunal",
+      "talk_time_pct": 10,
+      "tone": "formal"
+    },
+    {
+      "name": "First",
+      "talk_time_pct": 10,
+      "tone": "formal"
+    },
+    {
+      "name": "Not detected",
+      "talk_time_pct": 30,
+      "tone": "mixed"
+    }
+  ],
+  "japan_insights": {
+    "keigo_level": "high",
+    "nemawashi_signals": [
+      "検討します",
+      "検討させてください",
+      "リスク信号"
+    ],
+    "code_switch_count": 32,
+    "keigo_source": "mecab",
+    "code_switch_source": "rule_based"
+  },
+  "verification": {
+    "action_items": {
+      "verified": [
+        {
+          "task": "クライアントに「最終調整中」というステータスで伝える",
+          "owner": "佐藤",
+          "deadline": "今日の夕方",
+          "confidence": 0.974,
+          "grounding": {
+            "task_token_overlap": 0.956,
+            "task_semantic": 0.073,
+            "task_effective": 0.956,
+            "owner_score": 1.0,
+            "deadline_score": 1.0
+          },
+          "hallucination_flag": false,
+          "semantic_grounding": 0.073
+        },
+        {
+          "task": "QAチームからの最終報告を待って正式な回答を出す",
+          "owner": "鈴木",
+          "deadline": "今日の夕方",
+          "confidence": 0.953,
+          "grounding": {
+            "task_token_overlap": 0.921,
+            "task_semantic": 0.159,
+            "task_effective": 0.921,
+            "owner_score": 1.0,
+            "deadline_score": 1.0
+          },
+          "hallucination_flag": false,
+          "semantic_grounding": 0.159
+        }
+      ],
+      "flagged": [],
+      "total": 2,
+      "verified_count": 2,
+      "flagged_count": 0,
+      "avg_confidence": 0.964,
+      "hallucination_rate": 0.0
+    },
+    "summary": {
+      "verified": [
+        {
+          "text": "プロジェクト「Sakura」の最終同期が開始され、Groq LPUへの移行が決定した。",
+          "grounding_score": 0.787,
+          "hallucination_flag": false
+        },
+        {
+          "text": "クライアント側はデータの国外移転に対して慎重であり、APPI complianceに関する懸念が残っている。",
+          "grounding_score": 0.859,
+          "hallucination_flag": false
+        },
+        {
+          "text": "田中部長は、個人情報保護のためのPIIマスキング処理を実施しており、データはセマンティックのみを含む。",
+          "grounding_score": 0.595,
+          "hallucination_flag": false
+        },
+        {
+          "text": "「検討します」は日本のビジネス文脈ではソフトな拒否と解釈され、システムはこれを「リスク信号」と判定する。",
+          "grounding_score": 0.481,
+          "hallucination_flag": false
+        },
+        {
+          "text": "次の月曜日の生産スケジュールについて、調整が必要であるとの意見が出された。",
+          "grounding_score": 0.683,
+          "hallucination_flag": false
+        }
+      ],
+      "flagged": [],
+      "verified_count": 5,
+      "flagged_count": 0,
+      "total": 5
+    },
+    "sentiment_speakers": {
+      "verified": [
+        {
+          "speaker": "鈴木",
+          "score": "neutral",
+          "label": "営業担当としての懸念",
+          "speaker_grounding": 1.0,
+          "hallucination_flag": false
+        },
+        {
+          "speaker": "田中",
+          "score": "neutral",
+          "label": "技術的な対応策の確認",
+          "speaker_grounding": 1.0,
+          "hallucination_flag": false
+        },
+        {
+          "speaker": "佐藤",
+          "score": "neutral",
+          "label": "システムの仕組みに関する説明",
+          "speaker_grounding": 1.0,
+          "hallucination_flag": false
+        },
+        {
+          "speaker": "鈴木",
+          "score": "neutral",
+          "label": "ソフトな拒否の検出に関する懸念",
+          "speaker_grounding": 1.0,
+          "hallucination_flag": false
+        },
+        {
+          "speaker": "田中",
+          "score": "neutral",
+          "label": "スケジュール調整に関する意見",
+          "speaker_grounding": 1.0,
+          "hallucination_flag": false
+        }
+      ],
+      "flagged": [],
+      "verified_count": 5,
+      "flagged_count": 0
+    },
+    "overall_hallucination_risk": 0.0,
+    "risk_label": "LOW",
+    "flagged_total": 0,
+    "total_claims": 12,
+    "note": "Items with hallucination_flag=True are low-confidence — verify manually"
+  },
+  "soft_rejections": {
+    "detected": [
+      {
+        "phrase": "検討します",
+        "reading": "We will consider it",
+        "intent": "LIKELY_REJECTION",
+        "confidence": 0.72,
+        "severity": "MEDIUM",
+        "speaker": "Unknown",
+        "context": "erence call.\n\n分かりました。技術的な裏付けは十分そうですね。ただ、営業担当として一つ気になることがあります。最近の商談で、先方の担当者が「前向きに【検討します】」とおっしゃっていました。これをAIがどう解釈するかが重要です。We all know that in a Japanese business context,",
+        "explanation": "In Japanese business, 'We will consider it' without a specific timeline almost always means No. If followed by a deadline, it may be genuine."
+      },
+      {
+        "phrase": "前向きに検討",
+        "reading": "Positive consideration",
+        "intent": "UNCERTAIN",
+        "confidence": 0.55,
+        "severity": "MEDIUM",
+        "speaker": "Unknown",
+        "context": "inference call.\n\n分かりました。技術的な裏付けは十分そうですね。ただ、営業担当として一つ気になることがあります。最近の商談で、先方の担当者が「【前向きに検討】します」とおっしゃっていました。これをAIがどう解釈するかが重要です。We all know that in a Japanese business conte",
+        "explanation": "'Positive consideration' sounds optimistic but is often used when the speaker cannot commit. Outcome genuinely uncertain."
+      },
+      {
+        "phrase": "そうですね",
+        "reading": "That's right / I see",
+        "intent": "HESITATION",
+        "confidence": 0.25,
+        "severity": "LOW",
+        "speaker": "Unknown",
+        "context": "nalysis/ folder, completely separate from the inference call.\n\n分かりました。技術的な裏付けは十分【そうですね】。ただ、営業担当として一つ気になることがあります。最近の商談で、先方の担当者が「前向きに検討します」とおっしゃっていました。これをAIがどう解釈するかが重要です",
+        "explanation": "Ambiguous. Can be genuine agreement OR a filler to avoid disagreement. Context determines meaning."
+      }
+    ],
+    "high_signals": [],
+    "medium_signals": [
+      {
+        "phrase": "検討します",
+        "reading": "We will consider it",
+        "intent": "LIKELY_REJECTION",
+        "confidence": 0.72,
+        "severity": "MEDIUM",
+        "speaker": "Unknown",
+        "context": "erence call.\n\n分かりました。技術的な裏付けは十分そうですね。ただ、営業担当として一つ気になることがあります。最近の商談で、先方の担当者が「前向きに【検討します】」とおっしゃっていました。これをAIがどう解釈するかが重要です。We all know that in a Japanese business context,",
+        "explanation": "In Japanese business, 'We will consider it' without a specific timeline almost always means No. If followed by a deadline, it may be genuine."
+      },
+      {
+        "phrase": "前向きに検討",
+        "reading": "Positive consideration",
+        "intent": "UNCERTAIN",
+        "confidence": 0.55,
+        "severity": "MEDIUM",
+        "speaker": "Unknown",
+        "context": "inference call.\n\n分かりました。技術的な裏付けは十分そうですね。ただ、営業担当として一つ気になることがあります。最近の商談で、先方の担当者が「【前向きに検討】します」とおっしゃっていました。これをAIがどう解釈するかが重要です。We all know that in a Japanese business conte",
+        "explanation": "'Positive consideration' sounds optimistic but is often used when the speaker cannot commit. Outcome genuinely uncertain."
+      }
+    ],
+    "low_signals": [
+      {
+        "phrase": "そうですね",
+        "reading": "That's right / I see",
+        "intent": "HESITATION",
+        "confidence": 0.25,
+        "severity": "LOW",
+        "speaker": "Unknown",
+        "context": "nalysis/ folder, completely separate from the inference call.\n\n分かりました。技術的な裏付けは十分【そうですね】。ただ、営業担当として一つ気になることがあります。最近の商談で、先方の担当者が「前向きに検討します」とおっしゃっていました。これをAIがどう解釈するかが重要です",
+        "explanation": "Ambiguous. Can be genuine agreement OR a filler to avoid disagreement. Context determines meaning."
+      }
+    ],
+    "total_signals": 3,
+    "rejection_count": 1,
+    "hesitation_count": 1,
+    "uncertain_count": 1,
+    "risk_level": "HIGH",
+    "risk_summary": "Multiple rejection signals detected. The meeting likely ended without agreement.",
+    "cultural_note": "In Japanese business culture, direct refusal is avoided. These patterns indicate the speaker's true intent through indirect language. Always follow up in writing to confirm."
+  },
+  "_provider": "ollama",
+  "_duration_ms": 159173.5,
+  "_cached_at": "2026-04-06T08:27:59.217764"
+}

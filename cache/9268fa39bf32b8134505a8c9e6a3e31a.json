@@ -1,0 +1,307 @@
+{
+  "summary": [
+    "Q4の売上KPIは目標の98%に達し、進捗が順調であることが報告された。",
+    "新機能のリリーススケジュールについて、[NAME_1]が懸念を示し、リリース日を[NAME_1]がサインオフするよう求められた。",
+    "サポートチームの増員とマニュアルの改訂が検討され、次回ミーティングの日程が設定された。"
+  ],
+  "action_items": [
+    {
+      "task": "新機能のリリース日をサインオフ",
+      "owner": "NAME_1",
+      "deadline": "来週の月曜日",
+      "confidence": 0.677,
+      "grounding": {
+        "task_token_overlap": 0.962,
+        "task_semantic": 0.113,
+        "task_effective": 0.962,
+        "owner_score": 0.0,
+        "deadline_score": 1.0
+      },
+      "hallucination_flag": false,
+      "semantic_grounding": 0.113
+    },
+    {
+      "task": "マニュアルのドラフト作成",
+      "owner": "NAME_1",
+      "deadline": "来週の金曜日",
+      "confidence": 0.7,
+      "grounding": {
+        "task_token_overlap": 1.0,
+        "task_semantic": 0.094,
+        "task_effective": 1.0,
+        "owner_score": 0.0,
+        "deadline_score": 1.0
+      },
+      "hallucination_flag": false,
+      "semantic_grounding": 0.094
+    }
+  ],
+  "sentiment": [
+    {
+      "speaker": "NAME_1",
+      "score": "neutral",
+      "label": "懸念を示す"
+    },
+    {
+      "speaker": "NAME_2",
+      "score": "neutral",
+      "label": "理解を示す"
+    }
+  ],
+  "speakers": [
+    {
+      "name": "NAME_1",
+      "talk_time_pct": 40,
+      "tone": "mixed"
+    },
+    {
+      "name": "NAME_2",
+      "talk_time_pct": 60,
+      "tone": "formal"
+    }
+  ],
+  "japan_insights": {
+    "keigo_level": "high",
+    "nemawashi_signals": [
+      "ご報告させていただきます",
+      "お願いできますか？",
+      "承知しました"
+    ],
+    "code_switch_count": 29,
+    "keigo_source": "mecab",
+    "code_switch_source": "rule_based"
+  },
+  "verification": {
+    "action_items": {
+      "verified": [
+        {
+          "task": "新機能のリリース日をサインオフ",
+          "owner": "NAME_1",
+          "deadline": "来週の月曜日",
+          "confidence": 0.677,
+          "grounding": {
+            "task_token_overlap": 0.962,
+            "task_semantic": 0.113,
+            "task_effective": 0.962,
+            "owner_score": 0.0,
+            "deadline_score": 1.0
+          },
+          "hallucination_flag": false,
+          "semantic_grounding": 0.113
+        },
+        {
+          "task": "マニュアルのドラフト作成",
+          "owner": "NAME_1",
+          "deadline": "来週の金曜日",
+          "confidence": 0.7,
+          "grounding": {
+            "task_token_overlap": 1.0,
+            "task_semantic": 0.094,
+            "task_effective": 1.0,
+            "owner_score": 0.0,
+            "deadline_score": 1.0
+          },
+          "hallucination_flag": false,
+          "semantic_grounding": 0.094
+        }
+      ],
+      "flagged": [],
+      "total": 2,
+      "verified_count": 2,
+      "flagged_count": 0,
+      "avg_confidence": 0.689,
+      "hallucination_rate": 0.0
+    },
+    "summary": {
+      "verified": [
+        {
+          "text": "Q4の売上KPIは目標の98%に達し、進捗が順調であることが報告された。",
+          "grounding_score": 0.705,
+          "hallucination_flag": false
+        },
+        {
+          "text": "新機能のリリーススケジュールについて、[NAME_1]が懸念を示し、リリース日を[NAME_1]がサインオフするよう求められた。",
+          "grounding_score": 0.778,
+          "hallucination_flag": false
+        },
+        {
+          "text": "サポートチームの増員とマニュアルの改訂が検討され、次回ミーティングの日程が設定された。",
+          "grounding_score": 0.775,
+          "hallucination_flag": false
+        }
+      ],
+      "flagged": [],
+      "verified_count": 3,
+      "flagged_count": 0,
+      "total": 3
+    },
+    "sentiment_speakers": {
+      "verified": [],
+      "flagged": [
+        {
+          "speaker": "NAME_1",
+          "score": "neutral",
+          "label": "懸念を示す",
+          "speaker_grounding": 0.0,
+          "hallucination_flag": true,
+          "flag_reason": "Speaker 'NAME_1' not found in transcript — may be hallucinated"
+        },
+        {
+          "speaker": "NAME_2",
+          "score": "neutral",
+          "label": "理解を示す",
+          "speaker_grounding": 0.0,
+          "hallucination_flag": true,
+          "flag_reason": "Speaker 'NAME_2' not found in transcript — may be hallucinated"
+        }
+      ],
+      "verified_count": 0,
+      "flagged_count": 2
+    },
+    "overall_hallucination_risk": 0.286,
+    "risk_label": "MEDIUM",
+    "flagged_total": 2,
+    "total_claims": 7,
+    "note": "Items with hallucination_flag=True are low-confidence — verify manually"
+  },
+  "soft_rejections": {
+    "detected": [
+      {
+        "phrase": "難しいかもしれません",
+        "reading": "It may be difficult",
+        "intent": "REJECTION",
+        "confidence": 0.9,
+        "severity": "HIGH",
+        "speaker": "Unknown",
+        "context": "uled for April 1st, but we may need a buffer.\n[NAME_1]: 検討いたします。技術チームとも相談してみますが、【難しいかもしれません】。できれば前向きに対応したいと思います。\n[NAME_2]: Understood. では、リリース日を[NAME_1]さんの方でサインオフをいただければ、我々",
+        "explanation": "Classic soft rejection. Directly saying 'No' is culturally avoided. This almost always means the request will not be fulfilled."
+      },
+      {
+        "phrase": "検討いたします",
+        "reading": "We will humbly consider it",
+        "intent": "LIKELY_REJECTION",
+        "confidence": 0.72,
+        "severity": "MEDIUM",
+        "speaker": "Unknown",
+        "context": "rn. The release is scheduled for April 1st, but we may need a buffer.\n[NAME_1]: 【検討いたします】。技術チームとも相談してみますが、難しいかもしれません。できれば前向きに対応したいと思います。\n[NAME_2]: Understood. では、リリース日を[",
+        "explanation": "Formal version of 検討します. Same implication — likely a polite No."
+      },
+      {
+        "phrase": "確認してみます",
+        "reading": "I will try to confirm",
+        "intent": "UNCERTAIN",
+        "confidence": 0.5,
+        "severity": "MEDIUM",
+        "speaker": "Unknown",
+        "context": "_2]: ありがとうございます。次に、顧客からのフィードバック対応についてですが、サポートチームの増員が必要だと考えています。\n[NAME_1]: そうですね、【確認してみます】。サポートマニュアルの改訂も同時に進めた方が良いかもしれません。\n[NAME_2]: 同感です。[NAME_1]さん、マニュアルのドラフト作成をお願いできますか",
+        "explanation": "Genuine uncertainty or deferral. May indicate the speaker needs approval from a superior."
+      },
+      {
+        "phrase": "少し懸念",
+        "reading": "A little concerned",
+        "intent": "HESITATION",
+        "confidence": 0.4,
+        "severity": "LOW",
+        "speaker": "Unknown",
+        "context": "目標の98%に達しており、ほぼ計画通りです。\n[NAME_1]: そうですね、順調に進んでいるようで安心しました。ただ、新機能のリリーススケジュールについては、【少し懸念】がございます。\n[NAME_2]: Yes, I understand your concern. The release is scheduled for A",
+        "explanation": "Signals discomfort or disagreement expressed indirectly. Worth probing further."
+      },
+      {
+        "phrase": "懸念がございます",
+        "reading": "There are concerns",
+        "intent": "HESITATION",
+        "confidence": 0.45,
+        "severity": "LOW",
+        "speaker": "Unknown",
+        "context": "の98%に達しており、ほぼ計画通りです。\n[NAME_1]: そうですね、順調に進んでいるようで安心しました。ただ、新機能のリリーススケジュールについては、少し【懸念がございます】。\n[NAME_2]: Yes, I understand your concern. The release is scheduled for April 1",
+        "explanation": "Formal expression of concern. The speaker disagrees but won't say so directly."
+      },
+      {
+        "phrase": "そうですね",
+        "reading": "That's right / I see",
+        "intent": "HESITATION",
+        "confidence": 0.25,
+        "severity": "LOW",
+        "speaker": "Unknown",
+        "context": "。\n[NAME_2]: まず、Q4の進捗についてご報告させていただきます。売上KPIは現時点で目標の98%に達しており、ほぼ計画通りです。\n[NAME_1]: 【そうですね】、順調に進んでいるようで安心しました。ただ、新機能のリリーススケジュールについては、少し懸念がございます。\n[NAME_2]: Yes, I understan",
+        "explanation": "Ambiguous. Can be genuine agreement OR a filler to avoid disagreement. Context determines meaning."
+      }
+    ],
+    "high_signals": [
+      {
+        "phrase": "難しいかもしれません",
+        "reading": "It may be difficult",
+        "intent": "REJECTION",
+        "confidence": 0.9,
+        "severity": "HIGH",
+        "speaker": "Unknown",
+        "context": "uled for April 1st, but we may need a buffer.\n[NAME_1]: 検討いたします。技術チームとも相談してみますが、【難しいかもしれません】。できれば前向きに対応したいと思います。\n[NAME_2]: Understood. では、リリース日を[NAME_1]さんの方でサインオフをいただければ、我々",
+        "explanation": "Classic soft rejection. Directly saying 'No' is culturally avoided. This almost always means the request will not be fulfilled."
+      }
+    ],
+    "medium_signals": [
+      {
+        "phrase": "検討いたします",
+        "reading": "We will humbly consider it",
+        "intent": "LIKELY_REJECTION",
+        "confidence": 0.72,
+        "severity": "MEDIUM",
+        "speaker": "Unknown",
+        "context": "rn. The release is scheduled for April 1st, but we may need a buffer.\n[NAME_1]: 【検討いたします】。技術チームとも相談してみますが、難しいかもしれません。できれば前向きに対応したいと思います。\n[NAME_2]: Understood. では、リリース日を[",
+        "explanation": "Formal version of 検討します. Same implication — likely a polite No."
+      },
+      {
+        "phrase": "確認してみます",
+        "reading": "I will try to confirm",
+        "intent": "UNCERTAIN",
+        "confidence": 0.5,
+        "severity": "MEDIUM",
+        "speaker": "Unknown",
+        "context": "_2]: ありがとうございます。次に、顧客からのフィードバック対応についてですが、サポートチームの増員が必要だと考えています。\n[NAME_1]: そうですね、【確認してみます】。サポートマニュアルの改訂も同時に進めた方が良いかもしれません。\n[NAME_2]: 同感です。[NAME_1]さん、マニュアルのドラフト作成をお願いできますか",
+        "explanation": "Genuine uncertainty or deferral. May indicate the speaker needs approval from a superior."
+      }
+    ],
+    "low_signals": [
+      {
+        "phrase": "少し懸念",
+        "reading": "A little concerned",
+        "intent": "HESITATION",
+        "confidence": 0.4,
+        "severity": "LOW",
+        "speaker": "Unknown",
+        "context": "目標の98%に達しており、ほぼ計画通りです。\n[NAME_1]: そうですね、順調に進んでいるようで安心しました。ただ、新機能のリリーススケジュールについては、【少し懸念】がございます。\n[NAME_2]: Yes, I understand your concern. The release is scheduled for A",
+        "explanation": "Signals discomfort or disagreement expressed indirectly. Worth probing further."
+      },
+      {
+        "phrase": "懸念がございます",
+        "reading": "There are concerns",
+        "intent": "HESITATION",
+        "confidence": 0.45,
+        "severity": "LOW",
+        "speaker": "Unknown",
+        "context": "の98%に達しており、ほぼ計画通りです。\n[NAME_1]: そうですね、順調に進んでいるようで安心しました。ただ、新機能のリリーススケジュールについては、少し【懸念がございます】。\n[NAME_2]: Yes, I understand your concern. The release is scheduled for April 1",
+        "explanation": "Formal expression of concern. The speaker disagrees but won't say so directly."
+      },
+      {
+        "phrase": "そうですね",
+        "reading": "That's right / I see",
+        "intent": "HESITATION",
+        "confidence": 0.25,
+        "severity": "LOW",
+        "speaker": "Unknown",
+        "context": "。\n[NAME_2]: まず、Q4の進捗についてご報告させていただきます。売上KPIは現時点で目標の98%に達しており、ほぼ計画通りです。\n[NAME_1]: 【そうですね】、順調に進んでいるようで安心しました。ただ、新機能のリリーススケジュールについては、少し懸念がございます。\n[NAME_2]: Yes, I understan",
+        "explanation": "Ambiguous. Can be genuine agreement OR a filler to avoid disagreement. Context determines meaning."
+      }
+    ],
+    "total_signals": 6,
+    "rejection_count": 2,
+    "hesitation_count": 3,
+    "uncertain_count": 1,
+    "risk_level": "HIGH",
+    "risk_summary": "Multiple rejection signals detected. The meeting likely ended without agreement.",
+    "cultural_note": "In Japanese business culture, direct refusal is avoided. These patterns indicate the speaker's true intent through indirect language. Always follow up in writing to confirm."
+  },
+  "_provider": "ollama",
+  "_duration_ms": 74932.7,
+  "_cached_at": "2026-04-04T08:53:19.775669"
+}

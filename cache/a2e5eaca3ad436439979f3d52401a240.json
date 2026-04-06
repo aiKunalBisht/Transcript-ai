@@ -53,7 +53,7 @@
       "semantic_grounding": 0.091
     },
     {
-      "task": "Inform clients of the 'final adjustment' status",
+      "task": "Inform clients of the 'final adjustments' status",
       "owner": "NAME_2",
       "deadline": "immediate",
       "confidence": 0.057,
@@ -65,7 +65,7 @@
         "deadline_score": 0.0
       },
       "hallucination_flag": true,
-      "flag_reason": "Task 'Inform clients of the 'final adjustment'' has low transcript grounding (score: 0.0) — may be hallucinated",
+      "flag_reason": "Task 'Inform clients of the 'final adjustments' has low transcript grounding (score: 0.0) — may be hallucinated",
       "semantic_grounding": 0.095
     }
   ],
@@ -78,17 +78,17 @@
     {
       "speaker": "NAME_2",
       "score": "neutral",
-      "label": "Neutral clarification on validation logic"
+      "label": "Neutral confirmation of system logic"
     },
     {
       "speaker": "NAME_3",
       "score": "neutral",
-      "label": "Neutral confirmation on data masking"
+      "label": "Neutral confirmation of data handling"
     },
     {
       "speaker": "NAME_4",
       "score": "neutral",
-      "label": "Neutral concern about sentiment interpretation"
+      "label": "Neutral concern about sentiment detection"
     }
   ],
   "speakers": [
@@ -176,7 +176,7 @@
       ],
       "flagged": [
         {
-          "task": "Inform clients of the 'final adjustment' status",
+          "task": "Inform clients of the 'final adjustments' status",
           "owner": "NAME_2",
           "deadline": "immediate",
           "confidence": 0.057,
@@ -188,7 +188,7 @@
             "deadline_score": 0.0
           },
           "hallucination_flag": true,
-          "flag_reason": "Task 'Inform clients of the 'final adjustment'' has low transcript grounding (score: 0.0) — may be hallucinated",
+          "flag_reason": "Task 'Inform clients of the 'final adjustments' has low transcript grounding (score: 0.0) — may be hallucinated",
           "semantic_grounding": 0.095
         }
       ],
@@ -245,7 +245,7 @@
         {
           "speaker": "NAME_2",
           "score": "neutral",
-          "label": "Neutral clarification on validation logic",
+          "label": "Neutral confirmation of system logic",
           "speaker_grounding": 0.0,
           "hallucination_flag": true,
           "flag_reason": "Speaker 'NAME_2' not found in transcript — may be hallucinated"
@@ -253,7 +253,7 @@
         {
           "speaker": "NAME_3",
           "score": "neutral",
-          "label": "Neutral confirmation on data masking",
+          "label": "Neutral confirmation of data handling",
           "speaker_grounding": 0.0,
           "hallucination_flag": true,
           "flag_reason": "Speaker 'NAME_3' not found in transcript — may be hallucinated"
@@ -261,7 +261,7 @@
         {
           "speaker": "NAME_4",
           "score": "neutral",
-          "label": "Neutral concern about sentiment interpretation",
+          "label": "Neutral concern about sentiment detection",
           "speaker_grounding": 0.0,
           "hallucination_flag": true,
           "flag_reason": "Speaker 'NAME_4' not found in transcript — may be hallucinated"
@@ -353,6 +353,6 @@
     "cultural_note": "In Japanese business culture, direct refusal is avoided. These patterns indicate the speaker's true intent through indirect language. Always follow up in writing to confirm."
   },
   "_provider": "ollama",
-  "_duration_ms": 92984.3,
-  "_cached_at": "2026-04-03T13:01:37.486794"
+  "_duration_ms": 192557.8,
+  "_cached_at": "2026-04-06T08:20:37.122789"
 }
