@@ -323,7 +323,7 @@ MIT — see [LICENSE](LICENSE) for details.
 
 <div align="center">
 
-Built by [Kunal Bisht](https://github.com/Titankunal) · Meerut, India
+Built by [Kunal Bisht](https://github.com/Titankunal) · Pithoragarh, Uttarakhand, India
 
 *Boring projects. Infinite scale.*
 
