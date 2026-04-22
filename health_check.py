@@ -15,6 +15,28 @@ import subprocess
 import importlib
 from pathlib import Path
 
+# Load .env file before any os.getenv() calls
+try:
+    from dotenv import load_dotenv
+    loaded = load_dotenv()
+    if loaded:
+        print("  📁 .env file loaded")
+    else:
+        print("  ⚠️  No .env file found (or already loaded via environment)")
+except ImportError:
+    # Try manual parse as fallback — no python-dotenv needed
+    env_path = Path(".env")
+    if env_path.exists():
+        for line in env_path.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, _, val = line.partition("=")
+                key = key.strip()
+                val = val.strip().strip('"').strip("'")
+                if key and not os.getenv(key):
+                    os.environ[key] = val
+        print("  📁 .env file loaded manually")
+
 PASS = "✅"
 FAIL = "❌"
 WARN = "⚠️"

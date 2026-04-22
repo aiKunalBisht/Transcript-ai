@@ -21,7 +21,10 @@ import requests
 # LangChain — primary orchestration layer
 try:
     from langchain_groq import ChatGroq
-    from langchain_community.llms import Ollama as LangChainOllama
+    try:
+        from langchain_ollama import OllamaLLM as LangChainOllama
+    except ImportError:
+        from langchain_community.llms import Ollama as LangChainOllama
     from langchain_core.messages import HumanMessage
     from langchain_core.output_parsers import StrOutputParser
     LANGCHAIN_AVAILABLE = True
