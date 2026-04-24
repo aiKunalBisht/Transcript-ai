@@ -1,3 +1,16 @@
+---
+title: TranscriptAI
+emoji: 🌸
+colorFrom: pink
+colorTo: orange
+sdk: streamlit
+sdk_version: 1.55.0
+app_file: app.py
+pinned: true
+license: mit
+short_description: Japanese Business Meeting Intelligence — APPI Compliant
+---
+
 <div align="center">
 
 # 🌸 TranscriptAI · 議事録分析エンジン
@@ -323,7 +336,7 @@ MIT — see [LICENSE](LICENSE) for details.
 
 <div align="center">
 
-Built by [Kunal Bisht](https://github.com/Titankunal) · Pithoragarh, Uttarakhand, India
+Built by [Kunal Bisht](https://github.com/aiKunalBisht) · Pithoragarh, India
 
 *Boring projects. Infinite scale.*
 

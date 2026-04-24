@@ -5,27 +5,22 @@ uvicorn>=0.29.0
 requests>=2.31.0
 python-dotenv>=1.0.0
 
-# LangChain orchestration
+# LangChain
 langchain>=0.2.0
 langchain-groq>=0.1.0
 langchain-community>=0.2.0
 langchain-core>=0.2.0
+langchain-ollama>=0.1.0
 
-# Vector database — ChromaDB for persistent storage
-# Evaluated against FAISS: ChromaDB chosen for metadata filtering support
+# Vector store
 chromadb>=0.5.0
 
-# Embeddings and semantic similarity
+# Embeddings
 sentence-transformers>=2.7.0
 scikit-learn>=1.4.0
+numpy>=1.26.0
 
 # Japanese NLP
+langdetect>=1.0.9
 fugashi>=1.3.0
 unidic-lite>=1.0.8
-langdetect>=1.0.9
-
-# Audio transcription
-# openai-whisper>=20231117  # uncomment for local whisper
-
-# Utilities
-numpy>=1.26.0
