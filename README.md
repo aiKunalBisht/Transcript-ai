@@ -2,7 +2,7 @@
 title: TranscriptAI
 emoji: 🌸
 colorFrom: pink
-colorTo: orange
+colorTo: yellow
 sdk: streamlit
 sdk_version: 1.55.0
 app_file: app.py
