@@ -22,24 +22,24 @@ from datetime import datetime
 import uuid
 import json
 
-from analyzer import analyze_transcript
-from utils import detect_language, clean_text
+from analysis.analyzer import analyze_transcript
+from utils.utils import detect_language, clean_text
 
 # Optional modules
 try:
-    from pii_masker import mask_transcript, restore_pii_in_result, get_pii_report
+    from transcription.pii_masker import mask_transcript, restore_pii_in_result, get_pii_report
     PII_AVAILABLE = True
 except ImportError:
     PII_AVAILABLE = False
 
 try:
-    from soft_rejection_detector import detect_soft_rejections
+    from analysis.soft_rejection_detector import detect_soft_rejections
     SOFT_REJECTION_AVAILABLE = True
 except ImportError:
     SOFT_REJECTION_AVAILABLE = False
 
 try:
-    from hallucination_guard import verify_result
+    from analysis.hallucination_guard import verify_result
     HALLUCINATION_GUARD_AVAILABLE = True
 except ImportError:
     HALLUCINATION_GUARD_AVAILABLE = False
@@ -217,7 +217,7 @@ def get_soft_rejection_patterns():
     """Returns the full soft rejection pattern dictionary with cultural explanations."""
     if not SOFT_REJECTION_AVAILABLE:
         raise HTTPException(status_code=503, detail="soft_rejection_detector.py not available")
-    from soft_rejection_detector import SOFT_REJECTION_PATTERNS
+    from analysis.soft_rejection_detector import SOFT_REJECTION_PATTERNS
     return {
         "total_patterns": len(SOFT_REJECTION_PATTERNS),
         "patterns": SOFT_REJECTION_PATTERNS,

@@ -88,7 +88,7 @@ def _run_job(job_id: str):
     start_time     = time.time()
 
     try:
-        from analyzer import analyze_transcript
+        from analysis.analyzer import analyze_transcript
         result = analyze_transcript(job.transcript, job.language)
 
         job.result      = result

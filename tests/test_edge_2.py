@@ -11,7 +11,7 @@ Loophole: 5+ speakers = normalization broken, duplicates in results
 import json, sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from speaker_normalizer import normalize_speaker_name, extract_all_speakers, unify_speakers_in_result
+from transcription.speaker_normalizer import normalize_speaker_name, extract_all_speakers, unify_speakers_in_result
 
 TRANSCRIPT = """[00:00] Tanaka (Director): Good morning everyone. Let's begin the Q4 review.
 [00:45] 田中: まず、売上について報告します。目標の92%です。

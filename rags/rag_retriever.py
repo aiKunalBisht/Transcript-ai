@@ -14,7 +14,7 @@
 import os
 
 try:
-    from meeting_store import search_meetings, CHROMADB_AVAILABLE
+    from rags.meeting_store import search_meetings, CHROMADB_AVAILABLE
 except ImportError:
     CHROMADB_AVAILABLE = False
     def search_meetings(*args, **kwargs): return []

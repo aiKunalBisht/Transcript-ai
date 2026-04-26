@@ -11,8 +11,8 @@ Loophole: System catches only 1-2 = pattern matching too narrow
 import json, sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from soft_rejection_detector import detect_soft_rejections
-from analyzer import analyze_transcript
+from analysis.soft_rejection_detector import detect_soft_rejections
+from analysis.analyzer import analyze_transcript
 
 TRANSCRIPT = """田中 (Director): 本日はお忙しい中お時間をいただきありがとうございます。
 鈴木 (Sales): こちらこそ、よろしくお願いいたします。

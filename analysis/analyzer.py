@@ -414,7 +414,7 @@ def analyze_transcript(text: str, language: str = "en") -> dict:
 
     # Step 1: Cache check
     try:
-        from cache import get_cached, set_cache
+        from utils.cache import get_cached, set_cache
         cached = get_cached(text, language)
         if cached:
             cached["_from_cache"] = True
@@ -456,14 +456,14 @@ def analyze_transcript(text: str, language: str = "en") -> dict:
     # by placeholder ([NAME_1] appearing in both sentiment and speakers lists).
     # Full cross-script resolution happens AFTER PII restore in app.py.
     try:
-        from speaker_normalizer import unify_speakers_in_result
+        from transcription.speaker_normalizer import unify_speakers_in_result
         result = unify_speakers_in_result(result, text)
     except ImportError:
         pass
 
     # Fix: Wire MeCab keigo (overrides LLM classification)
     try:
-        from japanese_tokenizer import get_keigo_level, MECAB_AVAILABLE
+        from analysis.japanese_tokenizer import get_keigo_level, MECAB_AVAILABLE
         if MECAB_AVAILABLE:
             result["japan_insights"]["keigo_level"] = get_keigo_level(text)
             result["japan_insights"]["keigo_source"] = "mecab"
@@ -472,7 +472,7 @@ def analyze_transcript(text: str, language: str = "en") -> dict:
 
     # Rule-based code-switch
     try:
-        from evaluator import count_code_switches
+        from utils.evaluator import count_code_switches
         result["japan_insights"]["code_switch_count"] = count_code_switches(text)
         result["japan_insights"]["code_switch_source"] = "rule_based"
     except ImportError:
@@ -480,10 +480,10 @@ def analyze_transcript(text: str, language: str = "en") -> dict:
 
     # Fix 2: Hallucination guard + semantic rescue
     try:
-        from hallucination_guard import verify_result
+        from analysis.hallucination_guard import verify_result
         result = verify_result(result, text)
         # Semantic validation rescues false flags
-        from semantic_validator import validate_action_items_semantic
+        from analysis.semantic_validator import validate_action_items_semantic
         result["action_items"] = validate_action_items_semantic(
             result.get("action_items", []), text
         )
@@ -492,7 +492,7 @@ def analyze_transcript(text: str, language: str = "en") -> dict:
 
     # Soft rejection detection
     try:
-        from soft_rejection_detector import detect_soft_rejections
+        from analysis.soft_rejection_detector import detect_soft_rejections
         result["soft_rejections"] = detect_soft_rejections(text)
     except ImportError:
         pass
@@ -505,7 +505,7 @@ def analyze_transcript(text: str, language: str = "en") -> dict:
 
     # Step 10: Log
     try:
-        from logger import log_analysis
+        from utils.logger import log_analysis
         log_analysis(len(text), language, provider_used, duration_ms, result, last_error)
     except ImportError:
         pass

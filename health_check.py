@@ -9,6 +9,8 @@ Usage:
 """
 
 import sys
+import io
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 import os
 import json
 import subprocess
@@ -106,14 +108,14 @@ if missing_required:
 section("3. Project Files")
 
 required_files = [
-    "app.py", "analyzer.py", "utils.py",
-    "pii_masker.py", "hallucination_guard.py",
-    "soft_rejection_detector.py", "semantic_validator.py",
-    "speaker_normalizer.py", "japanese_tokenizer.py",
-    "language_intelligence.py", "logger.py", "cache.py",
-    "meeting_store.py", "rag_retriever.py",
-    "evaluator.py", "test_data.py",
-    "generate_test_data.py", "test_schema_stability.py",
+    "app.py", "analysis/analyzer.py", "utils/__init__.py",
+    "transcription/pii_masker.py", "analysis/hallucination_guard.py",
+    "analysis/soft_rejection_detector.py", "analysis/semantic_validator.py",
+    "transcription/speaker_normalizer.py", "analysis/japanese_tokenizer.py",
+    "utils/language_intelligence.py", "utils/logger.py", "utils/cache.py",
+    "rags/meeting_store.py", "rags/rag_retriever.py",
+    "utils/evaluator.py", "tests/test_data.py",
+    "tests/generate_test_data.py", "tests/test_schema_stability.py",
     "requirements.txt", "Dockerfile", ".gitignore",
 ]
 
@@ -195,18 +197,18 @@ else:
 section("7. Core Module Imports")
 
 modules = [
-    ("analyzer",               "analyze_transcript"),
-    ("pii_masker",             "mask_transcript"),
-    ("hallucination_guard",    "verify_result"),
-    ("soft_rejection_detector","detect_soft_rejections"),
-    ("semantic_validator",     "semantic_similarity"),
-    ("speaker_normalizer",     "normalize_speaker_name"),
-    ("language_intelligence",  "get_features"),
-    ("logger",                 "get_trends"),
-    ("cache",                  "get_cached"),
-    ("meeting_store",          "store_meeting"),
-    ("rag_retriever",          "ask_about_meetings"),
-    ("evaluator",              "evaluate"),
+    ("analysis.analyzer",               "analyze_transcript"),
+    ("transcription.pii_masker",         "mask_transcript"),
+    ("analysis.hallucination_guard",     "verify_result"),
+    ("analysis.soft_rejection_detector", "detect_soft_rejections"),
+    ("analysis.semantic_validator",      "semantic_similarity"),
+    ("transcription.speaker_normalizer", "normalize_speaker_name"),
+    ("utils.language_intelligence",      "get_features"),
+    ("utils.logger",                     "get_trends"),
+    ("utils.cache",                      "get_cached"),
+    ("rags.meeting_store",               "store_meeting"),
+    ("rags.rag_retriever",               "ask_about_meetings"),
+    ("utils.evaluator",                  "evaluate"),
 ]
 
 for mod_name, func_name in modules:
@@ -225,7 +227,7 @@ section("8. Quick Analysis Test (mock mode)")
 
 try:
     os.environ["TRANSCRIPT_AI_PROVIDER"] = "mock"
-    from analyzer import analyze_transcript
+    from analysis.analyzer import analyze_transcript
 
     sample = "田中: おはようございます。Q3の報告をします。\n鈴木: 承知しました。検討いたします。"
     result = analyze_transcript(sample, "ja")
@@ -252,7 +254,7 @@ except Exception as e:
 section("9. Soft Rejection Detector")
 
 try:
-    from soft_rejection_detector import detect_soft_rejections
+    from analysis.soft_rejection_detector import detect_soft_rejections
     test_text = "田中: 検討いたします。難しいかもしれません。善処します。"
     sr = detect_soft_rejections(test_text)
     count = sr.get("total_signals", 0)
@@ -268,7 +270,7 @@ except Exception as e:
 section("10. ChromaDB Storage")
 
 try:
-    from meeting_store import store_meeting, get_meeting_count, CHROMADB_AVAILABLE
+    from rags.meeting_store import store_meeting, get_meeting_count, CHROMADB_AVAILABLE
     if not CHROMADB_AVAILABLE:
         results.append((WARN, "ChromaDB", "Not installed — pip install chromadb"))
         print(f"  {WARN}  ChromaDB not installed")
@@ -291,7 +293,7 @@ except Exception as e:
 section("11. PII Masking")
 
 try:
-    from pii_masker import mask_transcript, restore_pii_in_result
+    from transcription.pii_masker import mask_transcript, restore_pii_in_result
     text   = "田中: 090-1234-5678に電話してください。Email: tanaka@company.co.jp"
     masked, pii = mask_transcript(text)
     phones_masked = "[PHONE_" in masked

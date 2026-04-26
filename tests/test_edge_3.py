@@ -18,9 +18,9 @@ Tests two things simultaneously:
 import json, sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from hallucination_guard import verify_result
-from soft_rejection_detector import detect_soft_rejections
-from semantic_validator import semantic_grounding_score
+from analysis.hallucination_guard import verify_result
+from analysis.soft_rejection_detector import detect_soft_rejections
+from analysis.semantic_validator import semantic_grounding_score
 
 TRANSCRIPT = """Sarah: Good morning. Today we're reviewing the TranscriptAI integration timeline.
 Kenji: Morning. I wanted to flag that the database migration is still pending.

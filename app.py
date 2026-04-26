@@ -4,25 +4,28 @@ Japanese Business Intelligence Platform
 
 Run: python -m streamlit run app.py
 """
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import time
 from datetime import datetime
 import streamlit as st
-from analyzer import analyze_transcript
-from utils import (
+from analysis.analyzer import analyze_transcript
+from utils.utils import (
     add_to_history, build_export_json, clean_text, detect_language,
     export_filename, format_history_label, language_display_name, parse_uploaded_file,
 )
 
 # ── Optional dependencies ────────────────────────────────────────────────────
 try:
-    from pii_masker import mask_transcript, restore_pii_in_result, get_pii_report
+    from transcription.pii_masker import mask_transcript, restore_pii_in_result, get_pii_report
     PII_AVAILABLE = True
 except ImportError:
     PII_AVAILABLE = False
 
 try:
-    from audio_processor import (
+    from transcription.audio_processor import (
         transcribe_audio, format_transcript_with_timestamps, MAX_FILE_SIZE_MB
     )
     AUDIO_AVAILABLE = True
@@ -31,26 +34,26 @@ except ImportError:
     MAX_FILE_SIZE_MB = 25
 
 try:
-    from analyzer import stream_transcript_groq
+    from analysis.analyzer import stream_transcript_groq
     STREAMING_AVAILABLE = True
 except ImportError:
     STREAMING_AVAILABLE = False
 
 try:
-    from evaluator import evaluate
-    from test_data import TEST_CASES
+    from utils.evaluator import evaluate
+    from tests.test_data import TEST_CASES
     EVAL_AVAILABLE = True
 except ImportError:
     EVAL_AVAILABLE = False
 
 try:
-    from logger import get_trends, get_stats, get_recent_entries
+    from utils.logger import get_trends, get_stats, get_recent_entries
     TRENDS_AVAILABLE = True
 except ImportError:
     TRENDS_AVAILABLE = False
 
 try:
-    from language_intelligence import get_features, detect_hindi_patterns
+    from utils.language_intelligence import get_features, detect_hindi_patterns
     LANGUAGE_INTEL_AVAILABLE = True
 except ImportError:
     LANGUAGE_INTEL_AVAILABLE = False

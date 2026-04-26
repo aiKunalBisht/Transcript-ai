@@ -34,7 +34,7 @@ except ImportError:
                 if k and not os.getenv(k):
                     os.environ[k] = v
 
-from analyzer import analyze_transcript
+from analysis.analyzer import analyze_transcript
 
 REQUIRED_FIELDS = ["summary", "action_items", "sentiment", "speakers", "japan_insights"]
 REQUIRED_ACTION_FIELDS = ["task", "owner", "deadline"]

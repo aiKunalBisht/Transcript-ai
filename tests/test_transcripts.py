@@ -92,9 +92,9 @@ def run_test(tc: dict):
     print(f"{'='*65}")
 
     try:
-        from analyzer import analyze_transcript
-        from soft_rejection_detector import detect_soft_rejections
-        from speaker_normalizer import normalize_speaker_name, extract_all_speakers
+        from analysis.analyzer import analyze_transcript
+        from analysis.soft_rejection_detector import detect_soft_rejections
+        from transcription.speaker_normalizer import normalize_speaker_name, extract_all_speakers
 
         result = analyze_transcript(tc["transcript"], tc["language"])
 
