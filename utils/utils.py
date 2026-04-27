@@ -1,0 +1,244 @@
+"""
+utils.py
+--------
+Utility functions for:
+  - Language detection (Japanese / English / mixed)
+  - Text cleaning and normalization
+  - VTT / JSON transcript parsing
+  - JSON export helper
+  - Analysis history management
+"""
+
+import json
+import re
+import unicodedata
+from datetime import datetime
+from typing import Optional
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Language Detection
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Unicode ranges for CJK / Kana / Kanji
+_JP_RANGES = [
+    (0x3000, 0x303F),   # CJK Symbols and Punctuation
+    (0x3040, 0x309F),   # Hiragana
+    (0x30A0, 0x30FF),   # Katakana
+    (0x4E00, 0x9FFF),   # CJK Unified Ideographs (Han)
+    (0xFF00, 0xFFEF),   # Halfwidth and Fullwidth Forms
+]
+
+_EN_PATTERN = re.compile(r"[a-zA-Z]{3,}")  # 3+ consecutive Latin letters
+
+
+def _is_japanese_char(char: str) -> bool:
+    cp = ord(char)
+    return any(lo <= cp <= hi for lo, hi in _JP_RANGES)
+
+
+def detect_language(text: str) -> str:
+    """
+    Detect whether text is primarily 'ja', 'en', or 'mixed'.
+
+    Heuristic:
+      - Count Japanese characters and English words
+      - If both exceed thresholds → 'mixed'
+      - Else whichever is dominant
+    """
+    if not text or not text.strip():
+        return "en"
+
+    total_chars = len(text.replace(" ", "").replace("\n", ""))
+    jp_chars = sum(1 for c in text if _is_japanese_char(c))
+    en_words = len(_EN_PATTERN.findall(text))
+
+    jp_ratio = jp_chars / max(total_chars, 1)
+
+    has_japanese = jp_ratio > 0.05
+    has_english = en_words > 5
+
+    if has_japanese and has_english:
+        return "mixed"
+    elif has_japanese:
+        return "ja"
+    else:
+        return "en"
+
+
+def language_display_name(lang_code: str) -> str:
+    return {
+        "ja": "🇯🇵 Japanese",
+        "en": "🇬🇧 English",
+        "mixed": "🌐 Mixed (JA/EN)",
+    }.get(lang_code, "Unknown")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Text Cleaning
+# ─────────────────────────────────────────────────────────────────────────────
+
+def clean_text(text: str) -> str:
+    """Normalize whitespace and remove control characters."""
+    # Normalize Unicode (NFC form is standard for Japanese)
+    text = unicodedata.normalize("NFC", text)
+    # Replace Windows-style line endings
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    # Collapse multiple blank lines to one
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    # Strip leading/trailing whitespace per line
+    lines = [line.strip() for line in text.splitlines()]
+    return "\n".join(lines).strip()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Transcript Parsers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def parse_vtt(content: str) -> str:
+    """
+    Strip WebVTT timing headers and return plain transcript text.
+    Handles WEBVTT header, NOTE blocks, and timestamp lines.
+    """
+    lines = content.splitlines()
+    result = []
+    timestamp_re = re.compile(r"\d{2}:\d{2}[\d:,.]+\s*-->\s*")
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("WEBVTT") or stripped.startswith("NOTE"):
+            continue
+        if timestamp_re.search(stripped):
+            continue
+        # Speaker tag: <v Speaker>text</v>  →  "Speaker: text"
+        speaker_match = re.match(r"<v ([^>]+)>(.*)</v>", stripped)
+        if speaker_match:
+            result.append(f"{speaker_match.group(1)}: {speaker_match.group(2).strip()}")
+        else:
+            result.append(stripped)
+
+    return "\n".join(result)
+
+
+def parse_json_transcript(content: str) -> str:
+    """
+    Parse a JSON transcript file.
+    Supports common formats:
+      - {"transcript": "..."}
+      - {"text": "..."}
+      - [{"speaker": "...", "text": "..."}]  (utterance list)
+    Returns plain text.
+    """
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError:
+        return content  # fall back to raw text
+
+    if isinstance(data, str):
+        return data
+
+    if isinstance(data, dict):
+        for key in ("transcript", "text", "content", "body"):
+            if key in data and isinstance(data[key], str):
+                return data[key]
+
+    if isinstance(data, list):
+        parts = []
+        for item in data:
+            if isinstance(item, dict):
+                speaker = item.get("speaker", item.get("name", ""))
+                text = item.get("text", item.get("content", item.get("message", "")))
+                if speaker and text:
+                    parts.append(f"{speaker}: {text}")
+                elif text:
+                    parts.append(text)
+        return "\n".join(parts)
+
+    return str(data)
+
+
+def parse_uploaded_file(uploaded_file) -> str:
+    """
+    Route an uploaded Streamlit file to the correct parser.
+    Returns cleaned plain-text transcript.
+    """
+    name = uploaded_file.name.lower()
+    raw = uploaded_file.read().decode("utf-8", errors="replace")
+
+    if name.endswith(".vtt"):
+        text = parse_vtt(raw)
+    elif name.endswith(".json"):
+        text = parse_json_transcript(raw)
+    else:
+        text = raw  # plain .txt
+
+    return clean_text(text)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Export
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_export_json(
+    transcript: str,
+    language: str,
+    results: dict,
+    timestamp: Optional[str] = None,
+) -> str:
+    """
+    Build a JSON string that bundles the transcript + analysis results
+    for download.
+    """
+    export = {
+        "metadata": {
+            "analyzed_at": timestamp or datetime.now().isoformat(),
+            "language_detected": language,
+            "transcript_length_chars": len(transcript),
+        },
+        "transcript": transcript,
+        "analysis": results,
+    }
+    return json.dumps(export, ensure_ascii=False, indent=2)
+
+
+def export_filename(language: str) -> str:
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return f"transcript_analysis_{language}_{ts}.json"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# History Management
+# ─────────────────────────────────────────────────────────────────────────────
+
+MAX_HISTORY = 5
+
+
+def add_to_history(history: list, entry: dict) -> list:
+    """
+    Prepend a new analysis entry to history, capping at MAX_HISTORY items.
+
+    entry schema:
+      {
+        "timestamp": "ISO string",
+        "language": "ja|en|mixed",
+        "snippet": "first 80 chars of transcript",
+        "results": { ... full analysis dict ... }
+      }
+    """
+    history = [entry] + history
+    return history[:MAX_HISTORY]
+
+
+def format_history_label(entry: dict) -> str:
+    ts = entry.get("timestamp", "")
+    if ts:
+        try:
+            dt = datetime.fromisoformat(ts)
+            ts = dt.strftime("%m/%d %H:%M")
+        except ValueError:
+            pass
+    lang = language_display_name(entry.get("language", ""))
+    snippet = entry.get("snippet", "")[:60]
+    return f"{ts} · {lang}\n{snippet}…"
