@@ -11,8 +11,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import time
 from datetime import datetime
 import streamlit as st
-from analysis.analyzer import analyze_transcript
-from utils.utils import (
+from analysis import analyze_transcript
+from utils import (
     add_to_history, build_export_json, clean_text, detect_language,
     export_filename, format_history_label, language_display_name, parse_uploaded_file,
 )
