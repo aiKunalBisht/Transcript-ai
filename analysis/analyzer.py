@@ -99,6 +99,7 @@ def build_prompt(text: str, language: str) -> str:
 Return ONLY valid JSON. No markdown, no backticks, no explanation.
 
 {{
+  "full_summary": "2–4 sentence narrative paragraph. Write like a professional meeting note: what was discussed, what was decided, and what the overall outcome was. Plain prose, no bullet points.",
   "summary": ["bullet 1", "..."],
   "action_items": [{{"task": "...", "owner": "FIRST NAME ONLY — no role titles", "deadline": "..."}}],
   "sentiment": [{{"speaker": "FIRST NAME ONLY", "score": "positive|neutral|negative", "label": "..."}}],
@@ -111,6 +112,7 @@ Return ONLY valid JSON. No markdown, no backticks, no explanation.
 }}
 
 Rules:
+- full_summary: 2–4 sentences of plain narrative prose. No lists. Describe the meeting outcome clearly.
 - {_summary_instruction(text)}
 - owner/speaker/name: FIRST NAME ONLY. No roles. No (Director). No (PM).
 - List ALL speakers found in transcript — do not skip any
@@ -375,6 +377,7 @@ def _mock_response(text: str, reason: str = "") -> dict:
     summary_count = 3 if words < 200 else 5 if words < 600 else 7
 
     return {
+        "full_summary": f"⚠️ Demo mode active — real analysis unavailable ({reason or 'AI offline'}). Connect to Groq or Ollama to generate a real meeting narrative.",
         "summary": [f"⚠️ DEMO MODE: Real analysis unavailable ({reason or 'AI offline'})."] +
                    [f"Transcript has {words} words and {n} detected speakers."] +
                    ["Connect to Groq (free) or Ollama to see real analysis."] * (summary_count - 2),
@@ -427,13 +430,13 @@ def analyze_transcript(text: str, language: str = "en") -> dict:
     # 1200 was insufficient for long meetings (60min = ~8000 words needs ~3000 tokens)
     words = len(text.split())
     if words < 300:
-        max_tokens = 700
+        max_tokens = 800    # bumped from 700 — full_summary needs ~100 extra tokens
     elif words < 800:
-        max_tokens = 1200
+        max_tokens = 1400   # bumped from 1200
     elif words < 2000:
-        max_tokens = 1800
+        max_tokens = 2000   # bumped from 1800
     else:
-        max_tokens = 2000   # cap — Ollama on CPU can't handle more in <90s
+        max_tokens = 2200   # bumped from 2000 — full_summary overhead
     # Groq handles up to 4000 tokens fine — limit only matters for Ollama
     provider_used = "unknown"
     last_error    = None
@@ -521,6 +524,7 @@ def analyze_transcript(text: str, language: str = "en") -> dict:
 
 
 def _validate_and_fill(data: dict) -> dict:
+    data.setdefault("full_summary", "")           # ← NEW
     data.setdefault("summary", ["No summary available."])
     data.setdefault("action_items", [])
     data.setdefault("sentiment", [])
@@ -556,4 +560,5 @@ if __name__ == "__main__":
     print(f"Speakers: {[s['name'] for s in result.get('speakers', [])]}")
     print(f"Keigo: {result['japan_insights']['keigo_level']} ({result['japan_insights'].get('keigo_source','llm')})")
     print(f"Cache: {result.get('_from_cache', False)}")
+    print(f"Full summary: {result.get('full_summary','')[:120]}")
     print(json.dumps(result, indent=2, ensure_ascii=False))

@@ -62,14 +62,14 @@ except ImportError:
             "show_japan_insights": lang in ("ja", "mixed"),
             "show_hindi_insights": lang == "hi",
             "show_code_switch": lang in ("ja", "mixed"),
-            "insight_tab_label": "🌸 Cultural Intelligence" if lang in ("ja","mixed") else "🌐 Insights",
+            "insight_tab_label": "🔍 Communication Intelligence" if lang in ("ja","mixed") else "🌐 Insights",
             "insight_tab_enabled": lang != "en",
         }
 
 # ── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="TranscriptAI · 議事録分析",
-    page_icon="🌸",
+    page_title="TranscriptAI · Speech & Meeting Analyzer",
+    page_icon="🎙️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -503,6 +503,32 @@ div[data-testid="stAlert"][data-baseweb="notification"] {
     margin: 1.4rem 0;
     position: relative;
 }
+
+/* Previous session card */
+.prev-session-card {
+    background: var(--surface-warm);
+    border: 1px solid var(--border-mid);
+    border-left: 3px solid var(--gold);
+    border-radius: 0 10px 10px 0;
+    padding: 1rem 1.3rem;
+    margin-top: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+.prev-session-header {
+    font-size: 0.68rem; font-weight: 600; color: var(--gold);
+    letter-spacing: 0.12em; text-transform: uppercase;
+    margin-bottom: 0.55rem;
+}
+.prev-session-bullet {
+    font-size: 0.83rem; color: var(--ink-mid);
+    line-height: 1.65; margin-bottom: 0.25rem;
+    padding-left: 0.9rem; position: relative;
+}
+.prev-session-bullet::before {
+    content: "·";
+    position: absolute; left: 0;
+    color: var(--gold); font-weight: 700;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -536,13 +562,13 @@ for k, v in [
 with st.sidebar:
     st.markdown("""
     <div style='padding:1.8rem 0.5rem 1.2rem;'>
-      <div style='font-size:1.6rem; margin-bottom:0.4rem;'>🌸</div>
+      <div style='font-size:1.6rem; margin-bottom:0.4rem;'>🎙️</div>
       <div style='font-size:1rem; font-weight:600; color:#3D2B1F; letter-spacing:0.01em;'>
         TranscriptAI
       </div>
       <div style='font-size:0.62rem; color:#C4A99E; letter-spacing:0.14em;
                   text-transform:uppercase; margin-top:0.2rem;'>
-        Business Intelligence
+        Speech &amp; Meeting Intelligence
       </div>
     </div>
     <hr style='border:none; border-top:1px solid #EDE0D8; margin:0 0 1rem;'/>
@@ -596,13 +622,13 @@ with st.sidebar:
     st.markdown("<hr style='border:none; border-top:1px solid #EDE0D8; margin:1rem 0;'/>", unsafe_allow_html=True)
     with st.expander("About"):
         st.markdown("""
-**TranscriptAI** converts meeting recordings into structured business intelligence.
+**TranscriptAI** turns any meeting or speech recording into structured intelligence — summaries, action items, speaker sentiment, and communication risk signals.
 
 **Input** &nbsp;·&nbsp; TXT · VTT · JSON · MP4 · MP3 · WAV
 
-**Languages** &nbsp;·&nbsp; Japanese · English · Hindi · Mixed
+**Languages** &nbsp;·&nbsp; English · Hindi · Japanese · Mixed
 
-**Japan layer** &nbsp;·&nbsp; Keigo · Nemawashi · Soft rejection · Code-switch
+**Analysis** &nbsp;·&nbsp; Formality level · Indirect signals · Soft rejection · Code-switch
 
 *Set `GROQ_API_KEY` for 3s cloud inference. Or run Ollama locally.*
 """)
@@ -613,27 +639,21 @@ with st.sidebar:
 st.markdown("""
 <div style='padding:2rem 0 1.6rem; position:relative;'>
 
-  <!-- Decorative sakura dots -->
-  <div style='position:absolute; top:1.5rem; right:2rem; opacity:0.18;
-              font-size:2.5rem; line-height:1; user-select:none;'>🌸</div>
-  <div style='position:absolute; top:3rem; right:5rem; opacity:0.10;
-              font-size:1.4rem; line-height:1; user-select:none;'>🌸</div>
+  <!-- Decorative accent -->
+  <div style='position:absolute; top:1.5rem; right:2rem; opacity:0.15;
+              font-size:2.5rem; line-height:1; user-select:none;'>🎙️</div>
 
   <div style='font-size:0.62rem; color:#C8A898; letter-spacing:0.2em;
               text-transform:uppercase; margin-bottom:0.8rem; font-weight:500;'>
-    Meeting Intelligence Platform
+    Speech &amp; Meeting Intelligence
   </div>
 
   <div style='display:flex; align-items:flex-end; gap:1rem; flex-wrap:wrap; margin-bottom:0.7rem;'>
     <h1 style='font-size:2.1rem; font-weight:600; color:#3C2416;
                margin:0; letter-spacing:-0.025em; line-height:1;'>
-      Transcript Analyzer
+      TranscriptAI
     </h1>
-    <span style='font-size:1.15rem; font-weight:300; color:#B87830;
-                 font-family:"Noto Sans JP",sans-serif; letter-spacing:0.03em;
-                 padding-bottom:0.1rem;'>
-      議事録分析
-    </span>
+
   </div>
 
   <div style='display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap;'>
@@ -645,10 +665,10 @@ st.markdown("""
                  border:1px solid #A8C8B8;'>APPI Compliant</span>
     <span style='font-size:0.75rem; color:#B87830; background:#F5E8D0;
                  padding:0.2rem 0.7rem; border-radius:999px; font-weight:500;
-                 border:1px solid #D9C090;'>日本語対応</span>
+                 border:1px solid #D9C090;'>Multi-language</span>
     <span style='font-size:0.75rem; color:#7A5040; background:#FEF3EC;
                  padding:0.2rem 0.7rem; border-radius:999px; font-weight:500;
-                 border:1px solid #E5D0C4;'>Keigo · Nemawashi · Code-switch</span>
+                 border:1px solid #E5D0C4;'>Formality · Indirect Signals · Code-switch</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -840,7 +860,7 @@ if st.session_state.results:
     with m4:
         if features.get("show_japan_insights"):
             mv = ji.get("keigo_level","—").title()
-            ml = "Keigo Level"
+            ml = "Formality"
         else:
             mv = language_display_name(language).split(" ",1)[-1]
             ml = "Language"
@@ -878,9 +898,54 @@ if st.session_state.results:
 
     # ── Summary ───────────────────────────────────────────────────────────────
     with t_summary:
-        bullets = R.get("summary", [])
+        full_summary = R.get("full_summary", "")
+        bullets      = R.get("summary", [])
+
+        # ── Resolve previous session data ─────────────────────────────────────
+        # history[0] = current analysis (just added), history[1] = previous
+        history = st.session_state.history
+        prev_data = None
+        if len(history) >= 2:
+            prev_entry   = history[1]
+            prev_results = prev_entry.get("results", {})
+            prev_full    = prev_results.get("full_summary", "")
+            prev_bullets = prev_results.get("summary", [])
+            prev_ts      = prev_entry.get("timestamp", "")
+            prev_snippet = prev_entry.get("snippet", "")
+            # Only show if there's actual content
+            if prev_full or prev_bullets:
+                try:
+                    prev_label = datetime.fromisoformat(prev_ts).strftime("%b %d · %H:%M") if prev_ts else "Previous"
+                except Exception:
+                    prev_label = "Previous"
+                prev_data = {
+                    "full":    prev_full,
+                    "bullets": prev_bullets[:3],   # cap at 3 for compact view
+                    "label":   prev_label,
+                    "snippet": prev_snippet,
+                }
+
+        # ── 1. Full narrative summary ──────────────────────────────────────────
+        if full_summary:
+            st.markdown("<div class='sh'>Meeting Overview</div>", unsafe_allow_html=True)
+            st.markdown(
+                f"""<div style='
+                    background: var(--surface);
+                    border: 1px solid var(--border);
+                    border-left: 4px solid var(--sakura);
+                    border-radius: 0 12px 12px 0;
+                    padding: 1.3rem 1.6rem;
+                    margin-bottom: 1.4rem;
+                    line-height: 1.85;
+                    font-size: 0.93rem;
+                    color: #3C2416;
+                '>{full_summary}</div>""",
+                unsafe_allow_html=True,
+            )
+
+        # ── 2. Key bullet points (existing behaviour, unchanged) ───────────────
         st.markdown(
-            f"<div class='sh'>{len(bullets)} Key Point{'s' if len(bullets)!=1 else ''}</div>",
+            f"<div class='sh'>{len(bullets)} Key Point{'s' if len(bullets) != 1 else ''}</div>",
             unsafe_allow_html=True,
         )
         for i, b in enumerate(bullets, 1):
@@ -892,6 +957,50 @@ if st.session_state.results:
                 f"</div>",
                 unsafe_allow_html=True,
             )
+
+        # ── 3. Previous session summary ────────────────────────────────────────
+        if prev_data:
+            st.markdown(
+                "<hr style='border:none; border-top:1px solid var(--border); margin:1.4rem 0 1rem;'/>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<div class='sh'>Previous Session &nbsp;·&nbsp; {prev_data['label']}</div>",
+                unsafe_allow_html=True,
+            )
+
+            # Show previous full summary if it exists, else fall back to bullets
+            if prev_data["full"]:
+                st.markdown(
+                    f"""<div class='prev-session-card'>
+                        <div class='prev-session-header'>📋 Previous Meeting Overview</div>
+                        <div style='font-size:0.86rem; color:var(--ink-mid); line-height:1.8;'>
+                            {prev_data["full"]}
+                        </div>
+                    </div>""",
+                    unsafe_allow_html=True,
+                )
+            elif prev_data["bullets"]:
+                bullets_html = "".join(
+                    f"<div class='prev-session-bullet'>{b}</div>"
+                    for b in prev_data["bullets"]
+                )
+                st.markdown(
+                    f"""<div class='prev-session-card'>
+                        <div class='prev-session-header'>📋 Previous Key Points</div>
+                        {bullets_html}
+                        {"<div style='font-size:0.75rem; color:var(--ink-faint); margin-top:0.4rem;'>Showing first 3 — load from sidebar for full view</div>" if len(history[1].get("results",{}).get("summary",[])) > 3 else ""}
+                    </div>""",
+                    unsafe_allow_html=True,
+                )
+
+            if prev_data["snippet"]:
+                st.markdown(
+                    f"<div style='font-size:0.74rem; color:var(--ink-faint); "
+                    f"margin-top:0.4rem; font-style:italic;'>"
+                    f"Transcript: \"{prev_data['snippet'][:60]}...\"</div>",
+                    unsafe_allow_html=True,
+                )
 
     # ── Action Items ──────────────────────────────────────────────────────────
     with t_actions:
@@ -976,7 +1085,7 @@ if st.session_state.results:
     if t_insights is not None:
         with t_insights:
             if features.get("show_japan_insights"):
-                st.markdown("<div class='sh'>Japan Business Intelligence · 日本ビジネス分析</div>", unsafe_allow_html=True)
+                st.markdown("<div class='sh'>Communication Intelligence · Formality &amp; Signal Analysis</div>", unsafe_allow_html=True)
 
                 # Keigo
                 keigo  = ji.get("keigo_level","—")
@@ -984,7 +1093,7 @@ if st.session_state.results:
                 k_color= {"high":"#C45C74","medium":"#B07D3A","low":"#A8897C"}.get(keigo,"#A8897C")
                 st.markdown(
                     f"<div class='card'>"
-                    f"<div class='sh' style='margin-bottom:0.5rem;'>敬語レベル · Keigo Register</div>"
+                    f"<div class='sh' style='margin-bottom:0.5rem;'>Formality Register</div>"
                     f"<span style='font-size:1.3rem; font-weight:600; color:{k_color};'>{keigo.upper()}</span>"
                     f"<span style='font-size:0.74rem; color:#C4A99E; margin-left:0.6rem;'>via {k_src}</span>"
                     f"</div>",
@@ -995,7 +1104,7 @@ if st.session_state.results:
                 sigs = ji.get("nemawashi_signals",[])
                 st.markdown(
                     f"<div style='font-size:0.79rem; font-weight:500; color:#7A5C50; margin:0.6rem 0 0.5rem;'>"
-                    f"根回し Signals &nbsp;·&nbsp; {len(sigs)} detected</div>",
+                    f"Indirect Consensus Signals &nbsp;·&nbsp; {len(sigs)} detected</div>",
                     unsafe_allow_html=True,
                 )
                 if sigs:
@@ -1015,7 +1124,7 @@ if st.session_state.results:
                     cs = ji.get("code_switch_count", 0)
                     st.markdown(
                         f"<div class='card' style='margin-top:0.6rem;'>"
-                        f"<div class='sh' style='margin-bottom:0.4rem;'>JA↔EN Code-Switching</div>"
+                        f"<div class='sh' style='margin-bottom:0.4rem;'>Language Code-Switching</div>"
                         f"<span style='font-size:1.6rem; font-weight:600; color:#E8829A;'>{cs}</span>"
                         f"<span style='color:#C4A99E; font-size:0.81rem; margin-left:0.5rem;'>switches detected</span>"
                         f"</div>",
@@ -1030,7 +1139,7 @@ if st.session_state.results:
                     risk = soft.get("risk_level","NONE")
                     st.markdown(
                         "<div style='font-size:0.79rem; font-weight:500; color:#7A5C50; margin:1rem 0 0.5rem;'>"
-                        "間接的拒否 · Soft Rejection Analysis</div>",
+                        "Soft Rejection Analysis</div>",
                         unsafe_allow_html=True,
                     )
                     st.markdown(
@@ -1094,7 +1203,7 @@ if st.session_state.results:
                                 )
 
             elif features.get("show_hindi_insights"):
-                st.markdown("<div class='sh'>Hindi Business Intelligence · हिन्दी व्यापार विश्लेषण</div>", unsafe_allow_html=True)
+                st.markdown("<div class='sh'>Communication Intelligence · Indirect Signal Analysis</div>", unsafe_allow_html=True)
                 if LANGUAGE_INTEL_AVAILABLE:
                     hi = detect_hindi_patterns(st.session_state.current_transcript)
                     risk = hi.get("risk_level","NONE")
@@ -1283,7 +1392,7 @@ if st.session_state.results:
                 col_l, col_r = st.columns(2)
 
                 with col_l:
-                    st.markdown("<div class='sh'>🏯 Keigo Distribution</div>", unsafe_allow_html=True)
+                    st.markdown("<div class='sh'>📊 Formality Distribution</div>", unsafe_allow_html=True)
                     keigo_dist = trends.get("keigo_dist", {})
                     keigo_total = sum(keigo_dist.values()) or 1
                     keigo_colors = {
@@ -1377,8 +1486,8 @@ if st.session_state.results:
 st.markdown("""
 <div style='text-align:center; padding:2.5rem 0 1.5rem;
             color:#C4A99E; font-size:0.73rem; letter-spacing:0.05em;'>
-  🌸 &nbsp; TranscriptAI &nbsp;·&nbsp; Japanese Business Intelligence
-  &nbsp;·&nbsp; APPI Compliant &nbsp; 🌸
+  🎙️ &nbsp; TranscriptAI &nbsp;·&nbsp; Speech &amp; Meeting Intelligence
+  &nbsp;·&nbsp; APPI Compliant &nbsp; 🎙️
   <br><br>
   <span style='color:#EDE0D8;'>Groq · Ollama · Claude · GPT-4 · Any OpenAI-compatible provider</span>
 </div>
