@@ -87,11 +87,45 @@ def _extract_speaker_hint(text: str) -> str:
     return ", ".join(clean[:10]) if clean else "Not detected"
 
 
+# Common Hinglish marker words (Hindi written in Roman script)
+_HINGLISH_MARKERS = {
+    "hai","hain","nahi","kya","aur","toh","bhi","se","ko","ka","ki","ke",
+    "mein","par","pe","hoga","hogi","karenge","karke","bataungi","padega",
+    "sab","log","ek","aaj","hum","main","tum","yeh","woh","karo","karna",
+}
+
+def _detect_hinglish(text: str) -> bool:
+    """Returns True if text contains significant Hindi romanized (Hinglish) content."""
+    words = re.findall(r"[a-zA-Z]+", text.lower())
+    if not words:
+        return False
+    hindi_count = sum(1 for w in words if w in _HINGLISH_MARKERS)
+    return hindi_count >= 3   # at least 3 Hindi marker words
+
+
 def build_prompt(text: str, language: str) -> str:
-    lang_hint = (
-        "Transcript contains Japanese and English. Extract Japanese phrases as-is."
-        if language in ("ja", "mixed") else "Transcript is in English."
-    )
+    has_japanese  = bool(re.search(r"[぀-鿿]", text))
+    has_hinglish  = _detect_hinglish(text)
+
+    if has_japanese and has_hinglish:
+        lang_hint = (
+            "This transcript is TRILINGUAL — Hindi (written in Roman script / Hinglish), "
+            "Japanese (kanji/kana), and English are all present. "
+            "Extract Japanese phrases as-is. Treat Hinglish words as Hindi. "
+            "Analyze the full meaning across all three languages."
+        )
+    elif has_japanese:
+        lang_hint = "Transcript contains Japanese and English. Extract Japanese phrases as-is."
+    elif has_hinglish:
+        lang_hint = (
+            "Transcript contains Hindi written in Roman script (Hinglish) mixed with English. "
+            "Understand both languages together to extract the full meaning."
+        )
+    elif language == "hi":
+        lang_hint = "Transcript is in Hindi (may be Devanagari or Roman script)."
+    else:
+        lang_hint = "Transcript is in English."
+
     speakers_hint = _extract_speaker_hint(text)
     return f"""You are an expert meeting analyst for Japanese business culture.
 {lang_hint}
@@ -273,6 +307,7 @@ def _parse(raw: str) -> dict:
     """
     C4 FIX: Robust JSON parsing — handles nested braces, multiple objects,
     provider-specific wrappers. Uses JSONDecoder.raw_decode() for correctness.
+    V3 FIX: Added truncation repair for incomplete JSON (token limit cutoff).
     """
     # Strip thinking blocks and markdown fences
     raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL)
@@ -288,6 +323,23 @@ def _parse(raw: str) -> dict:
                     return obj
             except json.JSONDecodeError:
                 continue
+
+    # V3 FIX: Truncation repair — LLM hit token limit mid-JSON
+    # Try to close open braces/brackets to salvage partial response
+    try:
+        snippet = raw[raw.index("{"):]
+        open_b  = snippet.count("{") - snippet.count("}")
+        open_sq = snippet.count("[") - snippet.count("]")
+        # Close any open strings first
+        if snippet.count('"') % 2 != 0:
+            snippet += '"'
+        snippet += "]" * max(open_sq, 0)
+        snippet += "}" * max(open_b, 0)
+        obj = json.loads(snippet)
+        if isinstance(obj, dict):
+            return obj
+    except Exception:
+        pass
 
     raise ValueError(f"No valid JSON object found in response (first 200 chars): {raw[:200]}")
 
@@ -315,18 +367,23 @@ def _try_providers(prompt: str, max_tokens: int) -> tuple[str, str]:
 
         for attempt in range(retries + 1):
             try:
-                # Try LangChain first, then raw — both before moving to next provider
-                # FIX: explicit except keeps Groq errors within Groq retry loop
-                # instead of silently falling through to Ollama
-                if LANGCHAIN_AVAILABLE and name == "groq":
+                # V4 FIX: raw requests FIRST for Groq (more reliable than LangChain),
+                # LangChain as fallback. LangChain first only for Ollama (local).
+                if name == "groq":
                     try:
-                        raw = _call_groq_langchain(prompt, max_tokens)
-                        return raw, f"{name}_langchain"
+                        raw = caller(prompt, max_tokens)   # raw requests.post — always works
+                        return raw, "groq"
                     except ValueError:
-                        raise   # NO_GROQ_KEY — bubble up, skip Groq entirely
-                    except Exception:
-                        # LangChain failed — try raw requests before giving up on Groq
-                        raw = caller(prompt, max_tokens)
+                        raise   # NO_GROQ_KEY — skip Groq entirely
+                    except Exception as groq_err:
+                        # raw failed — try LangChain as last Groq attempt
+                        if LANGCHAIN_AVAILABLE:
+                            try:
+                                raw = _call_groq_langchain(prompt, max_tokens)
+                                return raw, "groq_langchain"
+                            except Exception:
+                                pass
+                        raise groq_err  # both failed — move to next provider
                 elif LANGCHAIN_AVAILABLE and name == "ollama":
                     try:
                         raw = _call_ollama_langchain(prompt, max_tokens)
