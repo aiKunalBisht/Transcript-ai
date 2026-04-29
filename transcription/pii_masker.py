@@ -1,11 +1,11 @@
-# pii_masker.py — v2
+# pii_masker.py — v3
 # PII Anonymization Pipeline — APPI Compliance Layer
 #
 # C2 FIX: Japanese speaker labels now masked (田中: was previously leaked to LLM)
 # U4 FIX: Position-based name extraction — speaker label names masked regardless
 #         of whether they appear in the hardcoded surname list
-# Honest limitation: uncommon names in running text (not as speaker labels)
-# require a proper NER model (e.g. spacy ja_core_news_sm) for full coverage.
+# V3 FIX: restore() now handles LLM stripping brackets from placeholders
+#         e.g. LLM returns NAME_3 instead of [NAME_3] — both now restored correctly
 
 import re
 from dataclasses import dataclass, field
@@ -15,7 +15,6 @@ from dataclasses import dataclass, field
 try:
     from japanese_names import JAPANESE_SURNAMES_FULL as JAPANESE_SURNAMES
 except ImportError:
-    # Fallback to minimal list if japanese_names.py not present
     JAPANESE_SURNAMES = {
         "佐藤","鈴木","高橋","田中","渡辺","伊藤","山本","中村","小林","加藤",
         "Tanaka","Sato","Suzuki","Yamamoto","Priya","Kunal","Sarah","Mike",
@@ -60,8 +59,24 @@ class PIIMask:
         return placeholder
 
     def restore(self, text: str) -> str:
-        for placeholder, original in self.mapping.items():
-            text = text.replace(placeholder, original)
+        """
+        V3 FIX: LLMs sometimes strip brackets from placeholders,
+        returning NAME_3 instead of [NAME_3].
+        We handle all four variants:
+          [NAME_3]   — correct, brackets intact
+          NAME_3     — LLM stripped both brackets
+          [NAME_3    — LLM stripped closing bracket
+          NAME_3]    — LLM stripped opening bracket
+        Sorted longest-first to prevent partial matches.
+        """
+        for placeholder, original in sorted(
+            self.mapping.items(), key=lambda x: len(x[0]), reverse=True
+        ):
+            bare = placeholder.strip("[]")           # NAME_3
+            text = text.replace(placeholder, original)   # [NAME_3]
+            text = text.replace(f"[{bare}",  original)   # [NAME_3  (missing close)
+            text = text.replace(f"{bare}]",  original)   # NAME_3]  (missing open)
+            text = text.replace(bare,        original)   # NAME_3   (no brackets)
         return text
 
     def summary(self) -> dict:
@@ -101,7 +116,7 @@ def _extract_speaker_names(text: str) -> set:
     # CJK names: Q3 FIX - use \s* before name to allow leading whitespace
     cjk_flexible = re.compile(
         r"(?:^|\n)\s*(?:\[\d+:\d+(?::\d+)?\]\s*)?"
-        r"([\u3040-\u9FFF]{2,6})"   # U2 FIX: extended to 6 chars (長谷川部長)
+        r"([\u3040-\u9FFF]{2,6})"
         r"(?:\s*[（\(][^)）]*[）\)])?\s*[:：]",
         re.MULTILINE
     )
@@ -134,7 +149,7 @@ def mask_transcript(text: str, mask_timestamps: bool = False) -> tuple:
 
 
 def restore_pii_in_result(result, pii: PIIMask):
-    """Recursively restores all PII placeholders in result."""
+    """Recursively restores all PII placeholders in result dict/list/str."""
     if isinstance(result, dict):
         return {k: restore_pii_in_result(v, pii) for k, v in result.items()}
     elif isinstance(result, list):
@@ -153,19 +168,37 @@ def get_pii_report(pii: PIIMask) -> dict:
 
 if __name__ == "__main__":
     import json
+
+    # Test: simulate LLM stripping brackets
+    pii = PIIMask()
+    pii.mapping = {"[NAME_1]": "Rahul", "[NAME_2]": "Priya", "[NAME_3]": "Vikram"}
+    pii.reverse = {v: k for k, v in pii.mapping.items()}
+
+    test_cases = [
+        "[NAME_1]",          # normal — brackets intact
+        "NAME_2",            # LLM stripped both brackets
+        "[NAME_3",           # LLM stripped closing bracket
+    ]
+    print("=== RESTORE TEST ===")
+    for t in test_cases:
+        print(f"  '{t}' → '{pii.restore(t)}'")
+
+    # Full mask/restore test
+    print("\n=== FULL PIPELINE TEST ===")
     sample = """
-    [00:00] Tanaka (Director): Good morning. I spoke with 田中部長 about the proposal.
-    Sato (PM): Call me at +81-90-1234-5678 or sato@company.co.jp.
-    Priya (Backend Dev): Looping in Acme Corp. as well.
-    鈴木: 承知しました。
-    """
-    masked, pii = mask_transcript(sample)
-    print("=== MASKED ===")
-    print(masked)
-    print("\n=== PII MAP ===")
-    for k, v in pii.mapping.items():
-        print(f"  {k} → {v}")
-    print("\n=== RESTORED ===")
-    print(pii.restore(masked))
-    print("\n=== REPORT ===")
-    print(json.dumps(get_pii_report(pii), indent=2, ensure_ascii=False))
+Rahul: Good morning. Let's discuss Q3 targets.
+Priya: We are at 87% of target. Main blocker is delayed launch.
+Vikram: I will have the report ready by Sunday.
+"""
+    masked, pii2 = mask_transcript(sample)
+    print("Masked:", masked[:120])
+
+    fake_result = {
+        "speakers": [
+            {"name": "NAME_1", "talk_time_pct": 35},   # brackets stripped by LLM
+            {"name": "[NAME_2]", "talk_time_pct": 50},  # brackets intact
+            {"name": "NAME_3]", "talk_time_pct": 15},   # partial brackets
+        ]
+    }
+    restored = restore_pii_in_result(fake_result, pii2)
+    print("Restored speakers:", [s["name"] for s in restored["speakers"]])

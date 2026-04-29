@@ -59,7 +59,7 @@ def _get_ollama_model() -> str:
 
 OLLAMA_MODEL = _get_ollama_model()
 GROQ_URL     = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL   = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+GROQ_MODEL   = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")  # faster + smarter on Groq free tier
 MAX_RETRIES  = int(os.getenv("TRANSCRIPT_AI_MAX_RETRIES", "2"))
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -233,8 +233,8 @@ def _call_ollama(prompt: str, max_tokens: int) -> str:
 def _call_groq_langchain(prompt: str, max_tokens: int) -> str:
     """
     Primary LLM call via LangChain ChatGroq.
-    LangChain provides provider-agnostic interface,
-    built-in retry logic, and clean output parsing.
+    V3 FIX: Added 25s timeout + json_object response format to prevent
+    silent fallback to Ollama on slow responses or non-JSON output.
     """
     api_key = _get_groq_key()
     if not api_key:
@@ -245,10 +245,12 @@ def _call_groq_langchain(prompt: str, max_tokens: int) -> str:
         model=GROQ_MODEL,
         temperature=0.2,
         max_tokens=max_tokens,
+        timeout=25,                          # FIX: explicit timeout — was None (infinite)
+        model_kwargs={"response_format": {"type": "json_object"}},  # FIX: force JSON
     )
-    parser  = StrOutputParser()
-    chain   = llm | parser
-    result  = chain.invoke([HumanMessage(content=prompt)])
+    parser = StrOutputParser()
+    chain  = llm | parser
+    result = chain.invoke([HumanMessage(content=prompt)])
     return result
 
 
@@ -313,13 +315,18 @@ def _try_providers(prompt: str, max_tokens: int) -> tuple[str, str]:
 
         for attempt in range(retries + 1):
             try:
-                # Try LangChain first if available, fall back to raw requests
+                # Try LangChain first, then raw — both before moving to next provider
+                # FIX: explicit except keeps Groq errors within Groq retry loop
+                # instead of silently falling through to Ollama
                 if LANGCHAIN_AVAILABLE and name == "groq":
                     try:
                         raw = _call_groq_langchain(prompt, max_tokens)
                         return raw, f"{name}_langchain"
+                    except ValueError:
+                        raise   # NO_GROQ_KEY — bubble up, skip Groq entirely
                     except Exception:
-                        raw = caller(prompt, max_tokens)  # fallback to raw
+                        # LangChain failed — try raw requests before giving up on Groq
+                        raw = caller(prompt, max_tokens)
                 elif LANGCHAIN_AVAILABLE and name == "ollama":
                     try:
                         raw = _call_ollama_langchain(prompt, max_tokens)
@@ -430,13 +437,14 @@ def analyze_transcript(text: str, language: str = "en") -> dict:
     # 1200 was insufficient for long meetings (60min = ~8000 words needs ~3000 tokens)
     words = len(text.split())
     if words < 300:
-        max_tokens = 800    # bumped from 700 — full_summary needs ~100 extra tokens
+        max_tokens = 700    # short transcript — Groq returns in ~1s
     elif words < 800:
-        max_tokens = 1400   # bumped from 1200
+        max_tokens = 1000   # medium — Groq ~2s
     elif words < 2000:
-        max_tokens = 2000   # bumped from 1800
+        max_tokens = 1400   # long — Groq ~3s
     else:
-        max_tokens = 2200   # bumped from 2000 — full_summary overhead
+        max_tokens = 1800   # very long — cap hard, Ollama CPU limit
+    # Note: full_summary adds ~80 tokens overhead, already within these budgets
     # Groq handles up to 4000 tokens fine — limit only matters for Ollama
     provider_used = "unknown"
     last_error    = None

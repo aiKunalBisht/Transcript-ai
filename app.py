@@ -1057,7 +1057,8 @@ if st.session_state.results:
     with t_speakers:
         st.markdown("<div class='sh'>Talk Time Distribution</div>", unsafe_allow_html=True)
         colors = ["#E8829A","#F4A07A","#C9924A","#5A7D6B","#A8897C","#7A5C50"]
-        for i, spk in enumerate(R.get("speakers",[])):
+        sorted_speakers = sorted(R.get("speakers",[]), key=lambda s: s.get("talk_time_pct",0), reverse=True)
+        for i, spk in enumerate(sorted_speakers):
             name  = spk.get("name", f"Speaker {i+1}")
             pct   = spk.get("talk_time_pct", 0)
             tone  = spk.get("tone","—")
