@@ -1,5 +1,10 @@
 # test_data.py
-# Ground truth dataset for evaluating TranscriptAI — v2
+# Ground truth dataset for evaluating TranscriptAI — v3
+#
+# v3 FIX: Corrected nemawashi ground truth in TC001 and TC002.
+# Previous version incorrectly listed agreement words (了解しました, 素晴らしい)
+# and past-tense words (検討しました) as soft rejection signals.
+# Nemawashi/soft rejection = indirect NO or deferral, NOT acknowledgment or praise.
 #
 # Cultural fix: Japanese business sentiment updated to reflect actual norms.
 # In Japanese professional settings, "neutral" is the default register —
@@ -33,22 +38,22 @@ TEST_CASES = [
                 {"task": "Prepare and send revised contract", "owner": "Sarah", "deadline": "Wednesday"},
                 {"task": "Attend follow-up meeting", "owner": "Both", "deadline": "Monday 10am JST"}
             ],
-            # Cultural fix: Yamamoto uses high keigo throughout — this IS positive engagement
-            # in Japanese business context. LLM calling it "neutral" is also acceptable.
-            # Soft scoring: neutral+positive both accepted for Japanese speakers.
             "sentiment": [
-                {"speaker": "Yamamoto", "score": "neutral", "label": "Polite and cooperative — neutral is professional standard in JP business"},
+                {"speaker": "Yamamoto", "score": "neutral",  "label": "Polite and cooperative — neutral is professional standard in JP business"},
                 {"speaker": "Sarah",    "score": "positive", "label": "Explicitly enthusiastic — 'Great', 'works perfectly'"}
             ],
+            "sentiment_acceptable": {
+                "Yamamoto": ["neutral", "positive"],
+                "Sarah":    ["positive", "neutral"]
+            },
             "japan_insights": {
                 "keigo_level": "high",
-                "nemawashi_signals": ["そうですね", "検討しました", "了解しました", "素晴らしい"],
+                # v3 FIX: Only actual soft rejection / hesitation signals
+                # Removed: 検討しました (past tense = done), 素晴らしい (praise), 了解しました (agreement)
+                # 少し調整が必要かもしれません = "may need adjustment" = genuine hesitation signal
+                # そうですね = ambiguous filler, valid low-confidence signal
+                "nemawashi_signals": ["そうですね", "少し調整が必要かもしれません"],
                 "code_switch_count": 8
-            },
-            # Acceptable sentiment range per speaker (for soft scoring)
-            "sentiment_acceptable": {
-                "Yamamoto": ["neutral", "positive"],   # either is culturally valid
-                "Sarah":    ["positive", "neutral"]
             }
         }
     },
@@ -67,7 +72,6 @@ TEST_CASES = [
 [00:01:18] 鈴木: 承知しました。データベースの修正は明日までに完了させます。
         """,
         "ground_truth": {
-            # Bilingual fix: ground truth now includes Japanese summary for JA-heavy transcripts
             "summary": [
                 "プロジェクトは予定通り進んでおり、来週ベータ版が完成する予定です。",
                 "データベースの問題が残っており、鈴木が明日までに修正を完了させます。",
@@ -79,19 +83,17 @@ TEST_CASES = [
                 "Tanaka will handle client reporting while the team prepares for handoff next Monday."
             ],
             "action_items": [
-                {"task": "Complete beta version", "owner": "Sato", "deadline": "Next week"},
-                {"task": "Fix database issue", "owner": "Suzuki", "deadline": "Tomorrow"},
-                {"task": "Hand off to test team", "owner": "Sato", "deadline": "Monday next week"},
-                {"task": "Report to client", "owner": "Tanaka", "deadline": "Not specified"}
+                {"task": "Complete beta version", "owner": "Sato",   "deadline": "Next week"},
+                {"task": "Fix database issue",   "owner": "Suzuki", "deadline": "Tomorrow"},
+                {"task": "Hand off to test team","owner": "Sato",   "deadline": "Monday next week"},
+                {"task": "Report to client",     "owner": "Tanaka", "deadline": "Not specified"}
             ],
-            # Japanese action items for bilingual matching
             "action_items_ja": [
-                {"task": "ベータ版の完成", "owner": "佐藤", "deadline": "来週"},
-                {"task": "データベースの修正", "owner": "鈴木", "deadline": "明日"},
-                {"task": "テストチームへの引き渡し", "owner": "佐藤", "deadline": "再来週の月曜日"},
-                {"task": "クライアントへの報告", "owner": "田中", "deadline": "Not specified"}
+                {"task": "ベータ版の完成",           "owner": "佐藤", "deadline": "来週"},
+                {"task": "データベースの修正",        "owner": "鈴木", "deadline": "明日"},
+                {"task": "テストチームへの引き渡し",  "owner": "佐藤", "deadline": "再来週の月曜日"},
+                {"task": "クライアントへの報告",      "owner": "田中", "deadline": "Not specified"}
             ],
-            # Cultural fix: all speakers are Japanese in a formal meeting — neutral is correct
             "sentiment": [
                 {"speaker": "田中", "score": "neutral", "label": "Calm managerial tone — standard JP meeting register"},
                 {"speaker": "佐藤", "score": "neutral", "label": "Professional and informative"},
@@ -104,7 +106,10 @@ TEST_CASES = [
             },
             "japan_insights": {
                 "keigo_level": "high",
-                "nemawashi_signals": ["なるほど", "分かりました", "承知しました"],
+                # v3 FIX: なるほど and 分かりました are acknowledgment not rejection
+                # Only 承知しました qualifies as a low-signal deference pattern here
+                # TC002 is a cooperative meeting — very few soft rejection signals expected
+                "nemawashi_signals": ["承知しました"],
                 "code_switch_count": 0
             }
         }
@@ -130,22 +135,23 @@ TEST_CASES = [
                 "A written compensation proposal will be sent by 9am tomorrow."
             ],
             "action_items": [
-                {"task": "Activate system resolve server issue", "owner": "Kenji", "deadline": "This week"},
-                {"task": "Consult manager propose compensation plan", "owner": "Kenji", "deadline": "Today"},
-                {"task": "Send written commitment compensation proposal", "owner": "Kenji", "deadline": "Tomorrow 9am"}
+                {"task": "Activate system resolve server issue",            "owner": "Kenji", "deadline": "This week"},
+                {"task": "Consult manager propose compensation plan",       "owner": "Kenji", "deadline": "Today"},
+                {"task": "Send written commitment compensation proposal",   "owner": "Kenji", "deadline": "Tomorrow 9am"}
             ],
-            # This one is unambiguous — client IS negative, Kenji IS de-escalating (neutral)
             "sentiment": [
                 {"speaker": "Client", "score": "negative", "label": "Explicitly angry and threatening"},
                 {"speaker": "Kenji",  "score": "neutral",  "label": "Apologetic de-escalation — professional crisis handling"}
             ],
             "sentiment_acceptable": {
-                "Client": ["negative"],           # only negative is correct here
-                "Kenji":  ["neutral", "positive"] # de-escalation could read as positive
+                "Client": ["negative"],
+                "Kenji":  ["neutral", "positive"]
             },
             "japan_insights": {
                 "keigo_level": "high",
-                "nemawashi_signals": ["ご要望はよく分かりました", "承知しました"],
+                # 上司に相談 = "will consult superior" = genuine soft deferral signal ✅
+                # 承知しました = acknowledgment under pressure — low signal ✅
+                "nemawashi_signals": ["上司に相談", "承知しました"],
                 "code_switch_count": 5
             }
         }

@@ -956,100 +956,53 @@ if st.session_state.results:
     risk_w  = round(bd["soft_rejection"] / 25 * 100)
     hall_w  = round(bd["hallucination"]  / 20 * 100)
 
-    st.markdown(
-        f"""
-        <div style='
-            background: {hs["bg"]};
-            border: 1.5px solid {hs["border"]};
-            border-radius: 14px;
-            padding: 1.4rem 1.8rem;
-            margin-bottom: 1.2rem;
-            display: flex;
-            align-items: center;
-            gap: 2rem;
-            flex-wrap: wrap;
-        '>
-            <!-- Score circle -->
-            <div style='text-align:center; min-width:90px;'>
-                <div style='
-                    font-size: 2.8rem;
-                    font-weight: 700;
-                    color: {hs["color"]};
-                    line-height: 1;
-                '>{hs["score"]}</div>
-                <div style='
-                    font-size: 0.6rem;
-                    font-weight: 700;
-                    color: {hs["color"]};
-                    letter-spacing: 0.12em;
-                    text-transform: uppercase;
-                    margin-top: 0.3rem;
-                    opacity: 0.8;
-                '>out of 100</div>
-                <div style='
-                    font-size: 0.75rem;
-                    font-weight: 600;
-                    color: {hs["color"]};
-                    margin-top: 0.4rem;
-                    background: white;
-                    padding: 0.15rem 0.6rem;
-                    border-radius: 999px;
-                    border: 1px solid {hs["border"]};
-                    display: inline-block;
-                '>{hs["label"]}</div>
-            </div>
+    # ── Health score card — split into small markdown calls to avoid f-string/CSS conflicts
+    c_score, c_div, c_bars = st.columns([0.18, 0.01, 0.81])
 
-            <!-- Divider -->
-            <div style='width:1px; height:80px; background:{hs["border"]}; flex-shrink:0;'></div>
+    with c_score:
+        st.markdown(
+            f"<div style='background:{hs['bg']}; border:1.5px solid {hs['border']};"
+            f"border-radius:14px; padding:1.2rem 1rem; text-align:center; height:100%;'>"
+            f"<div style='font-size:2.8rem; font-weight:700; color:{hs['color']}; line-height:1;'>{hs['score']}</div>"
+            f"<div style='font-size:0.58rem; color:{hs['color']}; letter-spacing:0.1em;"
+            f"text-transform:uppercase; margin-top:0.2rem; opacity:0.7;'>out of 100</div>"
+            f"<div style='font-size:0.72rem; font-weight:600; color:{hs['color']};"
+            f"margin-top:0.5rem; background:white; padding:0.2rem 0.5rem;"
+            f"border-radius:999px; border:1px solid {hs['border']};'>{hs['label']}</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
 
-            <!-- Breakdown bars -->
-            <div style='flex:1; min-width:200px;'>
-                <div style='font-size:0.62rem; font-weight:600; color:{hs["color"]};
-                            letter-spacing:0.12em; text-transform:uppercase;
-                            margin-bottom:0.8rem; opacity:0.8;'>
-                    Meeting Health Score
-                </div>
+    with c_bars:
+        st.markdown(
+            f"<div style='background:{hs['bg']}; border:1.5px solid {hs['border']};"
+            f"border-left:none; border-radius:0 14px 14px 0; padding:1.1rem 1.4rem;'>"
+            f"<div style='font-size:0.6rem; font-weight:700; color:{hs['color']};"
+            f"letter-spacing:0.12em; text-transform:uppercase; margin-bottom:0.75rem;'>"
+            f"Meeting Health Breakdown</div>",
+            unsafe_allow_html=True,
+        )
+        rows = [
+            ("Sentiment",         bd["sentiment"],       30, sent_w),
+            ("Action Clarity",    bd["action_clarity"],  25, act_w),
+            ("Communication Risk",bd["soft_rejection"],  25, risk_w),
+            ("AI Confidence",     bd["hallucination"],   20, hall_w),
+        ]
+        for label, pts, total, width in rows:
+            st.markdown(
+                f"<div style='display:flex; align-items:center; gap:0.7rem; margin-bottom:0.4rem;'>"
+                f"<span style='font-size:0.73rem; color:#7A5040; width:140px; flex-shrink:0;'>{label}</span>"
+                f"<div style='flex:1; height:7px; background:rgba(0,0,0,0.07); border-radius:999px; overflow:hidden;'>"
+                f"<div style='height:100%; width:{width}%; background:{hs['color']}; border-radius:999px; opacity:0.75;'></div>"
+                f"</div>"
+                f"<span style='font-size:0.71rem; color:{hs['color']}; font-weight:600; width:36px; text-align:right;'>"
+                f"{pts}/{total}</span>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+        st.markdown("</div>", unsafe_allow_html=True)
 
-                <!-- Sentiment -->
-                <div style='display:flex; align-items:center; gap:0.7rem; margin-bottom:0.45rem;'>
-                    <span style='font-size:0.74rem; color:#7A5040; width:120px; flex-shrink:0;'>Sentiment</span>
-                    <div style='flex:1; height:7px; background:rgba(0,0,0,0.06); border-radius:999px; overflow:hidden;'>
-                        <div style='height:100%; width:{sent_w}%; background:{hs["color"]}; border-radius:999px; opacity:0.7;'></div>
-                    </div>
-                    <span style='font-size:0.72rem; color:{hs["color"]}; font-weight:600; width:28px; text-align:right;'>{bd["sentiment"]}/30</span>
-                </div>
-
-                <!-- Action clarity -->
-                <div style='display:flex; align-items:center; gap:0.7rem; margin-bottom:0.45rem;'>
-                    <span style='font-size:0.74rem; color:#7A5040; width:120px; flex-shrink:0;'>Action Clarity</span>
-                    <div style='flex:1; height:7px; background:rgba(0,0,0,0.06); border-radius:999px; overflow:hidden;'>
-                        <div style='height:100%; width:{act_w}%; background:{hs["color"]}; border-radius:999px; opacity:0.7;'></div>
-                    </div>
-                    <span style='font-size:0.72rem; color:{hs["color"]}; font-weight:600; width:28px; text-align:right;'>{bd["action_clarity"]}/25</span>
-                </div>
-
-                <!-- Soft rejection -->
-                <div style='display:flex; align-items:center; gap:0.7rem; margin-bottom:0.45rem;'>
-                    <span style='font-size:0.74rem; color:#7A5040; width:120px; flex-shrink:0;'>Communication Risk</span>
-                    <div style='flex:1; height:7px; background:rgba(0,0,0,0.06); border-radius:999px; overflow:hidden;'>
-                        <div style='height:100%; width:{risk_w}%; background:{hs["color"]}; border-radius:999px; opacity:0.7;'></div>
-                    </div>
-                    <span style='font-size:0.72rem; color:{hs["color"]}; font-weight:600; width:28px; text-align:right;'>{bd["soft_rejection"]}/25</span>
-                </div>
-
-                <!-- Hallucination -->
-                <div style='display:flex; align-items:center; gap:0.7rem;'>
-                    <span style='font-size:0.74rem; color:#7A5040; width:120px; flex-shrink:0;'>AI Confidence</span>
-                    <div style='flex:1; height:7px; background:rgba(0,0,0,0.06); border-radius:999px; overflow:hidden;'>
-                        <div style='height:100%; width:{hall_w}%; background:{hs["color"]}; border-radius:999px; opacity:0.7;'></div>
-                    </div>
-                    <span style='font-size:0.72rem; color:{hs["color"]}; font-weight:600; width:28px; text-align:right;'>{bd["hallucination"]}/20</span>
-                </div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.markdown("<div style='height:0.4rem'></div>", unsafe_allow_html=True)
 
     exp = build_export_json(st.session_state.current_transcript, language, R)
     st.download_button(
