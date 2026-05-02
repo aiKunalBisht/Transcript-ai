@@ -146,8 +146,8 @@ Return ONLY valid JSON. No markdown, no backticks, no explanation.
 }}
 
 Rules:
-- full_summary: 2–4 sentences of plain narrative prose. No lists. Describe the meeting outcome clearly.
-- {_summary_instruction(text)}
+- full_summary: 2–4 sentences of plain narrative prose. No lists. Describe the meeting outcome clearly. Always mention the next meeting or follow-up if one was scheduled.
+- {_summary_instruction(text)} Always include: decisions made, next steps, and any scheduled follow-ups or deadlines.
 - owner/speaker/name: FIRST NAME ONLY. No roles. No (Director). No (PM).
 - List ALL speakers found in transcript — do not skip any
 - action_items: every explicit task or commitment
@@ -607,13 +607,31 @@ def _validate_and_fill(data: dict) -> dict:
             if "talk" in bad_key and "pct" in bad_key and bad_key != "talk_time_pct":
                 spk["talk_time_pct"] = spk.pop(bad_key)
 
-    # Bug 2 fix: filter out non-Japanese text from nemawashi_signals
-    # LLM sometimes puts Hindi words (Haan) or English into this field
-    # Only keep strings that contain at least one Japanese character
+    # Bug 2 fix: filter out non-Japanese AND known false-positive phrases from nemawashi_signals
+    # LLM sometimes puts Hindi words, greetings, praise, or agreement phrases here
     _JP_RE = re.compile(r"[぀-鿿゠-ヿ･-ﾟ]")
+
+    # Phrases that ARE Japanese but are NOT soft rejections
+    _NEMAWASHI_FP = {
+        "ありがとうございます", "ありがとう",
+        "おはようございます", "こんにちは", "こんばんは",
+        "お疲れ様でした", "お疲れ様です",
+        "よろしくお願いします", "よろしくお願いいたします",
+        "承知しました", "了解しました", "分かりました", "かしこまりました",
+        "素晴らしい", "なるほど",
+        "検討しました",    # past tense — already done
+        "はい", "いいえ",
+        # Meeting close phrases
+        "それでは月曜日にお会いしましょう",
+        "またお会いしましょう",
+        "失礼します",
+    }
+
     ji["nemawashi_signals"] = [
         s for s in ji.get("nemawashi_signals", [])
-        if isinstance(s, str) and _JP_RE.search(s)
+        if isinstance(s, str)
+        and _JP_RE.search(s)                          # must contain Japanese
+        and not any(fp in s for fp in _NEMAWASHI_FP)  # must not be a known false positive
     ]
 
     speakers = data["speakers"]

@@ -504,6 +504,65 @@ div[data-testid="stAlert"][data-baseweb="notification"] {
     position: relative;
 }
 
+/* ── Sidebar collapsed control — make it visible ────────────────────────── */
+/* The tiny arrow Streamlit shows when sidebar is collapsed */
+[data-testid="collapsedControl"] {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    background-color: var(--sakura-bg) !important;
+    border: 1.5px solid var(--sakura-light) !important;
+    border-radius: 0 8px 8px 0 !important;
+    width: 2rem !important;
+    height: 2.6rem !important;
+    align-items: center !important;
+    justify-content: center !important;
+    position: fixed !important;
+    top: 50% !important;
+    left: 0 !important;
+    transform: translateY(-50%) !important;
+    z-index: 999999 !important;
+    cursor: pointer !important;
+    box-shadow: 2px 0 8px rgba(217,96,128,0.15) !important;
+    transition: width 0.2s ease, background-color 0.2s ease !important;
+}
+[data-testid="collapsedControl"]:hover {
+    background-color: var(--sakura) !important;
+    width: 2.4rem !important;
+}
+[data-testid="collapsedControl"] svg {
+    fill: var(--sakura-deep) !important;
+    color: var(--sakura-deep) !important;
+    width: 16px !important;
+    height: 16px !important;
+}
+[data-testid="collapsedControl"]:hover svg {
+    fill: white !important;
+    color: white !important;
+}
+
+/* Tooltip label on hover */
+[data-testid="collapsedControl"]::after {
+    content: "Open Menu";
+    position: absolute;
+    left: 2.6rem;
+    background: var(--sakura);
+    color: white;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    padding: 0.25rem 0.6rem;
+    border-radius: 4px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+    font-family: 'DM Sans', sans-serif;
+}
+[data-testid="collapsedControl"]:hover::after {
+    opacity: 1;
+}
+
 /* Previous session card */
 .prev-session-card {
     background: var(--surface-warm);
