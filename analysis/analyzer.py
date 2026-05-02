@@ -66,10 +66,11 @@ MAX_RETRIES  = int(os.getenv("TRANSCRIPT_AI_MAX_RETRIES", "2"))
 
 def _summary_instruction(text: str) -> str:
     words = len(text.split())
-    if words < 200:   return "summary: 3 concise bullet points"
-    elif words < 600: return "summary: 5 bullet points covering ALL key topics"
-    elif words < 1200: return "summary: 7 bullet points covering every topic and decision"
-    else:              return "summary: as many bullets as needed (min 8) — never compress"
+    suffix = " Include next meeting / follow-up schedule if mentioned."
+    if words < 200:    return "summary: 3 concise bullet points." + suffix
+    elif words < 600:  return "summary: 5 bullet points covering ALL key topics." + suffix
+    elif words < 1200: return "summary: 7 bullet points covering every topic and decision." + suffix
+    else:              return "summary: as many bullets as needed (min 8) — never compress." + suffix
 
 
 def _extract_speaker_hint(text: str) -> str:
@@ -146,11 +147,11 @@ Return ONLY valid JSON. No markdown, no backticks, no explanation.
 }}
 
 Rules:
-- full_summary: 2–4 sentences of plain narrative prose. No lists. Describe the meeting outcome clearly. Always mention the next meeting or follow-up if one was scheduled.
-- {_summary_instruction(text)} Always include: decisions made, next steps, and any scheduled follow-ups or deadlines.
+- full_summary: 2–4 sentences of plain narrative prose. No lists. Describe the meeting outcome clearly.
+- {_summary_instruction(text)}
 - owner/speaker/name: FIRST NAME ONLY. No roles. No (Director). No (PM).
 - List ALL speakers found in transcript — do not skip any
-- action_items: every explicit task or commitment
+- action_items: every explicit task, commitment, and scheduled meeting or follow-up (include meeting attendees as owner "All" or "Both" when everyone must attend)
 - talk_time_pct must sum to 100
 - Return ONLY JSON.
 
@@ -627,11 +628,29 @@ def _validate_and_fill(data: dict) -> dict:
         "失礼します",
     }
 
+    def _is_fp(s: str) -> bool:
+        """
+        Returns True if the signal is predominantly a false positive.
+        Uses exact match after stripping punctuation — avoids filtering
+        valid compound phrases like "はい、そうですね" which contains "はい"
+        but its core meaning is そうですね (valid low-confidence signal).
+        """
+        stripped = re.sub(r"[。、！？…「」『』\\s]", "", s)  # strip JP punctuation
+        for fp in _NEMAWASHI_FP:
+            fp_stripped = re.sub(r"[。、！？…「」『』\\s]", "", fp)
+            # Only filter if signal IS the FP phrase (exact after strip)
+            # or if the FP phrase makes up >85% of the signal length
+            if stripped == fp_stripped:
+                return True
+            if fp_stripped and len(fp_stripped) / max(len(stripped), 1) > 0.85:
+                return True
+        return False
+
     ji["nemawashi_signals"] = [
         s for s in ji.get("nemawashi_signals", [])
         if isinstance(s, str)
-        and _JP_RE.search(s)                          # must contain Japanese
-        and not any(fp in s for fp in _NEMAWASHI_FP)  # must not be a known false positive
+        and _JP_RE.search(s)    # must contain Japanese characters
+        and not _is_fp(s)       # must not be a known false positive phrase
     ]
 
     speakers = data["speakers"]
