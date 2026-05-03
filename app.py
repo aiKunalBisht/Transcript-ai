@@ -526,84 +526,107 @@ div[data-testid="stAlert"][data-baseweb="notification"] {
     position: relative;
 }
 
-/* ── Sidebar collapsed control — styled ─────────────────────────────────── */
-[data-testid="collapsedControl"] {
-    display: flex !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-    background-color: var(--sakura-bg) !important;
-    border: 1.5px solid var(--sakura-light) !important;
-    border-radius: 0 8px 8px 0 !important;
-    width: 2rem !important;
-    height: 2.6rem !important;
-    align-items: center !important;
-    justify-content: center !important;
-    position: fixed !important;
-    top: 50% !important;
-    left: 0 !important;
-    transform: translateY(-50%) !important;
-    z-index: 999999 !important;
-    cursor: pointer !important;
-    box-shadow: 2px 0 8px rgba(217,96,128,0.15) !important;
-    transition: all 0.2s ease !important;
-}
-[data-testid="collapsedControl"]:hover {
-    background-color: var(--sakura) !important;
-    width: 2.4rem !important;
-}
-[data-testid="collapsedControl"] svg {
-    fill: var(--sakura-deep) !important;
-    color: var(--sakura-deep) !important;
-}
-[data-testid="collapsedControl"]:hover svg {
-    fill: white !important;
-    color: white !important;
+/* ── Hide Streamlit default header/toolbar ───────────────────────────────── */
+[data-testid="stToolbar"],
+[data-testid="stDecoration"],
+header[data-testid="stHeader"] {
+    display: none !important;
 }
 
-/* ── Floating sidebar toggle button (JS-powered) ─────────────────────────── */
-#sidebar-open-btn {
+/* ── Translucent Navbar ───────────────────────────────────────────────────── */
+#transcriptai-navbar {
     position: fixed;
-    top: 50%;
+    top: 0;
     left: 0;
-    transform: translateY(-50%);
-    z-index: 9999999;
-    background: var(--sakura-bg);
-    border: 1.5px solid var(--sakura-light);
-    border-left: none;
-    border-radius: 0 8px 8px 0;
-    width: 2rem;
-    height: 2.6rem;
-    display: none;
+    right: 0;
+    z-index: 999999;
+    height: 52px;
+    background: rgba(250, 246, 242, 0.82);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(239, 226, 216, 0.7);
+    display: flex;
     align-items: center;
-    justify-content: center;
+    padding: 0 1.4rem;
+    gap: 1rem;
+}
+#transcriptai-navbar .nav-hamburger {
+    display: flex;
+    flex-direction: column;
+    gap: 4.5px;
     cursor: pointer;
-    box-shadow: 2px 0 8px rgba(217,96,128,0.15);
-    transition: all 0.2s ease;
-    font-size: 1rem;
-    color: var(--sakura-deep);
+    padding: 6px 8px;
+    border-radius: 6px;
+    transition: background 0.15s;
+    flex-shrink: 0;
 }
-#sidebar-open-btn:hover {
-    background: var(--sakura);
-    color: white;
-    width: 2.4rem;
+#transcriptai-navbar .nav-hamburger:hover {
+    background: rgba(217, 96, 128, 0.10);
 }
-#sidebar-open-btn .btn-tooltip {
-    display: none;
-    position: absolute;
-    left: 2.6rem;
-    background: var(--sakura);
-    color: white;
+#transcriptai-navbar .nav-hamburger span {
+    display: block;
+    width: 20px;
+    height: 2px;
+    background: #3C2416;
+    border-radius: 2px;
+    transition: all 0.2s;
+}
+#transcriptai-navbar .nav-logo {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #3C2416;
+    letter-spacing: -0.01em;
+    flex-shrink: 0;
+}
+#transcriptai-navbar .nav-dot {
+    color: #D96080;
+    margin: 0 0.1rem;
+}
+#transcriptai-navbar .nav-links {
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+    margin-left: 0.5rem;
+    flex: 1;
+}
+#transcriptai-navbar .nav-link {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.8rem;
+    font-weight: 400;
+    color: #7A5040;
+    padding: 0.3rem 0.7rem;
+    border-radius: 6px;
+    cursor: default;
+    transition: background 0.15s, color 0.15s;
+    white-space: nowrap;
+}
+#transcriptai-navbar .nav-link:hover {
+    background: rgba(217,96,128,0.08);
+    color: #D96080;
+}
+#transcriptai-navbar .nav-badge {
+    font-family: 'DM Sans', sans-serif;
     font-size: 0.68rem;
     font-weight: 600;
-    letter-spacing: 0.05em;
-    padding: 0.2rem 0.55rem;
-    border-radius: 4px;
+    color: #486858;
+    background: rgba(72,104,88,0.10);
+    border: 1px solid rgba(72,104,88,0.20);
+    padding: 0.15rem 0.55rem;
+    border-radius: 999px;
+    margin-left: auto;
     white-space: nowrap;
-    font-family: 'DM Sans', sans-serif;
-    pointer-events: none;
+    flex-shrink: 0;
 }
-#sidebar-open-btn:hover .btn-tooltip {
-    display: block;
+
+/* Push main content down so navbar doesn't overlap */
+.block-container {
+    padding-top: 4rem !important;
+}
+
+/* ── Sidebar collapsed control — hidden (navbar hamburger handles this) ───── */
+[data-testid="collapsedControl"] {
+    display: none !important;
 }
 
 /* Previous session card */
@@ -658,71 +681,38 @@ for k, v in [
     if k not in st.session_state:
         st.session_state[k] = v
 
-# ── Sidebar open button injection ────────────────────────────────────────────
-st.markdown("""
-<div id="sidebar-open-btn" onclick="openSidebar()" title="Open Menu">
-    &#9654;
-    <span class="btn-tooltip">Open Menu</span>
-</div>
-
-<script>
-(function() {
-    // Watch sidebar state and show/hide the floating button
-    function getSidebar() {
-        return document.querySelector('[data-testid="stSidebar"]');
-    }
-
-    function getCollapsedBtn() {
-        return document.querySelector('[data-testid="collapsedControl"]');
-    }
-
-    function getFloatBtn() {
-        return document.getElementById('sidebar-open-btn');
-    }
-
-    function isSidebarCollapsed() {
-        var sb = getSidebar();
-        if (!sb) return true;
-        // Streamlit sets aria-expanded on the collapsed control
-        var btn = getCollapsedBtn();
-        if (btn) return true;  // collapsed control visible = sidebar is closed
-        // Fallback: check sidebar width
-        var rect = sb.getBoundingClientRect();
-        return rect.width < 50;
-    }
-
-    function updateButton() {
-        var floatBtn = getFloatBtn();
-        if (!floatBtn) return;
-        var collapsed = document.querySelector('[data-testid="collapsedControl"]');
-        if (collapsed) {
-            // Sidebar is collapsed — show our button, hide theirs
-            floatBtn.style.display = 'flex';
-            collapsed.style.opacity = '0';
-            collapsed.style.pointerEvents = 'none';
-        } else {
-            // Sidebar is open — hide our button
-            floatBtn.style.display = 'none';
-        }
-    }
-
-    window.openSidebar = function() {
-        // Click the hidden Streamlit collapsed control to reopen
-        var collapsed = document.querySelector('[data-testid="collapsedControl"]');
-        if (collapsed) {
-            collapsed.style.opacity = '1';
-            collapsed.style.pointerEvents = 'auto';
-            collapsed.click();
-        }
-    };
-
-    // Poll every 300ms — Streamlit re-renders so MutationObserver alone isn't reliable
-    setInterval(updateButton, 300);
-    // Also run immediately after a short delay for first load
-    setTimeout(updateButton, 800);
-})();
-</script>
-""", unsafe_allow_html=True)
+# ── Navbar injection ─────────────────────────────────────────────────────────
+_sidebar_btn_sel = '[data-testid="stSidebarCollapseButton"] button'
+_collapsed_sel   = '[data-testid="collapsedControl"]'
+_navbar_js = (
+    "<script>(function(){"
+    "var s1='" + r'[data-testid="stSidebarCollapseButton"] button' + "';"
+    "var s2='" + r'[data-testid="collapsedControl"]' + "';"
+    "function toggle(){"
+    "var c=document.querySelector(s1);if(c){c.click();return;}"
+    "var d=document.querySelector(s2);if(d){d.click();return;}}"
+    "function attach(){"
+    "var h=document.getElementById('nav-hamburger');"
+    "if(h){h.onclick=toggle;}else{setTimeout(attach,400);}}"
+    "setTimeout(attach,600);"
+    "})();</script>"
+)
+_navbar_body = (
+    "<div id='transcriptai-navbar'>"
+    "<div class='nav-hamburger' id='nav-hamburger'>"
+    "<span></span><span></span><span></span>"
+    "</div>"
+    "<div class='nav-logo'>TranscriptAI <span class='nav-dot'>&middot;</span></div>"
+    "<div class='nav-links'>"
+    "<span class='nav-link'>Analyze</span>"
+    "<span class='nav-link'>History</span>"
+    "<span class='nav-link'>Trends</span>"
+    "<span class='nav-link'>Evaluate</span>"
+    "</div>"
+    "<div class='nav-badge'>&#10003; APPI Compliant</div>"
+    "</div>"
+)
+st.markdown(_navbar_body + _navbar_js, unsafe_allow_html=True)
 
 # ────────────────────────────────────────────────────────────────────────────
 # SIDEBAR
