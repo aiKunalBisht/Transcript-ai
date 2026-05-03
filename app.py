@@ -57,13 +57,35 @@ try:
     LANGUAGE_INTEL_AVAILABLE = True
 except ImportError:
     LANGUAGE_INTEL_AVAILABLE = False
+
+# Import new language-specific NLP layers
+try:
+    from analysis.english_analyzer import detect_english_patterns
+    ENGLISH_NLP_AVAILABLE = True
+except ImportError:
+    ENGLISH_NLP_AVAILABLE = False
+
+try:
+    from analysis.hindi_analyzer import detect_hindi_patterns as detect_hindi_nlp
+    HINDI_NLP_AVAILABLE = True
+except ImportError:
+    HINDI_NLP_AVAILABLE = False
+    LANGUAGE_INTEL_AVAILABLE = False
     def get_features(lang):
+        has_ja = lang in ("ja", "mixed")
         return {
-            "show_japan_insights": lang in ("ja", "mixed"),
+            "show_japan_insights": has_ja,
             "show_hindi_insights": lang == "hi",
-            "show_code_switch": lang in ("ja", "mixed"),
-            "insight_tab_label": "🔍 Communication Intelligence" if lang in ("ja","mixed") else "🌐 Insights",
-            "insight_tab_enabled": lang != "en",
+            "show_english_insights": lang == "en",
+            "show_bilingual_insights": lang == "mixed" and not has_ja,
+            "show_code_switch": has_ja,
+            "insight_tab_label": (
+                "🔍 Communication Intelligence" if has_ja else
+                "💬 English Analysis"           if lang == "en" else
+                "🗣️ Hindi Analysis"             if lang == "hi" else
+                "🌐 Insights"
+            ),
+            "insight_tab_enabled": True,
         }
 
 # ── Page config ──────────────────────────────────────────────────────────────
@@ -504,8 +526,7 @@ div[data-testid="stAlert"][data-baseweb="notification"] {
     position: relative;
 }
 
-/* ── Sidebar collapsed control — make it visible ────────────────────────── */
-/* The tiny arrow Streamlit shows when sidebar is collapsed */
+/* ── Sidebar collapsed control — styled ─────────────────────────────────── */
 [data-testid="collapsedControl"] {
     display: flex !important;
     visibility: visible !important;
@@ -524,7 +545,7 @@ div[data-testid="stAlert"][data-baseweb="notification"] {
     z-index: 999999 !important;
     cursor: pointer !important;
     box-shadow: 2px 0 8px rgba(217,96,128,0.15) !important;
-    transition: width 0.2s ease, background-color 0.2s ease !important;
+    transition: all 0.2s ease !important;
 }
 [data-testid="collapsedControl"]:hover {
     background-color: var(--sakura) !important;
@@ -533,34 +554,56 @@ div[data-testid="stAlert"][data-baseweb="notification"] {
 [data-testid="collapsedControl"] svg {
     fill: var(--sakura-deep) !important;
     color: var(--sakura-deep) !important;
-    width: 16px !important;
-    height: 16px !important;
 }
 [data-testid="collapsedControl"]:hover svg {
     fill: white !important;
     color: white !important;
 }
 
-/* Tooltip label on hover */
-[data-testid="collapsedControl"]::after {
-    content: "Open Menu";
+/* ── Floating sidebar toggle button (JS-powered) ─────────────────────────── */
+#sidebar-open-btn {
+    position: fixed;
+    top: 50%;
+    left: 0;
+    transform: translateY(-50%);
+    z-index: 9999999;
+    background: var(--sakura-bg);
+    border: 1.5px solid var(--sakura-light);
+    border-left: none;
+    border-radius: 0 8px 8px 0;
+    width: 2rem;
+    height: 2.6rem;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 2px 0 8px rgba(217,96,128,0.15);
+    transition: all 0.2s ease;
+    font-size: 1rem;
+    color: var(--sakura-deep);
+}
+#sidebar-open-btn:hover {
+    background: var(--sakura);
+    color: white;
+    width: 2.4rem;
+}
+#sidebar-open-btn .btn-tooltip {
+    display: none;
     position: absolute;
     left: 2.6rem;
     background: var(--sakura);
     color: white;
-    font-size: 0.7rem;
+    font-size: 0.68rem;
     font-weight: 600;
     letter-spacing: 0.05em;
-    padding: 0.25rem 0.6rem;
+    padding: 0.2rem 0.55rem;
     border-radius: 4px;
     white-space: nowrap;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.2s ease;
     font-family: 'DM Sans', sans-serif;
+    pointer-events: none;
 }
-[data-testid="collapsedControl"]:hover::after {
-    opacity: 1;
+#sidebar-open-btn:hover .btn-tooltip {
+    display: block;
 }
 
 /* Previous session card */
@@ -614,6 +657,72 @@ for k, v in [
 ]:
     if k not in st.session_state:
         st.session_state[k] = v
+
+# ── Sidebar open button injection ────────────────────────────────────────────
+st.markdown("""
+<div id="sidebar-open-btn" onclick="openSidebar()" title="Open Menu">
+    &#9654;
+    <span class="btn-tooltip">Open Menu</span>
+</div>
+
+<script>
+(function() {
+    // Watch sidebar state and show/hide the floating button
+    function getSidebar() {
+        return document.querySelector('[data-testid="stSidebar"]');
+    }
+
+    function getCollapsedBtn() {
+        return document.querySelector('[data-testid="collapsedControl"]');
+    }
+
+    function getFloatBtn() {
+        return document.getElementById('sidebar-open-btn');
+    }
+
+    function isSidebarCollapsed() {
+        var sb = getSidebar();
+        if (!sb) return true;
+        // Streamlit sets aria-expanded on the collapsed control
+        var btn = getCollapsedBtn();
+        if (btn) return true;  // collapsed control visible = sidebar is closed
+        // Fallback: check sidebar width
+        var rect = sb.getBoundingClientRect();
+        return rect.width < 50;
+    }
+
+    function updateButton() {
+        var floatBtn = getFloatBtn();
+        if (!floatBtn) return;
+        var collapsed = document.querySelector('[data-testid="collapsedControl"]');
+        if (collapsed) {
+            // Sidebar is collapsed — show our button, hide theirs
+            floatBtn.style.display = 'flex';
+            collapsed.style.opacity = '0';
+            collapsed.style.pointerEvents = 'none';
+        } else {
+            // Sidebar is open — hide our button
+            floatBtn.style.display = 'none';
+        }
+    }
+
+    window.openSidebar = function() {
+        // Click the hidden Streamlit collapsed control to reopen
+        var collapsed = document.querySelector('[data-testid="collapsedControl"]');
+        if (collapsed) {
+            collapsed.style.opacity = '1';
+            collapsed.style.pointerEvents = 'auto';
+            collapsed.click();
+        }
+    };
+
+    // Poll every 300ms — Streamlit re-renders so MutationObserver alone isn't reliable
+    setInterval(updateButton, 300);
+    // Also run immediately after a short delay for first load
+    setTimeout(updateButton, 800);
+})();
+</script>
+""", unsafe_allow_html=True)
 
 # ────────────────────────────────────────────────────────────────────────────
 # SIDEBAR

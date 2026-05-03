@@ -224,23 +224,39 @@ def evaluate_summary(pred_bullets: list, ref_bullets: list) -> dict:
     if not pred_bullets or not ref_bullets:
         return {"semantic_score": 0.0, "avg_rouge1_f1": 0.0, "per_bullet": [], "grade": "POOR"}
 
-    per_bullet = []
-    used_preds = set()
-
+    # Build full score matrix — ref x pred
+    score_matrix = []
     for ref in ref_bullets:
-        best_score = 0.0
-        best_pred  = ""
-        best_idx   = -1
-        for i, pred in enumerate(pred_bullets):
-            if i in used_preds:
-                continue
-            score = _semantic_overlap(pred, ref)
-            if score > best_score:
-                best_score = score
-                best_pred  = pred
-                best_idx   = i
-        if best_idx >= 0:
-            used_preds.add(best_idx)
+        row = [_semantic_overlap(pred, ref) for pred in pred_bullets]
+        score_matrix.append(row)
+
+    # Optimal assignment — greedy on global max (not per-row greedy)
+    # Repeatedly pick the highest score in the entire matrix
+    # This prevents bullet 1 stealing a pred that would better match bullet 2
+    used_preds = set()
+    used_refs  = set()
+    assignments = {}  # ref_idx -> pred_idx
+
+    # Sort all (score, ref_idx, pred_idx) descending and assign greedily
+    all_scores = []
+    for r_idx, row in enumerate(score_matrix):
+        for p_idx, score in enumerate(row):
+            all_scores.append((score, r_idx, p_idx))
+    all_scores.sort(reverse=True)
+
+    for score, r_idx, p_idx in all_scores:
+        if r_idx not in used_refs and p_idx not in used_preds:
+            assignments[r_idx] = p_idx
+            used_refs.add(r_idx)
+            used_preds.add(p_idx)
+        if len(assignments) == len(ref_bullets):
+            break
+
+    per_bullet = []
+    for r_idx, ref in enumerate(ref_bullets):
+        p_idx     = assignments.get(r_idx, -1)
+        best_pred = pred_bullets[p_idx] if p_idx >= 0 else ""
+        best_score = score_matrix[r_idx][p_idx] if p_idx >= 0 else 0.0
         rouge = _tokenize_rouge1(best_pred, ref)
         per_bullet.append({
             "reference":      ref[:80] + "…" if len(ref) > 80 else ref,

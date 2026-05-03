@@ -66,7 +66,10 @@ MAX_RETRIES  = int(os.getenv("TRANSCRIPT_AI_MAX_RETRIES", "2"))
 
 def _summary_instruction(text: str) -> str:
     words = len(text.split())
-    suffix = " Include next meeting / follow-up schedule if mentioned."
+    suffix = (
+        " Cover: (1) what was discussed, (2) each speaker's key commitment or action,"
+        " (3) next meeting or follow-up schedule if mentioned."
+    )
     if words < 200:    return "summary: 3 concise bullet points." + suffix
     elif words < 600:  return "summary: 5 bullet points covering ALL key topics." + suffix
     elif words < 1200: return "summary: 7 bullet points covering every topic and decision." + suffix
@@ -149,6 +152,20 @@ Return ONLY valid JSON. No markdown, no backticks, no explanation.
 Rules:
 - full_summary: 2–4 sentences of plain narrative prose. No lists. Describe the meeting outcome clearly.
 - {_summary_instruction(text)}
+- tone classification rules (per speaker — analyze ALL their lines combined):
+    * aggressive   = threats, ultimatums, "unacceptable", "must do", "I demand", raised complaints, forceful language. tone_intensity 4-5
+    * assertive    = direct commands, strong opinions, pushing deadlines, firm requests. tone_intensity 3-4
+    * neutral      = standard professional meeting language, no strong emotional markers. tone_intensity 2-3
+    * cooperative  = "Great", "Perfect", "Happy to", enthusiasm, agreement, positive energy. tone_intensity 2-3
+    * deferential  = "yes sir", "of course", "as you wish", excessive agreement, submissive phrasing, over-polite. tone_intensity 1-2
+    * hesitant     = vague answers, soft rejections, "maybe", "I will check", avoiding commitment. tone_intensity 1-3
+    tone_intensity: 1=very soft, 2=mild, 3=moderate, 4=strong, 5=very intense
+    tone_label: short phrase describing their style e.g. "Firm and deadline-driven", "Overly agreeable, avoids pushback"
+- sentiment scoring rules:
+    * positive = speaker uses enthusiasm words: Great, Perfect, Thanks, Excellent, works perfectly, Happy to, Love to, Glad, Wonderful, Sure, Absolutely
+    * negative = frustration, disappointment, complaint, concern, disagreement
+    * neutral = formal/professional tone with no clear positive or negative markers (default for Japanese speakers)
+    * English speakers who say "Great", "Perfect", "works perfectly" MUST be scored positive, not neutral
 - owner/speaker/name: FIRST NAME ONLY. No roles. No (Director). No (PM).
 - List ALL speakers found in transcript — do not skip any
 - action_items: every explicit task, commitment, and scheduled meeting or follow-up (include meeting attendees as owner "All" or "Both" when everyone must attend)
@@ -655,11 +672,18 @@ def _validate_and_fill(data: dict) -> dict:
 
     speakers = data["speakers"]
     if speakers:
+        for s in speakers:
+            s.setdefault("tone", "neutral")
+            s.setdefault("tone_label", "Professional tone")
+            s.setdefault("tone_intensity", 3)
+            # Normalize tone value
+            valid_tones = {"aggressive","assertive","neutral","cooperative","deferential","hesitant"}
+            if s.get("tone","").lower() not in valid_tones:
+                s["tone"] = "neutral"
         total = sum(s.get("talk_time_pct", 0) for s in speakers)
         if total > 0 and total != 100:
             for s in speakers:
                 s["talk_time_pct"] = round(s.get("talk_time_pct", 0) * 100 / total)
-        # If total is still 0 (all malformed), distribute equally
         if sum(s.get("talk_time_pct", 0) for s in speakers) == 0:
             equal = round(100 / len(speakers))
             for s in speakers:
