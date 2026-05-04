@@ -526,108 +526,88 @@ div[data-testid="stAlert"][data-baseweb="notification"] {
     position: relative;
 }
 
-/* ── Hide Streamlit default header/toolbar ───────────────────────────────── */
-[data-testid="stToolbar"],
-[data-testid="stDecoration"],
-header[data-testid="stHeader"] {
-    display: none !important;
-}
-
-/* ── Translucent Navbar ───────────────────────────────────────────────────── */
-#transcriptai-navbar {
+/* ── Navbar ──────────────────────────────────────────────────────────────── */
+#tai-nav {
     position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
+    top: 0; left: 0; right: 0;
     z-index: 999999;
-    height: 52px;
-    background: rgba(250, 246, 242, 0.82);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border-bottom: 1px solid rgba(239, 226, 216, 0.7);
+    height: 50px;
+    background: rgba(250,246,242,0.88);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-bottom: 1px solid rgba(239,226,216,0.8);
     display: flex;
     align-items: center;
-    padding: 0 1.4rem;
-    gap: 1rem;
+    padding: 0 1.2rem;
+    gap: 0.8rem;
+    font-family: 'DM Sans', sans-serif;
 }
-#transcriptai-navbar .nav-hamburger {
+#tai-hbg {
     display: flex;
     flex-direction: column;
-    gap: 4.5px;
+    gap: 4px;
     cursor: pointer;
-    padding: 6px 8px;
+    padding: 7px 8px;
     border-radius: 6px;
     transition: background 0.15s;
     flex-shrink: 0;
+    border: none;
+    background: transparent;
 }
-#transcriptai-navbar .nav-hamburger:hover {
-    background: rgba(217, 96, 128, 0.10);
-}
-#transcriptai-navbar .nav-hamburger span {
+#tai-hbg:hover { background: rgba(217,96,128,0.12); }
+#tai-hbg span {
     display: block;
-    width: 20px;
+    width: 18px;
     height: 2px;
     background: #3C2416;
     border-radius: 2px;
-    transition: all 0.2s;
 }
-#transcriptai-navbar .nav-logo {
-    font-family: 'DM Sans', sans-serif;
-    font-size: 0.95rem;
+.tai-brand {
+    font-size: 0.92rem;
     font-weight: 600;
     color: #3C2416;
-    letter-spacing: -0.01em;
     flex-shrink: 0;
 }
-#transcriptai-navbar .nav-dot {
+.tai-dot {
     color: #D96080;
-    margin: 0 0.1rem;
+    font-size: 0.9rem;
+    flex-shrink: 0;
 }
-#transcriptai-navbar .nav-links {
+.tai-links {
     display: flex;
     align-items: center;
-    gap: 0.2rem;
-    margin-left: 0.5rem;
+    gap: 0;
     flex: 1;
 }
-#transcriptai-navbar .nav-link {
-    font-family: 'DM Sans', sans-serif;
-    font-size: 0.8rem;
-    font-weight: 400;
+.tai-lnk {
+    font-size: 0.78rem;
     color: #7A5040;
-    padding: 0.3rem 0.7rem;
+    padding: 0.28rem 0.65rem;
     border-radius: 6px;
-    cursor: default;
+    cursor: pointer;
     transition: background 0.15s, color 0.15s;
     white-space: nowrap;
 }
-#transcriptai-navbar .nav-link:hover {
-    background: rgba(217,96,128,0.08);
+.tai-lnk:hover {
+    background: rgba(217,96,128,0.09);
     color: #D96080;
 }
-#transcriptai-navbar .nav-badge {
-    font-family: 'DM Sans', sans-serif;
-    font-size: 0.68rem;
+.tai-badge {
+    font-size: 0.66rem;
     font-weight: 600;
     color: #486858;
     background: rgba(72,104,88,0.10);
-    border: 1px solid rgba(72,104,88,0.20);
+    border: 1px solid rgba(72,104,88,0.22);
     padding: 0.15rem 0.55rem;
     border-radius: 999px;
     margin-left: auto;
-    white-space: nowrap;
     flex-shrink: 0;
+    white-space: nowrap;
 }
-
-/* Push main content down so navbar doesn't overlap */
-.block-container {
-    padding-top: 4rem !important;
-}
-
-/* ── Sidebar collapsed control — hidden (navbar hamburger handles this) ───── */
-[data-testid="collapsedControl"] {
-    display: none !important;
-}
+/* Push content below navbar */
+.block-container { padding-top: 3.8rem !important; }
+/* Hide Streamlit's own collapsed control — our hamburger handles it */
+[data-testid="collapsedControl"] { display: none !important; }
 
 /* Previous session card */
 .prev-session-card {
@@ -681,38 +661,28 @@ for k, v in [
     if k not in st.session_state:
         st.session_state[k] = v
 
-# ── Navbar injection ─────────────────────────────────────────────────────────
-_sidebar_btn_sel = '[data-testid="stSidebarCollapseButton"] button'
-_collapsed_sel   = '[data-testid="collapsedControl"]'
-_navbar_js = (
-    "<script>(function(){"
-    "var s1='" + r'[data-testid="stSidebarCollapseButton"] button' + "';"
-    "var s2='" + r'[data-testid="collapsedControl"]' + "';"
-    "function toggle(){"
-    "var c=document.querySelector(s1);if(c){c.click();return;}"
-    "var d=document.querySelector(s2);if(d){d.click();return;}}"
-    "function attach(){"
-    "var h=document.getElementById('nav-hamburger');"
-    "if(h){h.onclick=toggle;}else{setTimeout(attach,400);}}"
-    "setTimeout(attach,600);"
-    "})();</script>"
-)
-_navbar_body = (
-    "<div id='transcriptai-navbar'>"
-    "<div class='nav-hamburger' id='nav-hamburger'>"
+
+
+# ── Navbar ───────────────────────────────────────────────────────────────────
+st.markdown(
+    "<div id='tai-nav'>"
+    "<div id='tai-hbg' onclick='taiToggle()'>"
     "<span></span><span></span><span></span>"
     "</div>"
-    "<div class='nav-logo'>TranscriptAI <span class='nav-dot'>&middot;</span></div>"
-    "<div class='nav-links'>"
-    "<span class='nav-link'>Analyze</span>"
-    "<span class='nav-link'>History</span>"
-    "<span class='nav-link'>Trends</span>"
-    "<span class='nav-link'>Evaluate</span>"
+    "<span class='tai-brand'>TranscriptAI</span>"
+    "<span class='tai-dot'>&middot;</span>"
+    "<div class='tai-links'>"
+    "<span class='tai-lnk'>Analyze</span>"
+    "<span class='tai-lnk'>History</span>"
+    "<span class='tai-lnk'>Trends</span>"
+    "<span class='tai-lnk'>Evaluate</span>"
     "</div>"
-    "<div class='nav-badge'>&#10003; APPI Compliant</div>"
-    "</div>"
+    "<div class='tai-badge'>&#10003; APPI Compliant</div>"
+    "</div>",
+    unsafe_allow_html=True,
 )
-st.markdown(_navbar_body + _navbar_js, unsafe_allow_html=True)
+_tai_js = "<script>function taiToggle(){"     + "var a=document.querySelector('[data-testid=' + String.fromCharCode(34) + 'stSidebarCollapseButton' + String.fromCharCode(34) + '] button');"     + "if(a){a.click();return;}"     + "var b=document.querySelector('[data-testid=' + String.fromCharCode(34) + 'collapsedControl' + String.fromCharCode(34) + ']');"     + "if(b){b.click();return;}"     + "}"     + "document.getElementById('tai-hbg').onclick=taiToggle;"     + "</script>"
+st.markdown(_tai_js, unsafe_allow_html=True)
 
 # ────────────────────────────────────────────────────────────────────────────
 # SIDEBAR
