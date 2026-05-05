@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 
 # Fix 3: Use full JMnedict-derived database (500+ surnames, ~95% population coverage)
 try:
-    from japanese_names import JAPANESE_SURNAMES_FULL as JAPANESE_SURNAMES
+    from utils.japanese_names import JAPANESE_SURNAMES_FULL as JAPANESE_SURNAMES
 except ImportError:
     JAPANESE_SURNAMES = {
         "佐藤","鈴木","高橋","田中","渡辺","伊藤","山本","中村","小林","加藤",
