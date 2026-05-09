@@ -662,13 +662,19 @@ for k, v in [
     if k not in st.session_state:
         st.session_state[k] = v
 
-# ── Groq warmup on cold start ─────────────────────────────────────────────────
-# Fires a tiny background request on first load so the first real analysis
-# is instant instead of paying the connection setup cost.
+# ── Cold start: Groq warmup + sample transcript pre-cache ────────────────────
 if not st.session_state.groq_warmed:
     import threading
-    def _warmup():
+
+    def _cold_start_tasks():
+        """
+        Runs in background on first app load:
+        1. Warms Groq TCP connection
+        2. Pre-caches sample transcript in vector DB if not already stored
+        Both tasks are silent — never block the app.
+        """
         try:
+            # Task 1: Groq warmup
             import os, requests as _r
             key = os.getenv("GROQ_API_KEY","")
             if not key:
@@ -687,8 +693,25 @@ if not st.session_state.groq_warmed:
                     timeout=8
                 )
         except Exception:
-            pass   # warmup failure is silent — never blocks the app
-    threading.Thread(target=_warmup, daemon=True).start()
+            pass
+
+        try:
+            # Task 2: Pre-cache sample transcript
+            # If already in vector store — nothing happens (upsert is idempotent)
+            # If not — analyze it once so "Load sample" is always instant
+            from utils.vector_cache import get_cached_result, store_result, is_available
+            if is_available() and key:
+                cached = get_cached_result(SAMPLE_TRANSCRIPT, "mixed")
+                if not cached:
+                    # Run analysis and store — background, no rush
+                    from analysis.analyzer import analyze_transcript as _analyze
+                    result = _analyze(SAMPLE_TRANSCRIPT, "mixed")
+                    if "mock" not in result.get("_provider",""):
+                        store_result(SAMPLE_TRANSCRIPT, "mixed", result)
+        except Exception:
+            pass
+
+    threading.Thread(target=_cold_start_tasks, daemon=True).start()
     st.session_state.groq_warmed = True
 
 
@@ -778,6 +801,24 @@ with st.sidebar:
                 st.rerun()
 
     st.markdown("<hr style='border:none; border-top:1px solid #EDE0D8; margin:1rem 0;'/>", unsafe_allow_html=True)
+
+    # Vector cache status
+    try:
+        from utils.vector_cache import get_cache_stats
+        vc = get_cache_stats()
+        if vc.get("available"):
+            n = vc.get("transcript_count", 0)
+            st.markdown(
+                f"<div style='font-size:0.74rem; color:#486858; background:#EDF3EF; "
+                f"border:1px solid #A8C8B8; border-radius:6px; padding:0.4rem 0.7rem; "
+                f"margin-bottom:0.8rem;'>"
+                f"⚡ Vector cache · {n} transcript{'s' if n!=1 else ''} stored"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+    except Exception:
+        pass
+
     with st.expander("About"):
         st.markdown("""
 **TranscriptAI** turns any meeting or speech recording into structured intelligence — summaries, action items, speaker sentiment, and communication risk signals.
@@ -949,7 +990,12 @@ if run_analysis and final_text:
 
     provider = results.get("_provider", "")
     duration = results.get("_duration_ms", 0)
-    if "mock" in provider:
+
+    # Vector cache hit — show instant load message
+    if results.get("_from_vector_cache"):
+        sim = results.get("_cache_similarity", 0)
+        st.success(f"⚡ Loaded from vector cache · {sim:.0%} match · instant")
+    elif "mock" in provider:
         msgs = {
             "no_key":  "No API key — add GROQ_API_KEY for real analysis.",
             "timeout": "Analysis timed out. Try a shorter transcript.",

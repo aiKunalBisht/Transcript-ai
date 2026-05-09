@@ -499,21 +499,37 @@ def _mock_response(text: str, reason: str = "") -> dict:
 
 def analyze_transcript(text: str, language: str = "en") -> dict:
     """
-    Full analysis pipeline v6:
-    1. Cache check (instant return for repeated transcripts)
-    2. Provider fallback: Groq → Ollama → Mock
-    3. Schema enforcement + parsing
-    4. Speaker normalization (Fix 1)
-    5. MeCab keigo (Fix: wired in)
-    6. Rule-based code-switch
-    7. Semantic validation (Fix: TF-IDF rescues false flags)
-    8. Hallucination guard (rule-based)
-    9. Soft rejection detection
-    10. Logging
+    Full analysis pipeline v7 — Vector Cache Primary:
+    1. Vector cache check (ChromaDB semantic similarity — instant return)
+    2. MD5 exact cache check (legacy fallback)
+    3. Provider fallback: Groq → Ollama → Mock
+    4. Schema enforcement + parsing
+    5. Speaker normalization
+    6. MeCab keigo
+    7. Rule-based code-switch
+    8. Semantic validation
+    9. Hallucination guard
+    10. Soft rejection detection
+    11. Store in vector cache + MD5 cache + log
     """
     start_time = time.time()
 
-    # Step 1: Cache check
+    # Step 1: Vector cache — semantic similarity search
+    # Returns instantly if same or very similar transcript was analyzed before
+    vector_cache_available = False
+    try:
+        from utils.vector_cache import get_cached_result, store_result, is_available
+        vector_cache_available = is_available()
+        if vector_cache_available:
+            cached = get_cached_result(text, language)
+            if cached:
+                cached["_from_vector_cache"] = True
+                return cached
+    except ImportError:
+        store_result = None
+        vector_cache_available = False
+
+    # Step 2: MD5 exact cache (legacy — kept as secondary)
     try:
         from utils.cache import get_cached, set_cache
         cached = get_cached(text, language)
@@ -612,12 +628,21 @@ def analyze_transcript(text: str, language: str = "en") -> dict:
     except ImportError:
         pass
 
-    # Cache successful results
-    if set_cache and "mock" not in provider_used:
-        try:
-            set_cache(text, language, result)
-        except Exception:
-            pass
+    # Store in vector cache (primary) + MD5 cache (secondary)
+    if "mock" not in provider_used:
+        # Vector cache — stores embedding for semantic similarity future lookups
+        if vector_cache_available:
+            try:
+                from utils.vector_cache import store_result as _sv
+                _sv(text, language, result)
+            except Exception:
+                pass
+        # MD5 exact cache — legacy
+        if set_cache:
+            try:
+                set_cache(text, language, result)
+            except Exception:
+                pass
 
     return result
 
