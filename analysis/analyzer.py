@@ -18,18 +18,30 @@ import re
 import time
 import requests
 
-# LangChain — primary orchestration layer
-try:
-    from langchain_groq import ChatGroq
+# LangChain — lazy loaded on first use to avoid cold start penalty
+# Heavy import (~1.5s) deferred until actually needed
+LANGCHAIN_AVAILABLE = None   # None = unchecked, True/False = checked
+
+def _ensure_langchain():
+    global LANGCHAIN_AVAILABLE, ChatGroq, LangChainOllama, HumanMessage, StrOutputParser
+    if LANGCHAIN_AVAILABLE is not None:
+        return LANGCHAIN_AVAILABLE
     try:
-        from langchain_ollama import OllamaLLM as LangChainOllama
+        from langchain_groq import ChatGroq as _ChatGroq
+        try:
+            from langchain_ollama import OllamaLLM as _Ollama
+        except ImportError:
+            from langchain_community.llms import Ollama as _Ollama
+        from langchain_core.messages import HumanMessage as _HM
+        from langchain_core.output_parsers import StrOutputParser as _SOP
+        ChatGroq        = _ChatGroq
+        LangChainOllama = _Ollama
+        HumanMessage    = _HM
+        StrOutputParser = _SOP
+        LANGCHAIN_AVAILABLE = True
     except ImportError:
-        from langchain_community.llms import Ollama as LangChainOllama
-    from langchain_core.messages import HumanMessage
-    from langchain_core.output_parsers import StrOutputParser
-    LANGCHAIN_AVAILABLE = True
-except ImportError:
-    LANGCHAIN_AVAILABLE = False
+        LANGCHAIN_AVAILABLE = False
+    return LANGCHAIN_AVAILABLE
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 PROVIDER     = os.getenv("TRANSCRIPT_AI_PROVIDER", "auto")
@@ -284,10 +296,11 @@ def _call_ollama(prompt: str, max_tokens: int) -> str:
 
 def _call_groq_langchain(prompt: str, max_tokens: int) -> str:
     """
-    Primary LLM call via LangChain ChatGroq.
-    V3 FIX: Added 25s timeout + json_object response format to prevent
-    silent fallback to Ollama on slow responses or non-JSON output.
+    LangChain ChatGroq — fallback only (raw requests.post is primary).
+    Lazy-loaded to avoid cold start penalty.
     """
+    if not _ensure_langchain():
+        raise ImportError("LangChain not available")
     api_key = _get_groq_key()
     if not api_key:
         raise ValueError("NO_GROQ_KEY")
@@ -308,9 +321,10 @@ def _call_groq_langchain(prompt: str, max_tokens: int) -> str:
 
 def _call_ollama_langchain(prompt: str, max_tokens: int) -> str:
     """
-    Ollama call via LangChain for fully local inference.
-    Zero data leaves the machine — APPI data residency guarantee.
+    Ollama call via LangChain — lazy-loaded.
     """
+    if not _ensure_langchain():
+        raise ImportError("LangChain not available")
     llm = LangChainOllama(
         base_url=OLLAMA_URL.replace("/api/generate", ""),
         model=OLLAMA_MODEL,
@@ -371,7 +385,9 @@ def _try_providers(prompt: str, max_tokens: int) -> tuple[str, str]:
 
     if PROVIDER == "auto":
         if _get_groq_key():
-            providers_to_try = [("groq", _call_groq), ("ollama", _call_ollama)]
+            # COLD START FIX: skip Ollama entirely when Groq key is present
+            # Ollama 90s timeout was causing 2-3 attempt issue on cold start
+            providers_to_try = [("groq", _call_groq)]
         else:
             providers_to_try = [("ollama", _call_ollama)]
     elif PROVIDER == "groq":
@@ -402,7 +418,7 @@ def _try_providers(prompt: str, max_tokens: int) -> tuple[str, str]:
                             except Exception:
                                 pass
                         raise groq_err  # both failed — move to next provider
-                elif LANGCHAIN_AVAILABLE and name == "ollama":
+                elif _ensure_langchain() and name == "ollama":
                     try:
                         raw = _call_ollama_langchain(prompt, max_tokens)
                         return raw, f"{name}_langchain"
