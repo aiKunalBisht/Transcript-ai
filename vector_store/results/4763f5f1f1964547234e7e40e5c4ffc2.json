@@ -1,0 +1,204 @@
+{
+  "full_summary": "Yamamoto and Sarah discussed the Q3 proposal and budget adjustments. Yamamoto confirmed the budget would be finalized by Thursday, and Sarah committed to sending the revised contract by Wednesday. They agreed to meet again on Monday at 10am JST.",
+  "summary": [
+    "The team reviewed the Q3 proposal and discussed necessary budget adjustments.",
+    "Yamamoto will finalize the budget by Thursday, and Sarah will send the revised contract by Wednesday.",
+    "They scheduled a follow-up meeting for Monday at 10am JST."
+  ],
+  "action_items": [
+    {
+      "task": "Finalize budget",
+      "owner": "Yamamoto",
+      "deadline": "Thursday",
+      "confidence": 0.6,
+      "grounding": {
+        "task_token_overlap": 0.5,
+        "task_semantic": null,
+        "task_effective": 0.5,
+        "owner_score": 1.0,
+        "deadline_score": 0.0
+      },
+      "hallucination_flag": false,
+      "semantic_grounding": 0.49
+    },
+    {
+      "task": "Send revised contract",
+      "owner": "Sarah",
+      "deadline": "Wednesday",
+      "confidence": 0.9,
+      "grounding": {
+        "task_token_overlap": 1.0,
+        "task_semantic": null,
+        "task_effective": 1.0,
+        "owner_score": 1.0,
+        "deadline_score": 0.0
+      },
+      "hallucination_flag": false,
+      "semantic_grounding": 0.289
+    },
+    {
+      "task": "Follow-up meeting",
+      "owner": "All",
+      "deadline": "Monday",
+      "confidence": 0.1,
+      "grounding": {
+        "task_token_overlap": 0.0,
+        "task_semantic": null,
+        "task_effective": 0.0,
+        "owner_score": 0.0,
+        "deadline_score": 1.0
+      },
+      "hallucination_flag": false,
+      "flag_reason": null,
+      "semantic_grounding": 0.296,
+      "rescued_by": "semantic_validation"
+    }
+  ],
+  "sentiment": [
+    {
+      "speaker": "Yamamoto",
+      "score": "neutral",
+      "label": "Professional and straightforward"
+    },
+    {
+      "speaker": "Sarah",
+      "score": "positive",
+      "label": "Enthusiastic and cooperative"
+    }
+  ],
+  "speakers": [
+    {
+      "name": "Yamamoto",
+      "talk_time_pct": 40,
+      "tone": "neutral",
+      "tone_label": "Professional tone",
+      "tone_intensity": 3
+    },
+    {
+      "name": "Sarah",
+      "talk_time_pct": 60,
+      "tone": "neutral",
+      "tone_label": "Professional tone",
+      "tone_intensity": 3
+    }
+  ],
+  "japan_insights": {
+    "keigo_level": "medium",
+    "nemawashi_signals": [],
+    "code_switch_count": 9,
+    "keigo_source": "mecab",
+    "code_switch_source": "rule_based"
+  },
+  "verification": {
+    "action_items": {
+      "verified": [
+        {
+          "task": "Finalize budget",
+          "owner": "Yamamoto",
+          "deadline": "Thursday",
+          "confidence": 0.6,
+          "grounding": {
+            "task_token_overlap": 0.5,
+            "task_semantic": null,
+            "task_effective": 0.5,
+            "owner_score": 1.0,
+            "deadline_score": 0.0
+          },
+          "hallucination_flag": false,
+          "semantic_grounding": 0.49
+        },
+        {
+          "task": "Send revised contract",
+          "owner": "Sarah",
+          "deadline": "Wednesday",
+          "confidence": 0.9,
+          "grounding": {
+            "task_token_overlap": 1.0,
+            "task_semantic": null,
+            "task_effective": 1.0,
+            "owner_score": 1.0,
+            "deadline_score": 0.0
+          },
+          "hallucination_flag": false,
+          "semantic_grounding": 0.289
+        }
+      ],
+      "flagged": [
+        {
+          "task": "Follow-up meeting",
+          "owner": "All",
+          "deadline": "Monday",
+          "confidence": 0.1,
+          "grounding": {
+            "task_token_overlap": 0.0,
+            "task_semantic": null,
+            "task_effective": 0.0,
+            "owner_score": 0.0,
+            "deadline_score": 1.0
+          },
+          "hallucination_flag": false,
+          "flag_reason": null,
+          "semantic_grounding": 0.296,
+          "rescued_by": "semantic_validation"
+        }
+      ],
+      "total": 3,
+      "verified_count": 2,
+      "flagged_count": 1,
+      "avg_confidence": 0.533,
+      "hallucination_rate": 0.333
+    },
+    "summary": {
+      "verified": [
+        {
+          "text": "The team reviewed the Q3 proposal and discussed necessary budget adjustments.",
+          "grounding_score": 0.25,
+          "hallucination_flag": false
+        },
+        {
+          "text": "Yamamoto will finalize the budget by Thursday, and Sarah will send the revised contract by Wednesday.",
+          "grounding_score": 0.778,
+          "hallucination_flag": false
+        },
+        {
+          "text": "They scheduled a follow-up meeting for Monday at 10am JST.",
+          "grounding_score": 0.5,
+          "hallucination_flag": false
+        }
+      ],
+      "flagged": [],
+      "verified_count": 3,
+      "flagged_count": 0,
+      "total": 3
+    },
+    "sentiment_speakers": {
+      "verified": [
+        {
+          "speaker": "Yamamoto",
+          "score": "neutral",
+          "label": "Professional and straightforward",
+          "speaker_grounding": 1.0,
+          "hallucination_flag": false
+        },
+        {
+          "speaker": "Sarah",
+          "score": "positive",
+          "label": "Enthusiastic and cooperative",
+          "speaker_grounding": 1.0,
+          "hallucination_flag": false
+        }
+      ],
+      "flagged": [],
+      "verified_count": 2,
+      "flagged_count": 0
+    },
+    "overall_hallucination_risk": 0.125,
+    "risk_label": "LOW",
+    "flagged_total": 1,
+    "total_claims": 8,
+    "note": "Items with hallucination_flag=True are low-confidence — verify manually"
+  },
+  "soft_rejections": {
+    "detected": [
+      {
+        "phrase": 
