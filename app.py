@@ -526,42 +526,19 @@ div[data-testid="stAlert"][data-baseweb="notification"] {
     position: relative;
 }
 
-/* ── Hamburger button ─────────────────────────────────────────────────────── */
-#tai-hbg {
-    position: fixed;
-    top: 14px;
-    left: 16px;
-    z-index: 999999;
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    cursor: pointer;
-    padding: 8px 9px;
-    border-radius: 8px;
-    background: rgba(250,246,242,0.92);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border: 1px solid rgba(239,226,216,0.9);
-    box-shadow: 0 2px 8px rgba(60,36,22,0.08);
-    transition: background 0.15s, box-shadow 0.15s;
-}
-#tai-hbg:hover {
-    background: rgba(217,96,128,0.10);
-    box-shadow: 0 2px 12px rgba(217,96,128,0.18);
-}
-#tai-hbg span {
-    display: block;
-    width: 18px;
-    height: 2px;
-    background: #3C2416;
-    border-radius: 2px;
-    transition: transform 0.2s ease, opacity 0.15s ease;
-}
-#tai-hbg.tai-open span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
-#tai-hbg.tai-open span:nth-child(2) { opacity: 0; transform: scaleX(0); }
-#tai-hbg.tai-open span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
-/* Hide Streamlit's own collapsed control — hamburger handles it */
+/* ── Hide Streamlit collapsed control — hamburger component handles it ────── */
 [data-testid="collapsedControl"] { display: none !important; }
+/* Remove iframe border from hamburger component */
+iframe[title="streamlit_components_v1_html"] {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 44px !important;
+    height: 44px !important;
+    z-index: 999999 !important;
+    border: none !important;
+    background: transparent !important;
+}
 
 /* Previous session card */
 .prev-session-card {
