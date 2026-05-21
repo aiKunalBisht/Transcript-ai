@@ -593,18 +593,21 @@ def _mock_response(text: str, reason: str = "") -> dict:
     }
 
 
-def analyze_transcript(text: str, language: str = "en") -> dict:
+def analyze_transcript(text: str, language: str = "en", bypass_cache: bool = False) -> dict:
     """
-    Full analysis pipeline v7.1
+    Full analysis pipeline v7.2
+    bypass_cache=True skips vector + MD5 cache — used by the eval tab so
+    each test case gets a fresh independent result instead of the same
+    cached result for all three cases (which caused 93.8% across the board).
     """
     start_time = time.time()
 
-    # Step 1: Vector cache
+    # Step 1: Vector cache (skipped when bypass_cache=True)
     vector_cache_available = False
     try:
         from utils.vector_cache import get_cached_result, store_result, is_available
         vector_cache_available = is_available()
-        if vector_cache_available:
+        if vector_cache_available and not bypass_cache:
             cached = get_cached_result(text, language)
             if cached:
                 cached["_from_vector_cache"] = True
@@ -613,13 +616,14 @@ def analyze_transcript(text: str, language: str = "en") -> dict:
         store_result = None
         vector_cache_available = False
 
-    # Step 2: MD5 exact cache
+    # Step 2: MD5 exact cache (skipped when bypass_cache=True)
     try:
         from utils.cache import get_cached, set_cache
-        cached = get_cached(text, language)
-        if cached:
-            cached["_from_cache"] = True
-            return cached
+        if not bypass_cache:
+            cached = get_cached(text, language)
+            if cached:
+                cached["_from_cache"] = True
+                return cached
     except ImportError:
         get_cached = set_cache = None
 

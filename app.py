@@ -1653,7 +1653,11 @@ if st.session_state.results:
 
             if st.button("Run evaluation →"):
                 with st.spinner("Evaluating…"):
-                    pred   = analyze_transcript(tc["transcript"], tc["language"])
+                    pred   = analyze_transcript(
+                        tc["transcript"],
+                        tc["language"],
+                        bypass_cache=True  # always fresh — prevents all 3 cases returning same cached result
+                    )
                     report = evaluate(pred, tc["ground_truth"], tc["transcript"])
 
                 overall = report.get("overall_score", 0)
