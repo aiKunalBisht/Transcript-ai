@@ -85,3 +85,8 @@ cache/mlflow.db
 mlruns/
 mlflow.db-shm
 mlflow.db-wal
+vector_store/results/*
+*.db
+mlflow.db
+*.db
+mlruns/
