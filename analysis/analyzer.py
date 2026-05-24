@@ -255,7 +255,7 @@ def _call_groq(prompt: str, max_tokens: int) -> str:
                 json={
                     "model": GROQ_MODEL,
                     "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.2,
+                    "temperature": 0.1,
                     "max_tokens": max_tokens,
                     "response_format": {"type": "json_object"},
                 },
@@ -299,7 +299,7 @@ TRANSCRIPT:
             json={
                 "model":    GROQ_MODEL,
                 "messages": [{"role": "user", "content": stream_prompt}],
-                "temperature": 0.3,
+                "temperature": 0.2,
                 "max_tokens":  1000,
                 "stream":   True,
             },
@@ -330,7 +330,7 @@ def _call_ollama(prompt: str, max_tokens: int) -> str:
             "prompt":  prompt,
             "stream":  False,
             "format":  "json",
-            "options": {"temperature": 0.2, "num_predict": max_tokens},
+            "options": {"temperature": 0.1, "num_predict": max_tokens},
             "think":   False
         },
         timeout=90
@@ -349,7 +349,7 @@ def _call_groq_langchain(prompt: str, max_tokens: int) -> str:
     llm = ChatGroq(
         api_key=api_key,
         model=GROQ_MODEL,
-        temperature=0.2,
+        temperature=0.1,
         max_tokens=max_tokens,
         timeout=25,
         model_kwargs={"response_format": {"type": "json_object"}},
@@ -366,7 +366,7 @@ def _call_ollama_langchain(prompt: str, max_tokens: int) -> str:
     llm = LangChainOllama(
         base_url=OLLAMA_URL.replace("/api/generate", ""),
         model=OLLAMA_MODEL,
-        temperature=0.2,
+        temperature=0.1,
         num_predict=max_tokens,
         format="json",
     )
@@ -505,7 +505,7 @@ def _groq_demo_summary(text: str) -> str:
                         f"{text[:1200]}"
                     )
                 }],
-                "temperature": 0.2,
+                "temperature": 0.1,
                 "max_tokens": 120,
             },
             timeout=12

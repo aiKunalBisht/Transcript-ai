@@ -90,3 +90,4 @@ vector_store/results/*
 mlflow.db
 *.db
 mlruns/
+.devcontainer/
