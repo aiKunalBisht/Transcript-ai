@@ -1,40 +1,24 @@
 """
-app.py — TranscriptAI  v7.2
+app.py — TranscriptAI  v7.1
 Japanese Business Intelligence Platform
 
 Run: python -m streamlit run app.py
 
-v7.2 FIXES:
-  FIX-CRITICAL: st.set_page_config() moved to FIRST st.* call — before ALL
-                other imports and before the SEO st.markdown(). This was the
-                root cause of StreamlitAPIException on HF Spaces cold start.
-  FIX-A: _cold_start_tasks no longer calls st.secrets inside a background thread.
-  FIX-B: Mock warning block shows actual reason from _last_error.
-  FIX-C: Debug expander under warning for provider status visibility.
+v7.1 FIXES (app.py side):
+  FIX-A: _cold_start_tasks no longer calls st.secrets inside a background thread
+  FIX-B: Mock warning block now checks _last_error from results
+  FIX-C: Added a small debug expander under the warning
+  FIX-D: Moved build_results_html + helpers ABOVE the call site (NameError fix)
+  FIX-E: Split footer into two st.markdown() calls (truncation fix from v2)
 """
-
-# ── Step 1: stdlib only — no st.* yet ───────────────────────────────────────
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import time
 from datetime import datetime
-
-# ── Step 2: import streamlit ─────────────────────────────────────────────────
 import streamlit as st
-
-# ── Step 3: set_page_config — MUST be the very first st.* call ──────────────
-st.set_page_config(
-    page_title="TranscriptAI · Speech & Meeting Analyzer",
-    page_icon="🎙️",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
-# ── Step 4: ALL other imports come after set_page_config ────────────────────
 from analysis import analyze_transcript
-from utils.html_renderer import build_results_html
 from utils import (
     add_to_history, build_export_json, clean_text, detect_language,
     export_filename, format_history_label, language_display_name, parse_uploaded_file,
@@ -96,11 +80,11 @@ except ImportError:
     def get_features(lang):
         has_ja = lang in ("ja", "mixed")
         return {
-            "show_japan_insights":    has_ja,
-            "show_hindi_insights":    lang == "hi",
-            "show_english_insights":  lang == "en",
+            "show_japan_insights": has_ja,
+            "show_hindi_insights": lang == "hi",
+            "show_english_insights": lang == "en",
             "show_bilingual_insights": lang == "mixed" and not has_ja,
-            "show_code_switch":       has_ja,
+            "show_code_switch": has_ja,
             "insight_tab_label": (
                 "🔍 Communication Intelligence" if has_ja else
                 "💬 English Analysis"           if lang == "en" else
@@ -110,7 +94,7 @@ except ImportError:
             "insight_tab_enabled": True,
         }
 
-# ── Step 5: SEO tags — safe here, AFTER set_page_config ─────────────────────
+# ── SEO + preconnect head tags ───────────────────────────────────────────────
 st.markdown("""
 <head>
   <meta name="description" content="TranscriptAI — Japanese meeting intelligence. Extracts action items, keigo formality, soft rejections, and speaker sentiment from JA/EN/HI transcripts. APPI compliant.">
@@ -122,6 +106,14 @@ st.markdown("""
   <link rel="preconnect" href="https://api.groq.com">
 </head>
 """, unsafe_allow_html=True)
+
+# ── Page config ──────────────────────────────────────────────────────────────
+st.set_page_config(
+    page_title="TranscriptAI · Speech & Meeting Analyzer",
+    page_icon="🎙️",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
 # ── CSS — warm sakura/peach palette ─────────────────────────────────────────
 st.markdown("""
@@ -161,6 +153,7 @@ html, body, [class*="css"] {
     -webkit-font-smoothing: antialiased;
     scroll-behavior: smooth;
 }
+
 *, *::before, *::after {
     transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -240,7 +233,9 @@ section.main > div,
     font-weight: 500 !important;
 }
 [data-testid="stFileUploader"] span,
-[data-testid="stFileUploader"] small { color: var(--ink-soft) !important; }
+[data-testid="stFileUploader"] small {
+    color: var(--ink-soft) !important;
+}
 
 textarea,
 .stTextArea textarea,
@@ -273,10 +268,15 @@ div[data-baseweb="select"] input {
     border-radius: 8px !important;
 }
 [data-testid="stSelectbox"] label { color: var(--ink-soft) !important; }
-li[role="option"] { background: var(--surface) !important; color: var(--ink) !important; }
+li[role="option"] {
+    background: var(--surface) !important;
+    color: var(--ink) !important;
+}
 li[role="option"]:hover { background: var(--sakura-pale) !important; }
 
-[data-testid="stToggle"] input:checked + div { background-color: var(--sakura) !important; }
+[data-testid="stToggle"] input:checked + div {
+    background-color: var(--sakura) !important;
+}
 
 .stButton > button {
     background: linear-gradient(135deg, var(--sakura) 0%, var(--sakura-deep) 100%) !important;
@@ -290,12 +290,23 @@ li[role="option"]:hover { background: var(--sakura-pale) !important; }
     letter-spacing: 0.02em !important;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
     box-shadow: 0 2px 8px rgba(217,96,128,0.30), 0 1px 2px rgba(217,96,128,0.20) !important;
+    position: relative !important;
+    overflow: hidden !important;
+}
+.stButton > button::after {
+    content: '' !important;
+    position: absolute !important;
+    inset: 0 !important;
+    background: linear-gradient(135deg, rgba(255,255,255,0.15) 0%, transparent 100%) !important;
+    opacity: 0 !important;
+    transition: opacity 0.2s !important;
 }
 .stButton > button:hover {
     background: linear-gradient(135deg, var(--sakura-deep) 0%, #A03050 100%) !important;
     box-shadow: 0 6px 20px rgba(217,96,128,0.40), 0 2px 6px rgba(217,96,128,0.25) !important;
     transform: translateY(-1px) !important;
 }
+.stButton > button:hover::after { opacity: 1 !important; }
 .stButton > button:active { transform: scale(0.97) translateY(0) !important; }
 
 [data-testid="stDownloadButton"] button {
@@ -355,7 +366,10 @@ li[role="option"]:hover { background: var(--sakura-pale) !important; }
     border-radius: 8px !important;
     background: var(--surface) !important;
 }
-[data-testid="stExpander"] summary { color: var(--ink-mid) !important; font-size: 0.85rem !important; }
+[data-testid="stExpander"] summary {
+    color: var(--ink-mid) !important;
+    font-size: 0.85rem !important;
+}
 [data-testid="stExpander"] summary:hover { color: var(--sakura) !important; }
 
 [data-testid="stSpinner"] > div { border-top-color: var(--sakura) !important; }
@@ -368,13 +382,16 @@ div[data-testid="stAlert"][data-baseweb="notification"] {
     color: var(--ink-mid) !important;
 }
 
-.stMarkdown p, .stMarkdown li, .stMarkdown span { color: var(--ink-mid) !important; }
+.stMarkdown p, .stMarkdown li, .stMarkdown span {
+    color: var(--ink-mid) !important;
+}
 
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
     background: linear-gradient(180deg, var(--sakura-light), var(--sakura));
     border-radius: 999px;
+    transition: background 0.2s;
 }
 ::-webkit-scrollbar-thumb:hover { background: var(--sakura-deep); }
 
@@ -385,13 +402,13 @@ div[data-testid="stAlert"][data-baseweb="notification"] {
     padding: 1.2rem 1.4rem;
     margin-bottom: 0.8rem;
     transition: border-color 0.25s, box-shadow 0.25s, transform 0.2s;
-    box-shadow: 0 1px 3px rgba(60,36,22,0.04);
+    box-shadow: 0 1px 3px rgba(60,36,22,0.04), 0 1px 2px rgba(60,36,22,0.03);
     contain: layout style;
     will-change: transform;
 }
 .card:hover {
     border-color: var(--sakura-light);
-    box-shadow: 0 4px 20px rgba(217,96,128,0.12);
+    box-shadow: 0 4px 20px rgba(217,96,128,0.12), 0 1px 4px rgba(60,36,22,0.05);
     transform: translateY(-1px);
 }
 
@@ -408,9 +425,20 @@ div[data-testid="stAlert"][data-baseweb="notification"] {
     contain: layout style;
     will-change: transform;
 }
-.metric-card:hover { box-shadow: 0 6px 20px rgba(217,96,128,0.13); transform: translateY(-2px); }
-.metric-value { font-size: 1.85rem; font-weight: 700; color: var(--sakura-deep); line-height: 1.1; letter-spacing: -0.02em; }
-.metric-label { font-size: 0.59rem; color: var(--ink-faint); text-transform: uppercase; letter-spacing: 0.13em; margin-top: 0.4rem; font-weight: 600; }
+.metric-card:hover {
+    box-shadow: 0 6px 20px rgba(217,96,128,0.13);
+    transform: translateY(-2px);
+}
+.metric-value {
+    font-size: 1.85rem; font-weight: 700;
+    color: var(--sakura-deep); line-height: 1.1;
+    letter-spacing: -0.02em;
+}
+.metric-label {
+    font-size: 0.59rem; color: var(--ink-faint);
+    text-transform: uppercase; letter-spacing: 0.13em; margin-top: 0.4rem;
+    font-weight: 600;
+}
 
 .sh {
     font-size: 0.67rem; font-weight: 700;
@@ -419,6 +447,10 @@ div[data-testid="stAlert"][data-baseweb="notification"] {
     padding-bottom: 0.45rem;
     border-bottom: 2px solid var(--border);
     display: flex; align-items: center; gap: 0.5rem;
+    background: linear-gradient(90deg, var(--ink-soft), var(--ink-faint));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
 }
 
 .action-row {
@@ -431,8 +463,15 @@ div[data-testid="stAlert"][data-baseweb="notification"] {
     transition: border-color 0.25s, box-shadow 0.25s, transform 0.2s;
     box-shadow: 0 1px 3px rgba(60,36,22,0.03);
 }
-.action-row:hover { border-left-color: var(--sakura-deep); box-shadow: 0 4px 16px rgba(217,96,128,0.12); transform: translateX(2px); }
-.action-row.flagged { border-left-color: var(--red); background: var(--red-bg); }
+.action-row:hover {
+    border-left-color: var(--sakura-deep);
+    box-shadow: 0 4px 16px rgba(217,96,128,0.12);
+    transform: translateX(2px);
+}
+.action-row.flagged {
+    border-left-color: var(--red);
+    background: var(--red-bg);
+}
 .action-task { font-weight: 500; color: var(--ink); font-size: 0.91rem; line-height: 1.5; }
 .action-meta { font-size: 0.78rem; color: var(--ink-soft); margin-top: 0.3rem; }
 .action-flag { font-size: 0.74rem; color: var(--red); margin-top: 0.25rem; }
@@ -444,7 +483,12 @@ div[data-testid="stAlert"][data-baseweb="notification"] {
     transition: background 0.25s, border-color 0.25s, box-shadow 0.25s, transform 0.2s;
     box-shadow: 0 1px 3px rgba(60,36,22,0.03);
 }
-.sentiment-row:hover { background: var(--sakura-pale); border-color: var(--sakura-light); box-shadow: 0 4px 14px rgba(217,96,128,0.10); transform: translateX(2px); }
+.sentiment-row:hover {
+    background: var(--sakura-pale);
+    border-color: var(--sakura-light);
+    box-shadow: 0 4px 14px rgba(217,96,128,0.10);
+    transform: translateX(2px);
+}
 .sentiment-name  { font-weight: 500; font-size: 0.89rem; color: var(--ink); min-width: 130px; }
 .sentiment-label { font-size: 0.78rem; color: var(--ink-soft); flex: 1; font-style: italic; }
 
@@ -453,36 +497,102 @@ div[data-testid="stAlert"][data-baseweb="notification"] {
     border-radius: 999px; font-size: 0.68rem; font-weight: 700;
     letter-spacing: 0.07em; text-transform: uppercase;
     box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    transition: transform 0.15s, box-shadow 0.15s;
 }
+.badge:hover { transform: scale(1.04); }
 .badge-positive { background: var(--green-bg); color: var(--green); border: 1px solid rgba(72,104,88,0.2); }
 .badge-neutral  { background: var(--peach-bg); color: var(--ink-mid); border: 1px solid rgba(120,80,64,0.15); }
 .badge-negative { background: var(--red-bg);   color: var(--red); border: 1px solid rgba(176,64,64,0.2); }
 
-.signal-high   { background: var(--red-bg);    border-left: 3px solid var(--red);          border-radius: 0 10px 10px 0; padding: 0.85rem 1.1rem; margin-bottom: 0.6rem; }
-.signal-medium { background: var(--amber-bg);  border-left: 3px solid var(--amber);        border-radius: 0 10px 10px 0; padding: 0.85rem 1.1rem; margin-bottom: 0.6rem; }
-.signal-low    { background: var(--sakura-pale); border-left: 3px solid var(--sakura-light); border-radius: 0 10px 10px 0; padding: 0.85rem 1.1rem; margin-bottom: 0.6rem; }
-.signal-phrase  { font-weight: 600; font-size: 0.9rem; font-family: 'Noto Sans JP', sans-serif; color: var(--ink); }
+.signal-high {
+    background: var(--red-bg);
+    border-left: 3px solid var(--red);
+    border-radius: 0 10px 10px 0;
+    padding: 0.85rem 1.1rem; margin-bottom: 0.6rem;
+}
+.signal-medium {
+    background: var(--amber-bg);
+    border-left: 3px solid var(--amber);
+    border-radius: 0 10px 10px 0;
+    padding: 0.85rem 1.1rem; margin-bottom: 0.6rem;
+}
+.signal-low {
+    background: var(--sakura-pale);
+    border-left: 3px solid var(--sakura-light);
+    border-radius: 0 10px 10px 0;
+    padding: 0.85rem 1.1rem; margin-bottom: 0.6rem;
+}
+.signal-phrase  {
+    font-weight: 600; font-size: 0.9rem;
+    font-family: 'Noto Sans JP', sans-serif; color: var(--ink);
+}
 .signal-reading { font-size: 0.79rem; color: var(--ink-mid); margin-top: 0.2rem; }
-.signal-exp     { font-size: 0.77rem; color: var(--ink-soft); margin-top: 0.4rem; line-height: 1.6; }
+.signal-exp     {
+    font-size: 0.77rem; color: var(--ink-soft);
+    margin-top: 0.4rem; line-height: 1.6;
+}
 
-.spk-bar-bg   { background: var(--border); border-radius: 999px; height: 7px; overflow: hidden; margin-top: 0.4rem; box-shadow: inset 0 1px 3px rgba(60,36,22,0.06); }
-.spk-bar-fill { height: 100%; border-radius: 999px; transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 1px 4px rgba(0,0,0,0.12); }
+.spk-bar-bg {
+    background: var(--border); border-radius: 999px;
+    height: 7px; overflow: hidden; margin-top: 0.4rem;
+    box-shadow: inset 0 1px 3px rgba(60,36,22,0.06);
+}
+.spk-bar-fill {
+    height: 100%; border-radius: 999px;
+    transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+}
 
-.pii-pill { display: inline-flex; align-items: center; gap: 0.4rem; background: var(--green-bg); border: 1px solid #A8C8B5; border-radius: 999px; padding: 0.28rem 0.9rem; font-size: 0.74rem; color: var(--green); font-weight: 500; margin-bottom: 1rem; }
+.pii-pill {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    background: var(--green-bg); border: 1px solid #A8C8B5;
+    border-radius: 999px; padding: 0.28rem 0.9rem;
+    font-size: 0.74rem; color: var(--green); font-weight: 500; margin-bottom: 1rem;
+}
 
-.risk-pill  { display: inline-block; padding: 0.28rem 0.9rem; border-radius: 999px; font-size: 0.71rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
-.risk-HIGH    { background: var(--red-bg);     color: var(--red);         }
-.risk-MEDIUM  { background: var(--amber-bg);   color: var(--amber);       }
-.risk-LOW     { background: var(--sakura-pale); color: var(--sakura-deep); }
-.risk-MINIMAL { background: var(--peach-bg);   color: var(--ink-soft);    }
-.risk-NONE    { background: var(--green-bg);   color: var(--green);       }
+.risk-pill {
+    display: inline-block; padding: 0.28rem 0.9rem;
+    border-radius: 999px; font-size: 0.71rem; font-weight: 700;
+    letter-spacing: 0.06em; text-transform: uppercase;
+}
+.risk-HIGH    { background: var(--red-bg);    color: var(--red);         }
+.risk-MEDIUM  { background: var(--amber-bg);  color: var(--amber);       }
+.risk-LOW     { background: var(--sakura-pale); color: var(--sakura-deep);}
+.risk-MINIMAL { background: var(--peach-bg);  color: var(--ink-soft);    }
+.risk-NONE    { background: var(--green-bg);  color: var(--green);       }
 
-.prev-session-card   { background: var(--surface-warm); border: 1px solid var(--border-mid); border-left: 3px solid var(--gold); border-radius: 0 10px 10px 0; padding: 1rem 1.3rem; margin-top: 0.5rem; margin-bottom: 0.5rem; }
-.prev-session-header { font-size: 0.68rem; font-weight: 600; color: var(--gold); letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 0.55rem; }
-.prev-session-bullet { font-size: 0.83rem; color: var(--ink-mid); line-height: 1.65; margin-bottom: 0.25rem; padding-left: 0.9rem; position: relative; }
-.prev-session-bullet::before { content: "·"; position: absolute; left: 0; color: var(--gold); font-weight: 700; }
+.sakura-divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 1.4rem 0;
+    position: relative;
+}
 
-/* ── Sidebar — desktop always visible ── */
+.prev-session-card {
+    background: var(--surface-warm);
+    border: 1px solid var(--border-mid);
+    border-left: 3px solid var(--gold);
+    border-radius: 0 10px 10px 0;
+    padding: 1rem 1.3rem;
+    margin-top: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+.prev-session-header {
+    font-size: 0.68rem; font-weight: 600; color: var(--gold);
+    letter-spacing: 0.12em; text-transform: uppercase;
+    margin-bottom: 0.55rem;
+}
+.prev-session-bullet {
+    font-size: 0.83rem; color: var(--ink-mid);
+    line-height: 1.65; margin-bottom: 0.25rem;
+    padding-left: 0.9rem; position: relative;
+}
+.prev-session-bullet::before {
+    content: "·";
+    position: absolute; left: 0;
+    color: var(--gold); font-weight: 700;
+}
+
 [data-testid="stSidebar"] {
     display: flex !important;
     visibility: visible !important;
@@ -491,19 +601,40 @@ div[data-testid="stAlert"][data-baseweb="notification"] {
     max-width: 320px !important;
 }
 [data-testid="stSidebarCollapseButton"],
-[data-testid="collapsedControl"] { display: none !important; }
+[data-testid="collapsedControl"] {
+    display: none !important;
+}
 
 @media (max-width: 1024px) {
     .metric-value { font-size: 1.5rem !important; }
-    [data-testid="stSidebar"] { min-width: 200px !important; max-width: 260px !important; }
+    [data-testid="stSidebar"] {
+        min-width: 200px !important;
+        max-width: 260px !important;
+    }
 }
+
 @media (max-width: 768px) {
-    [data-testid="stSidebar"] { min-width: 0 !important; max-width: 85vw !important; }
+    [data-testid="stSidebar"] {
+        min-width: 0 !important;
+        max-width: 85vw !important;
+    }
     [data-testid="stSidebarCollapseButton"],
-    [data-testid="collapsedControl"] { display: flex !important; }
-    [data-testid="stHorizontalBlock"] { flex-direction: column !important; gap: 0.5rem !important; }
-    [data-testid="column"] { width: 100% !important; min-width: 100% !important; flex: 1 1 100% !important; }
-    .metric-card { min-height: 70px !important; padding: 0.8rem 0.4rem !important; }
+    [data-testid="collapsedControl"] {
+        display: flex !important;
+    }
+    [data-testid="stHorizontalBlock"] {
+        flex-direction: column !important;
+        gap: 0.5rem !important;
+    }
+    [data-testid="column"] {
+        width: 100% !important;
+        min-width: 100% !important;
+        flex: 1 1 100% !important;
+    }
+    .metric-card {
+        min-height: 70px !important;
+        padding: 0.8rem 0.4rem !important;
+    }
     .metric-value { font-size: 1.3rem !important; }
     .metric-label { font-size: 0.55rem !important; letter-spacing: 0.08em !important; }
     .card { padding: 0.9rem 1rem !important; }
@@ -512,11 +643,28 @@ div[data-testid="stAlert"][data-baseweb="notification"] {
     .action-meta { font-size: 0.73rem !important; }
     .sentiment-row { flex-wrap: wrap !important; gap: 0.5rem !important; }
     .sentiment-name { min-width: 100px !important; font-size: 0.83rem !important; }
-    [data-testid="stTabs"] [role="tablist"] { overflow-x: auto !important; flex-wrap: nowrap !important; -webkit-overflow-scrolling: touch !important; scrollbar-width: none !important; }
+    [data-testid="stTabs"] [role="tablist"] {
+        overflow-x: auto !important;
+        flex-wrap: nowrap !important;
+        -webkit-overflow-scrolling: touch !important;
+        scrollbar-width: none !important;
+    }
     [data-testid="stTabs"] [role="tablist"]::-webkit-scrollbar { display: none !important; }
-    [data-testid="stTabs"] button { font-size: 0.73rem !important; padding: 0.45rem 0.7rem !important; white-space: nowrap !important; }
-    .stButton > button { padding: 0.65rem 1rem !important; font-size: 0.82rem !important; min-height: 44px !important; }
-    .block-container { padding-left: 0.75rem !important; padding-right: 0.75rem !important; padding-top: 0.5rem !important; }
+    [data-testid="stTabs"] button {
+        font-size: 0.73rem !important;
+        padding: 0.45rem 0.7rem !important;
+        white-space: nowrap !important;
+    }
+    .stButton > button {
+        padding: 0.65rem 1rem !important;
+        font-size: 0.82rem !important;
+        min-height: 44px !important;
+    }
+    .block-container {
+        padding-left: 0.75rem !important;
+        padding-right: 0.75rem !important;
+        padding-top: 0.5rem !important;
+    }
     h1 { font-size: 1.5rem !important; }
     textarea { font-size: 0.82rem !important; }
     .signal-high, .signal-medium, .signal-low { padding: 0.65rem 0.8rem !important; }
@@ -526,11 +674,18 @@ div[data-testid="stAlert"][data-baseweb="notification"] {
     .pii-pill { flex-wrap: wrap !important; font-size: 0.69rem !important; }
     .spk-bar-bg { height: 6px !important; }
 }
+
 @media (max-width: 480px) {
     .metric-value { font-size: 1.15rem !important; }
     h1 { font-size: 1.25rem !important; }
-    [data-testid="stTabs"] button { font-size: 0.68rem !important; padding: 0.4rem 0.55rem !important; }
-    [data-testid="stHorizontalBlock"] .stButton > button { font-size: 0.75rem !important; padding: 0.5rem 0.5rem !important; }
+    [data-testid="stTabs"] button {
+        font-size: 0.68rem !important;
+        padding: 0.4rem 0.55rem !important;
+    }
+    [data-testid="stHorizontalBlock"] .stButton > button {
+        font-size: 0.75rem !important;
+        padding: 0.5rem 0.5rem !important;
+    }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -591,7 +746,6 @@ if not st.session_state.groq_warmed:
     def _cold_start_tasks():
         """
         FIX-A: Only reads key from os.getenv — st.secrets is NOT thread-safe.
-        FIX-6: Warmup ping removed — was burning Groq daily quota for nothing.
         """
         try:
             from utils.vector_cache import get_cached_result, store_result, is_available
@@ -619,6 +773,7 @@ if not st.session_state.groq_warmed:
     threading.Thread(target=_cold_start_tasks, daemon=True).start()
     st.session_state.groq_warmed = True
 
+
 # ── Hamburger nav ─────────────────────────────────────────────────────────────
 _NAV_HTML = """
 <div id='tai-hbg' title='Open / Close Menu'>
@@ -636,7 +791,10 @@ _NAV_HTML = """
   function attach() {
     var hbg = document.getElementById('tai-hbg');
     if (!hbg) { setTimeout(attach, 400); return; }
-    hbg.onclick = function() { hbg.classList.toggle('tai-hbg-open'); toggleSidebar(); };
+    hbg.onclick = function() {
+      hbg.classList.toggle('tai-hbg-open');
+      toggleSidebar();
+    };
   }
   setTimeout(attach, 700);
 })();
@@ -651,8 +809,11 @@ with st.sidebar:
     st.markdown("""
     <div style='padding:1.8rem 0.5rem 1.2rem;'>
       <div style='font-size:1.6rem; margin-bottom:0.4rem;'>🎙️</div>
-      <div style='font-size:1rem; font-weight:600; color:#3D2B1F; letter-spacing:0.01em;'>TranscriptAI</div>
-      <div style='font-size:0.62rem; color:#C4A99E; letter-spacing:0.14em; text-transform:uppercase; margin-top:0.2rem;'>
+      <div style='font-size:1rem; font-weight:600; color:#3D2B1F; letter-spacing:0.01em;'>
+        TranscriptAI
+      </div>
+      <div style='font-size:0.62rem; color:#C4A99E; letter-spacing:0.14em;
+                  text-transform:uppercase; margin-top:0.2rem;'>
         Speech &amp; Meeting Intelligence
       </div>
     </div>
@@ -715,7 +876,8 @@ with st.sidebar:
                 f"<div style='font-size:0.74rem; color:#486858; background:#EDF3EF; "
                 f"border:1px solid #A8C8B8; border-radius:6px; padding:0.4rem 0.7rem; "
                 f"margin-bottom:0.8rem;'>"
-                f"⚡ Vector cache · {n} transcript{'s' if n!=1 else ''} stored</div>",
+                f"⚡ Vector cache · {n} transcript{'s' if n!=1 else ''} stored"
+                f"</div>",
                 unsafe_allow_html=True,
             )
     except Exception:
@@ -723,13 +885,13 @@ with st.sidebar:
 
     with st.expander("About"):
         st.markdown("""
-**TranscriptAI** turns any meeting or speech recording into structured intelligence.
+**TranscriptAI** turns any meeting or speech recording into structured intelligence — summaries, action items, speaker sentiment, and communication risk signals.
 
 **Input** &nbsp;·&nbsp; TXT · VTT · JSON · MP4 · MP3 · WAV
 
 **Languages** &nbsp;·&nbsp; English · Hindi · Japanese · Mixed
 
-**Analysis** &nbsp;·&nbsp; Formality · Indirect signals · Soft rejection · Code-switch
+**Analysis** &nbsp;·&nbsp; Formality level · Indirect signals · Soft rejection · Code-switch
 
 *Set `GROQ_API_KEY` for 3s cloud inference. Or run Ollama locally.*
 """)
@@ -739,20 +901,31 @@ with st.sidebar:
 # ────────────────────────────────────────────────────────────────────────────
 st.markdown("""
 <div style='padding:2rem 0 1.6rem; position:relative;'>
-  <div style='position:absolute; top:1.5rem; right:2rem; opacity:0.15; font-size:2.5rem; line-height:1; user-select:none;'>🎙️</div>
-  <div style='font-size:0.62rem; color:#C8A898; letter-spacing:0.2em; text-transform:uppercase; margin-bottom:0.8rem; font-weight:500;'>
+  <div style='position:absolute; top:1.5rem; right:2rem; opacity:0.15;
+              font-size:2.5rem; line-height:1; user-select:none;'>🎙️</div>
+  <div style='font-size:0.62rem; color:#C8A898; letter-spacing:0.2em;
+              text-transform:uppercase; margin-bottom:0.8rem; font-weight:500;'>
     Speech &amp; Meeting Intelligence
   </div>
   <div style='display:flex; align-items:flex-end; gap:1rem; flex-wrap:wrap; margin-bottom:0.7rem;'>
-    <h1 style='font-size:2.1rem; font-weight:600; color:#3C2416; margin:0; letter-spacing:-0.025em; line-height:1;'>
+    <h1 style='font-size:2.1rem; font-weight:600; color:#3C2416;
+               margin:0; letter-spacing:-0.025em; line-height:1;'>
       TranscriptAI
     </h1>
   </div>
   <div style='display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap;'>
-    <span style='font-size:0.75rem; color:#D96080; background:#FDEEF2; padding:0.2rem 0.7rem; border-radius:999px; font-weight:500; border:1px solid #F2B0C0;'>AI-powered</span>
-    <span style='font-size:0.75rem; color:#486858; background:#EDF3EF; padding:0.2rem 0.7rem; border-radius:999px; font-weight:500; border:1px solid #A8C8B8;'>APPI Compliant</span>
-    <span style='font-size:0.75rem; color:#B87830; background:#F5E8D0; padding:0.2rem 0.7rem; border-radius:999px; font-weight:500; border:1px solid #D9C090;'>Multi-language</span>
-    <span style='font-size:0.75rem; color:#7A5040; background:#FEF3EC; padding:0.2rem 0.7rem; border-radius:999px; font-weight:500; border:1px solid #E5D0C4;'>Formality · Indirect Signals · Code-switch</span>
+    <span style='font-size:0.75rem; color:#D96080; background:#FDEEF2;
+                 padding:0.2rem 0.7rem; border-radius:999px; font-weight:500;
+                 border:1px solid #F2B0C0;'>AI-powered</span>
+    <span style='font-size:0.75rem; color:#486858; background:#EDF3EF;
+                 padding:0.2rem 0.7rem; border-radius:999px; font-weight:500;
+                 border:1px solid #A8C8B8;'>APPI Compliant</span>
+    <span style='font-size:0.75rem; color:#B87830; background:#F5E8D0;
+                 padding:0.2rem 0.7rem; border-radius:999px; font-weight:500;
+                 border:1px solid #D9C090;'>Multi-language</span>
+    <span style='font-size:0.75rem; color:#7A5040; background:#FEF3EC;
+                 padding:0.2rem 0.7rem; border-radius:999px; font-weight:500;
+                 border:1px solid #E5D0C4;'>Formality · Indirect Signals · Code-switch</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -815,8 +988,8 @@ with c_s3:
 with c_clear:
     if st.button("Clear"):
         st.session_state.transcript_text = ""
-        st.session_state.results         = None
-        st.session_state.pii_report      = None
+        st.session_state.results   = None
+        st.session_state.pii_report = None
         st.rerun()
 
 st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
@@ -829,10 +1002,10 @@ with c_btn:
     run_analysis = st.button("Analyze Transcript →", disabled=not can_analyze, use_container_width=True)
 with c_meta:
     if final_text:
-        detected    = detect_language(final_text)
-        active_disp = forced_lang or detected
-        wc          = len(final_text.split())
-        lang_color  = {"ja":"#C45C74","hi":"#C9924A","en":"#5A7D6B","mixed":"#A8897C"}.get(detected,"#A8897C")
+        detected     = detect_language(final_text)
+        active_disp  = forced_lang or detected
+        wc           = len(final_text.split())
+        lang_color   = {"ja":"#C45C74","hi":"#C9924A","en":"#5A7D6B","mixed":"#A8897C"}.get(detected,"#A8897C")
         st.markdown(
             f"<div style='padding-top:0.6rem; font-size:0.81rem; color:#A8897C;'>"
             f"Detected <span style='color:{lang_color}; font-weight:600;'>{language_display_name(detected)}</span>"
@@ -889,7 +1062,6 @@ if run_analysis and final_text:
         sim = results.get("_cache_similarity", 0)
         st.success(f"⚡ Loaded from vector cache · {sim:.0%} match · instant")
     elif "mock" in provider:
-        # FIX-B: show actual reason, not generic message
         groq_key_present = bool(os.getenv("GROQ_API_KEY", "").strip())
         has_ai_summary   = results.get("_has_ai_summary", False)
 
@@ -902,11 +1074,14 @@ if run_analysis and final_text:
         elif "rate_limit" in provider or "429" in last_error:
             if has_ai_summary:
                 warn_msg = (
-                    "Daily API limit reached — showing AI-generated summary. "
-                    "Full structured analysis resumes in 24 hours."
+                    "Daily API limit reached — showing AI-generated summary below. "
+                    "Full structured analysis (action items, sentiment, speakers) resumes in 24 hours."
                 )
             else:
-                warn_msg = "Daily API limit reached — demo data shown. Full analysis resumes in 24 hours."
+                warn_msg = (
+                    "Daily API limit reached — demo data shown. "
+                    "Full analysis resumes automatically within 24 hours."
+                )
         elif "timeout" in provider or "timeout" in last_error.lower():
             warn_msg = "Groq request timed out. Try a shorter transcript (under 800 words)."
         elif "offline" in provider or "connection" in last_error.lower():
@@ -916,7 +1091,6 @@ if run_analysis and final_text:
 
         st.warning(f"⚠ {warn_msg}")
 
-        # FIX-C: debug expander
         with st.expander("🔍 Debug info", expanded=False):
             st.code(
                 f"provider   : {provider}\n"
@@ -949,14 +1123,616 @@ if STREAMING_AVAILABLE and stream_mode and final_text and not run_analysis:
         except Exception as e:
             st.error(str(e))
 
+# ════════════════════════════════════════════════════════════════════════════
+# RESULTS RENDERER — helper functions defined HERE, before they are called
+# ════════════════════════════════════════════════════════════════════════════
+
+def _svg_donut(pct: int, color: str, size: int = 56) -> str:
+    """SVG donut chart — GPU composited, zero JS."""
+    r = (size - 8) // 2
+    circ = 2 * 3.14159 * r
+    dash = circ * pct / 100
+    return (
+        f"<svg width='{size}' height='{size}' viewBox='0 0 {size} {size}'>"
+        f"<circle cx='{size//2}' cy='{size//2}' r='{r}' fill='none' "
+        f"stroke='rgba(255,255,255,0.1)' stroke-width='6'/>"
+        f"<circle cx='{size//2}' cy='{size//2}' r='{r}' fill='none' "
+        f"stroke='{color}' stroke-width='6' stroke-linecap='round' "
+        f"stroke-dasharray='{dash:.1f} {circ:.1f}' "
+        f"transform='rotate(-90 {size//2} {size//2})'/>"
+        f"<text x='50%' y='54%' text-anchor='middle' "
+        f"font-size='13' font-weight='700' fill='{color}' font-family='Arial'>"
+        f"{pct}%</text></svg>"
+    )
+
+
+def _avatar(name: str, color: str) -> str:
+    initials = "".join(p[0].upper() for p in name.split()[:2]) or name[:2].upper()
+    return (
+        f"<div style='width:36px;height:36px;border-radius:50%;background:{color}22;"
+        f"border:2px solid {color};display:flex;align-items:center;justify-content:center;"
+        f"font-size:0.75rem;font-weight:700;color:{color};flex-shrink:0'>{initials}</div>"
+    )
+
+
+def _health_ring(score: int, color: str) -> str:
+    r, size = 54, 120
+    circ = 2 * 3.14159 * r
+    dash = circ * score / 100
+    label = ("Excellent" if score >= 80 else "Good" if score >= 60
+             else "Fair" if score >= 40 else "At Risk")
+    return (
+        f"<div style='text-align:center'>"
+        f"<svg width='{size}' height='{size}' viewBox='0 0 {size} {size}'>"
+        f"<circle cx='60' cy='60' r='{r}' fill='none' stroke='rgba(255,255,255,0.08)' stroke-width='10'/>"
+        f"<circle cx='60' cy='60' r='{r}' fill='none' stroke='{color}' stroke-width='10' "
+        f"stroke-linecap='round' stroke-dasharray='{dash:.1f} {circ:.1f}' "
+        f"transform='rotate(-90 60 60)' style='filter:drop-shadow(0 0 6px {color}88)'/>"
+        f"<text x='50%' y='46%' text-anchor='middle' font-size='22' font-weight='800' "
+        f"fill='white' font-family=Arial>{score}</text>"
+        f"<text x='50%' y='62%' text-anchor='middle' font-size='10' fill='rgba(255,255,255,0.5)' "
+        f"font-family=Arial>/ 100</text></svg>"
+        f"<div style='font-size:0.7rem;font-weight:600;color:{color};letter-spacing:0.1em;"
+        f"text-transform:uppercase;margin-top:2px'>{label}</div></div>"
+    )
+
+
+def build_results_html(R: dict, language: str, features: dict,
+                       pii_rep: dict | None) -> str:
+    """
+    Builds the ENTIRE results view as a single HTML string.
+    One st.markdown() call = one WebSocket message = scales to 10K users.
+    """
+    COLORS = ["#E8829A","#F4A07A","#C9924A","#5A7D6B","#A8897C","#7A5C50"]
+    SENT_ICON  = {"positive":"🌸","neutral":"🌿","negative":"🍂"}
+
+    ji       = R.get("japan_insights", {})
+    speakers = sorted(R.get("speakers", []),
+                      key=lambda s: s.get("talk_time_pct", 0), reverse=True)
+
+    # ── Health score ──────────────────────────────────────────────────────────
+    def _health():
+        soft  = R.get("soft_rejections", {})
+        risk  = soft.get("risk_level", "NONE")
+        risk_pts = {"NONE":25,"MINIMAL":20,"LOW":15,"MEDIUM":8,"HIGH":0}
+        sents = R.get("sentiment", [])
+        w = {"positive":1.0,"neutral":0.6,"negative":0.1}
+        s_pts = round((sum(w.get(s.get("score","neutral").lower(),0.5)
+                           for s in sents)/len(sents)*30) if sents else 15)
+        items = R.get("action_items", [])
+        if not items:
+            a_pts = 10
+        else:
+            ver = [i for i in items if not i.get("hallucination_flag")]
+            wo  = sum(1 for i in ver if i.get("owner","TBD") not in ("TBD","Unknown",""))
+            wd  = sum(1 for i in ver if i.get("deadline","TBD") not in ("TBD","N/A",""))
+            a_pts = round((wo+wd)/(2*len(items))*25)
+        r_pts = risk_pts.get(risk, 25)
+        ver2  = R.get("verification", {})
+        h_pts = round((1 - ver2.get("overall_hallucination_risk", 0)) * 20)
+        score = min(s_pts + a_pts + r_pts + h_pts, 100)
+        color = ("#2D9E6B" if score >= 80 else "#B87830" if score >= 60
+                 else "#D96080" if score >= 40 else "#C84040")
+        bd = [("Sentiment", s_pts, 30),("Action Clarity", a_pts, 25),
+              ("Comm Risk", r_pts, 25),("AI Confidence", h_pts, 20)]
+        bars = "".join(
+            f"<div style='margin-bottom:8px'>"
+            f"<div style='display:flex;justify-content:space-between;margin-bottom:3px'>"
+            f"<span style='font-size:0.68rem;color:rgba(255,255,255,0.6)'>{lb}</span>"
+            f"<span style='font-size:0.68rem;color:{color};font-weight:600'>{pt}/{tot}</span></div>"
+            f"<div style='height:5px;background:rgba(255,255,255,0.08);border-radius:999px'>"
+            f"<div style='height:100%;width:{round(pt/tot*100)}%;background:{color};"
+            f"border-radius:999px;box-shadow:0 0 6px {color}66'></div></div></div>"
+            for lb, pt, tot in bd
+        )
+        return score, color, bars
+
+    score, hc, hbars = _health()
+
+    # ── Metric tiles ──────────────────────────────────────────────────────────
+    spk_count = len(R.get("speakers", []))
+    act_count = len(R.get("action_items", []))
+    cs_val    = ji.get("code_switch_count","—") if features.get("show_code_switch") else "—"
+    keigo_val = ji.get("keigo_level","—").title() if features.get("show_japan_insights") else language_display_name(language).split(" ",1)[-1]
+    keigo_lbl = "Formality" if features.get("show_japan_insights") else "Language"
+
+    def _tile(val, lbl, icon):
+        return (
+            f"<div class='tai-tile'>"
+            f"<div class='tai-tile-icon'>{icon}</div>"
+            f"<div class='tai-tile-val'>{val}</div>"
+            f"<div class='tai-tile-lbl'>{lbl}</div>"
+            f"</div>"
+        )
+
+    tiles = (
+        _tile(spk_count, "Speakers", "🎤") +
+        _tile(act_count, "Actions", "✅") +
+        _tile(cs_val, "Code Switches", "🌐") +
+        _tile(keigo_val, keigo_lbl, "🏯")
+    )
+
+    # ── PII pill ──────────────────────────────────────────────────────────────
+    pii_html = ""
+    if pii_rep and pii_rep.get("total_pii_found", 0) > 0:
+        n = pii_rep["total_pii_found"]
+        pii_html = (
+            f"<div class='tai-pii-pill'>🔒 APPI — "
+            f"{n} item{'s' if n!=1 else ''} anonymized before analysis</div>"
+        )
+
+    # ── Tab 1: Summary ────────────────────────────────────────────────────────
+    full_sum = R.get("full_summary", "")
+    bullets  = R.get("summary", [])
+    sum_html = ""
+    if full_sum:
+        sum_html += (
+            f"<div class='tai-summary-box'>"
+            f"<div class='tai-summary-label'>📋 Meeting Overview</div>"
+            f"<p style='margin:0;line-height:1.9;font-size:0.93rem;color:rgba(255,255,255,0.88)'>"
+            f"{full_sum}</p></div>"
+        )
+    sum_html += f"<div class='tai-section-label'>{len(bullets)} Key Points</div>"
+    sum_html += "".join(
+        f"<div class='tai-bullet-card'>"
+        f"<span class='tai-bullet-num'>{i:02d}</span>"
+        f"<span style='color:rgba(255,255,255,0.88);font-size:0.9rem;line-height:1.65'>{b}</span>"
+        f"</div>"
+        for i, b in enumerate(bullets, 1)
+    )
+
+    # ── Tab 2: Actions ────────────────────────────────────────────────────────
+    items    = R.get("action_items", [])
+    v_count  = sum(1 for i in items if not i.get("hallucination_flag"))
+    f_count  = len(items) - v_count
+    act_html = (
+        f"<div class='tai-section-label'>{len(items)} Items · "
+        f"<span style='color:#2D9E6B'>✓ {v_count} verified</span>"
+        + (f" · <span style='color:#C84040'>⚑ {f_count} flagged</span>" if f_count else "")
+        + "</div>"
+    )
+    act_html += "".join(
+        (
+            "<div class='tai-action-card" +
+            (" tai-action-flagged" if i.get("hallucination_flag") else "") +
+            "'>"
+            "<div style='font-size:1.1rem;padding-top:2px'>" +
+            ("⚑" if i.get("hallucination_flag") else "◆") +
+            "</div>"
+            "<div style='flex:1'>"
+            "<div style='font-weight:600;color:rgba(255,255,255,0.92);font-size:0.9rem;margin-bottom:4px'>" +
+            str(i.get("task","")) + "</div>"
+            "<div style='font-size:0.76rem;color:rgba(255,255,255,0.45)'>"
+            "Owner: <strong style='color:rgba(255,255,255,0.7)'>" + str(i.get("owner","TBD")) + "</strong>"
+            " &nbsp;·&nbsp; Deadline: <strong style='color:rgba(255,255,255,0.7)'>" + str(i.get("deadline","TBD")) + "</strong>" +
+            (f" &nbsp;·&nbsp; {i.get('confidence',0):.0%} confidence" if i.get("confidence") else "") +
+            (f"<div style='color:#C84040;font-size:0.72rem;margin-top:3px'>⚠ {i.get('flag_reason','')}</div>" if i.get("flag_reason") else "") +
+            "</div></div></div>"
+        )
+        for i in items
+    ) if items else "<div style='color:rgba(255,255,255,0.3);font-size:0.85rem;padding:1rem 0'>No action items extracted.</div>"
+
+    # ── Tab 3: Sentiment ──────────────────────────────────────────────────────
+    sent_html = "<div class='tai-section-label'>Speaker Sentiment</div>"
+    sent_html += "".join(
+        (
+            "<div class='tai-sent-row'>"
+            "<span style='font-size:1.2rem'>" + SENT_ICON.get(s.get("score","neutral").lower(),"🌿") + "</span>"
+            "<div style='flex:1'>"
+            "<div style='font-weight:600;color:rgba(255,255,255,0.88);font-size:0.88rem'>" + str(s.get("speaker","")) + "</div>"
+            "<div style='font-size:0.75rem;color:rgba(255,255,255,0.45);font-style:italic;margin-top:1px'>" + str(s.get("label","")) + "</div>"
+            "</div>"
+            "<span class='tai-sent-badge tai-sent-" + s.get("score","neutral").lower() + "'>" +
+            s.get("score","neutral").upper() + "</span>"
+            "</div>"
+        )
+        for s in R.get("sentiment", [])
+    )
+
+    # ── Tab 4: Speakers ───────────────────────────────────────────────────────
+    spk_html = "<div class='tai-section-label'>Talk Time Distribution</div>"
+    for idx2, spk in enumerate(speakers):
+        nm  = spk.get("name", f"Speaker {idx2+1}")
+        pct = spk.get("talk_time_pct", 0)
+        tone= spk.get("tone","—")
+        col = COLORS[idx2 % len(COLORS)]
+        spk_html += (
+            f"<div class='tai-spk-row'>"
+            f"{_avatar(nm, col)}"
+            f"<div style='flex:1;min-width:0'>"
+            f"<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:6px'>"
+            f"<span style='font-weight:600;color:rgba(255,255,255,0.88);font-size:0.88rem'>{nm}</span>"
+            f"<span style='font-size:0.75rem;color:{col};font-weight:600'>{pct}%</span></div>"
+            f"<div style='height:6px;background:rgba(255,255,255,0.08);border-radius:999px'>"
+            f"<div style='height:100%;width:{pct}%;background:{col};border-radius:999px;"
+            f"box-shadow:0 0 8px {col}66;transition:width 0.8s cubic-bezier(0.4,0,0.2,1)'></div></div>"
+            f"<div style='font-size:0.7rem;color:rgba(255,255,255,0.35);margin-top:4px'>{tone}</div>"
+            f"</div>"
+            f"{_svg_donut(pct, col, 52)}"
+            f"</div>"
+        )
+
+    # ── Tab 5: Insights (Japan/Hindi) ─────────────────────────────────────────
+    ins_html = ""
+    if features.get("show_japan_insights"):
+        keigo   = ji.get("keigo_level","—")
+        k_src   = ji.get("keigo_source","llm")
+        kc      = {"high":"#E8829A","medium":"#C9924A","low":"rgba(255,255,255,0.5)"}.get(keigo,"#A8897C")
+        sigs    = ji.get("nemawashi_signals",[])
+        soft    = R.get("soft_rejections",{})
+        risk    = soft.get("risk_level","NONE") if soft else "NONE"
+        rclr    = {"HIGH":"#C84040","MEDIUM":"#C9924A","LOW":"#D96080","MINIMAL":"#A8897C","NONE":"#2D9E6B"}.get(risk,"#2D9E6B")
+        cs_cnt  = ji.get("code_switch_count",0)
+
+        ins_html += (
+            "<div style='display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px'>"
+            "<div class='tai-insight-chip'>"
+            "<div style='font-size:0.6rem;color:rgba(255,255,255,0.4);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:2px'>Keigo Register</div>"
+            f"<div style='font-size:1.1rem;font-weight:700;color:{kc}'>{keigo.upper()}</div>"
+            f"<div style='font-size:0.62rem;color:rgba(255,255,255,0.3)'>via {k_src}</div>"
+            "</div>"
+            "<div class='tai-insight-chip'>"
+            "<div style='font-size:0.6rem;color:rgba(255,255,255,0.4);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:2px'>Rejection Risk</div>"
+            f"<div style='font-size:1.1rem;font-weight:700;color:{rclr}'>{risk}</div>"
+            f"<div style='font-size:0.62rem;color:rgba(255,255,255,0.3)'>{soft.get('total_signals',0)} signals</div>"
+            "</div>"
+            "<div class='tai-insight-chip'>"
+            "<div style='font-size:0.6rem;color:rgba(255,255,255,0.4);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:2px'>Code Switches</div>"
+            f"<div style='font-size:1.1rem;font-weight:700;color:#F4A07A'>{cs_cnt}</div>"
+            "<div style='font-size:0.62rem;color:rgba(255,255,255,0.3)'>language switches</div>"
+            "</div>"
+            "</div>"
+        )
+
+        if sigs:
+            ins_html += f"<div class='tai-section-label'>Indirect Consensus Signals · {len(sigs)} detected</div>"
+            ins_html += "".join(
+                "<div class='tai-nemawashi-pill'>◆ " + s + "</div>" for s in sigs
+            )
+
+        if soft and soft.get("total_signals",0) > 0:
+            ins_html += "<div class='tai-section-label' style='margin-top:16px'>Soft Rejection Analysis</div>"
+            for sig in soft.get("high_signals",[]):
+                ins_html += (
+                    f"<div class='tai-sig-high'>"
+                    f"<div style='font-weight:700;font-size:0.9rem'>🚨 {sig['phrase']}</div>"
+                    f"<div style='font-size:0.76rem;color:rgba(255,255,255,0.5);margin-top:4px'>"
+                    f"{sig['reading']} · {sig['speaker']} · {sig['confidence']:.0%}</div>"
+                    f"<div style='font-size:0.75rem;color:rgba(255,255,255,0.65);margin-top:6px;line-height:1.5'>{sig['explanation']}</div>"
+                    f"</div>"
+                )
+            for sig in soft.get("medium_signals",[]):
+                ins_html += (
+                    f"<div class='tai-sig-med'>"
+                    f"<div style='font-weight:700;font-size:0.9rem'>⚠ {sig['phrase']}</div>"
+                    f"<div style='font-size:0.76rem;color:rgba(255,255,255,0.5);margin-top:4px'>"
+                    f"{sig['reading']} · {sig['speaker']} · {sig['confidence']:.0%}</div>"
+                    f"<div style='font-size:0.75rem;color:rgba(255,255,255,0.65);margin-top:6px;line-height:1.5'>{sig['explanation']}</div>"
+                    f"</div>"
+                )
+            ins_html += f"<div style='font-size:0.73rem;color:rgba(255,255,255,0.3);font-style:italic;margin-top:8px'>{soft.get('cultural_note','')}</div>"
+    else:
+        ins_html = "<div style='color:rgba(255,255,255,0.3);font-size:0.85rem;padding:1rem 0;line-height:1.7'>Cultural intelligence features apply to Japanese and Hindi transcripts.</div>"
+
+    # ── Assemble full HTML ────────────────────────────────────────────────────
+    return f"""
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root {{
+  --glass:     rgba(255,255,255,0.04);
+  --glass-b:   rgba(255,255,255,0.08);
+  --glass-h:   rgba(255,255,255,0.10);
+  --accent:    #E8829A;
+  --accent2:   #F4A07A;
+  --green:     #2D9E6B;
+  --ink:       rgba(255,255,255,0.88);
+  --ink-mid:   rgba(255,255,255,0.55);
+  --ink-soft:  rgba(255,255,255,0.35);
+  --r:         14px;
+}}
+.tai-results {{
+  font-family: 'Inter','Noto Sans JP',sans-serif;
+  color: var(--ink);
+  padding: 0 0 2rem;
+}}
+.tai-glass {{
+  background: var(--glass);
+  border: 1px solid var(--glass-b);
+  border-radius: var(--r);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  transition: border-color 0.25s, box-shadow 0.25s;
+  contain: layout style;
+}}
+.tai-glass:hover {{
+  border-color: rgba(232,130,154,0.3);
+  box-shadow: 0 8px 32px rgba(232,130,154,0.08);
+}}
+.tai-tiles {{
+  display: grid;
+  grid-template-columns: repeat(4,1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}}
+@media(max-width:768px) {{ .tai-tiles {{ grid-template-columns: repeat(2,1fr); }} }}
+.tai-tile {{
+  background: var(--glass);
+  border: 1px solid var(--glass-b);
+  border-radius: var(--r);
+  padding: 16px 12px;
+  text-align: center;
+  transition: transform 0.2s, border-color 0.25s, box-shadow 0.25s;
+  will-change: transform;
+  contain: layout style;
+  min-height: 90px;
+}}
+.tai-tile:hover {{
+  transform: translateY(-3px);
+  border-color: rgba(232,130,154,0.35);
+  box-shadow: 0 12px 32px rgba(232,130,154,0.12);
+}}
+.tai-tile-icon {{ font-size: 1.3rem; margin-bottom: 4px; }}
+.tai-tile-val  {{ font-size: 1.6rem; font-weight: 800; color: var(--accent); letter-spacing: -0.02em; line-height: 1; }}
+.tai-tile-lbl  {{ font-size: 0.6rem; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.12em; margin-top: 4px; font-weight: 600; }}
+.tai-health {{
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 0;
+  background: linear-gradient(135deg, rgba(232,130,154,0.08) 0%, rgba(244,160,122,0.05) 100%);
+  border: 1px solid rgba(232,130,154,0.2);
+  border-radius: var(--r);
+  overflow: hidden;
+  margin-bottom: 16px;
+}}
+@media(max-width:600px) {{ .tai-health {{ grid-template-columns: 1fr; }} }}
+.tai-health-left  {{ padding: 24px 20px; display: flex; align-items: center; justify-content: center; border-right: 1px solid rgba(255,255,255,0.06); }}
+.tai-health-right {{ padding: 20px 24px; }}
+.tai-health-title {{ font-size: 0.6rem; font-weight: 700; color: var(--accent); letter-spacing: 0.15em; text-transform: uppercase; margin-bottom: 14px; }}
+@media(max-width:600px) {{ .tai-health-left {{ border-right: none; border-bottom: 1px solid rgba(255,255,255,0.06); }} }}
+.tai-tab-bar {{
+  display: flex; gap: 4px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  margin-bottom: 16px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}}
+.tai-tab-bar::-webkit-scrollbar {{ display: none; }}
+.tai-tab {{
+  padding: 8px 16px;
+  font-size: 0.8rem; font-weight: 500;
+  color: var(--ink-soft); border: none; background: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer; white-space: nowrap;
+  transition: color 0.2s, border-color 0.2s;
+}}
+.tai-tab:hover {{ color: var(--accent); }}
+.tai-tab.active {{ color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }}
+.tai-tab-content {{ display: none; animation: fadeIn 0.25s ease; }}
+.tai-tab-content.active {{ display: block; }}
+@keyframes fadeIn {{ from{{opacity:0;transform:translateY(6px)}} to{{opacity:1;transform:none}} }}
+.tai-section-label {{
+  font-size: 0.62rem; font-weight: 700; color: var(--ink-soft);
+  letter-spacing: 0.16em; text-transform: uppercase;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  padding-bottom: 8px; margin-bottom: 12px; margin-top: 8px;
+}}
+.tai-summary-box {{
+  background: var(--glass);
+  border: 1px solid var(--glass-b);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 var(--r) var(--r) 0;
+  padding: 18px 20px;
+  margin-bottom: 16px;
+  line-height: 1.85;
+}}
+.tai-summary-label {{
+  font-size: 0.62rem; font-weight: 700; color: var(--accent);
+  letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 10px;
+}}
+.tai-bullet-card {{
+  display: flex; align-items: flex-start; gap: 12px;
+  background: var(--glass);
+  border: 1px solid var(--glass-b);
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin-bottom: 8px;
+  transition: border-color 0.2s, transform 0.2s;
+  will-change: transform;
+}}
+.tai-bullet-card:hover {{ border-color: rgba(232,130,154,0.3); transform: translateX(3px); }}
+.tai-bullet-num {{
+  font-size: 0.65rem; font-weight: 800; color: var(--accent);
+  background: rgba(232,130,154,0.12); border-radius: 6px;
+  padding: 2px 6px; flex-shrink: 0; margin-top: 2px; letter-spacing: 0.05em;
+}}
+.tai-action-card {{
+  display: flex; gap: 12px; align-items: flex-start;
+  background: var(--glass);
+  border: 1px solid var(--glass-b);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 10px 10px 0;
+  padding: 14px 16px; margin-bottom: 10px;
+  transition: transform 0.2s, border-color 0.2s;
+  will-change: transform;
+  color: var(--accent);
+}}
+.tai-action-card:hover {{ transform: translateX(4px); border-left-color: #C84060; }}
+.tai-action-flagged {{ border-left-color: #C84040 !important; background: rgba(200,64,64,0.06) !important; color: #C84040 !important; }}
+.tai-sent-row {{
+  display: flex; align-items: center; gap: 12px;
+  background: var(--glass);
+  border: 1px solid var(--glass-b);
+  border-radius: 10px; padding: 12px 16px; margin-bottom: 8px;
+  transition: border-color 0.2s, transform 0.2s;
+  will-change: transform;
+}}
+.tai-sent-row:hover {{ border-color: rgba(232,130,154,0.25); transform: translateX(3px); }}
+.tai-sent-badge {{
+  font-size: 0.65rem; font-weight: 700; letter-spacing: 0.08em;
+  padding: 4px 10px; border-radius: 999px;
+}}
+.tai-sent-positive {{ background: rgba(45,158,107,0.15); color: #2D9E6B; border: 1px solid rgba(45,158,107,0.3); }}
+.tai-sent-neutral  {{ background: rgba(168,136,122,0.15); color: #C8A898; border: 1px solid rgba(168,136,122,0.3); }}
+.tai-sent-negative {{ background: rgba(200,64,64,0.15);  color: #E88080; border: 1px solid rgba(200,64,64,0.3); }}
+.tai-spk-row {{
+  display: flex; align-items: center; gap: 14px;
+  background: var(--glass);
+  border: 1px solid var(--glass-b);
+  border-radius: 10px; padding: 14px 16px; margin-bottom: 10px;
+  transition: border-color 0.2s;
+}}
+.tai-spk-row:hover {{ border-color: rgba(232,130,154,0.25); }}
+.tai-insight-chip {{
+  background: var(--glass);
+  border: 1px solid var(--glass-b);
+  border-radius: 10px; padding: 12px 16px;
+  min-width: 100px; flex: 1;
+}}
+.tai-nemawashi-pill {{
+  display: inline-block;
+  background: rgba(232,130,154,0.1);
+  border: 1px solid rgba(232,130,154,0.25);
+  border-radius: 999px; padding: 5px 14px;
+  font-size: 0.82rem; color: #F2B0C0;
+  font-family: 'Noto Sans JP', sans-serif;
+  margin: 0 6px 8px 0;
+}}
+.tai-sig-high {{
+  background: rgba(200,64,64,0.08); border-left: 3px solid #C84040;
+  border-radius: 0 10px 10px 0; padding: 12px 16px; margin-bottom: 10px;
+  color: rgba(255,255,255,0.85);
+}}
+.tai-sig-med {{
+  background: rgba(201,146,74,0.08); border-left: 3px solid #C9924A;
+  border-radius: 0 10px 10px 0; padding: 12px 16px; margin-bottom: 10px;
+  color: rgba(255,255,255,0.85);
+}}
+.tai-pii-pill {{
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(45,158,107,0.12); border: 1px solid rgba(45,158,107,0.3);
+  border-radius: 999px; padding: 5px 14px;
+  font-size: 0.73rem; color: #2D9E6B; font-weight: 500; margin-bottom: 14px;
+}}
+.tai-panel {{
+  background: var(--glass);
+  border: 1px solid var(--glass-b);
+  border-radius: var(--r);
+  padding: 20px;
+}}
+</style>
+
+<div class="tai-results">
+
+{pii_html}
+
+<div class="tai-tiles">{tiles}</div>
+
+<div class="tai-health">
+  <div class="tai-health-left">
+    {_health_ring(score, hc)}
+  </div>
+  <div class="tai-health-right">
+    <div class="tai-health-title">Meeting Health Breakdown</div>
+    {hbars}
+  </div>
+</div>
+
+<div class="tai-tab-bar">
+  <button class="tai-tab active" onclick="taiTab(this,'sum')">📝 Summary</button>
+  <button class="tai-tab" onclick="taiTab(this,'act')">✅ Actions</button>
+  <button class="tai-tab" onclick="taiTab(this,'sent')">🌸 Sentiment</button>
+  <button class="tai-tab" onclick="taiTab(this,'spk')">🎤 Speakers</button>
+  <button class="tai-tab" onclick="taiTab(this,'ins')">{features.get('insight_tab_label','🌐 Insights')}</button>
+</div>
+
+<div class="tai-panel">
+  <div id="tai-sum" class="tai-tab-content active">{sum_html}</div>
+  <div id="tai-act" class="tai-tab-content">{act_html}</div>
+  <div id="tai-sent" class="tai-tab-content">{sent_html}</div>
+  <div id="tai-spk" class="tai-tab-content">{spk_html}</div>
+  <div id="tai-ins" class="tai-tab-content">{ins_html}</div>
+</div>
+
+</div>
+
+<script>
+function taiTab(btn, id) {{
+  document.querySelectorAll('.tai-tab').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tai-tab-content').forEach(c => c.classList.remove('active'));
+  btn.classList.add('active');
+  var el = document.getElementById('tai-' + id);
+  if(el) el.classList.add('active');
+}}
+</script>
+"""
+
+
+# ── Meeting health score (kept for backward-compat, renderer uses inline _health()) ──
+def compute_health_score(R: dict) -> dict:
+    sentiment = R.get("sentiment", [])
+    if sentiment:
+        weights = {"positive": 1.0, "neutral": 0.6, "negative": 0.1}
+        avg = sum(weights.get(s.get("score","neutral").lower(), 0.5)
+                  for s in sentiment) / len(sentiment)
+        s_pts = round(avg * 30)
+    else:
+        s_pts = 15
+
+    items = R.get("action_items", [])
+    if not items:
+        a_pts = 10
+    else:
+        verified      = [i for i in items if not i.get("hallucination_flag", False)]
+        with_owner    = sum(1 for i in verified if i.get("owner","TBD") not in ("TBD","Unknown",""))
+        with_deadline = sum(1 for i in verified if i.get("deadline","TBD") not in ("TBD","N/A",""))
+        clarity = (with_owner + with_deadline) / (2 * len(items))
+        a_pts = round(clarity * 25)
+
+    soft     = R.get("soft_rejections", {})
+    risk     = soft.get("risk_level", "NONE")
+    risk_pts = {"NONE": 25, "MINIMAL": 20, "LOW": 15, "MEDIUM": 8, "HIGH": 0}
+    r_pts    = risk_pts.get(risk, 25)
+
+    verification = R.get("verification", {})
+    hall_rate    = verification.get("overall_hallucination_risk", 0)
+    h_pts        = round((1 - hall_rate) * 20)
+
+    score = min(s_pts + a_pts + r_pts + h_pts, 100)
+
+    if score >= 80:
+        label, color, bg, border = "Productive Meeting", "#486858", "#EDF3EF", "#A8C8B8"
+    elif score >= 60:
+        label, color, bg, border = "Mostly Aligned",    "#986820", "#FAF0E0", "#D9C090"
+    elif score >= 40:
+        label, color, bg, border = "Needs Follow-up",   "#C87030", "#FDF0EA", "#E8C090"
+    else:
+        label, color, bg, border = "High Risk",         "#B04040", "#FAF0F0", "#E8A0A0"
+
+    return {
+        "score":     score,
+        "label":     label,
+        "color":     color,
+        "bg":        bg,
+        "border":    border,
+        "breakdown": {
+            "sentiment":      s_pts,
+            "action_clarity": a_pts,
+            "soft_rejection": r_pts,
+            "hallucination":  h_pts,
+        },
+    }
+
+
 # ────────────────────────────────────────────────────────────────────────────
-# RESULTS
+# RESULTS DISPLAY
 # ────────────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
 @keyframes fadeSlideUp {
     from { opacity: 0; transform: translateY(16px); }
-    to   { opacity: 1; transform: translateY(0); }
+    to   { opacity: 1; transform: translateY(0);    }
 }
 .results-wrapper { animation: fadeSlideUp 0.4s cubic-bezier(0.4, 0, 0.2, 1) both; }
 </style>
@@ -970,11 +1746,10 @@ if st.session_state.results:
     features = get_features(language)
 
     st.markdown(
-        "<hr style='border:none;border-top:1px solid #EDE0D8;margin:1.6rem 0 1rem;'/>",
+        "<hr style='border:none;border-top:1px solid rgba(255,255,255,0.08);margin:1.6rem 0 1rem;'/>",
         unsafe_allow_html=True,
     )
 
-    # Single HTML render — one WebSocket message instead of 50+
     st.markdown(
         build_results_html(R, language, features, pii_rep),
         unsafe_allow_html=True,
@@ -982,6 +1757,7 @@ if st.session_state.results:
 
     st.markdown("<div style='height:0.8rem'></div>", unsafe_allow_html=True)
 
+    from utils import build_export_json, export_filename
     exp = build_export_json(st.session_state.current_transcript, language, R)
     st.download_button(
         "⬇ Export JSON",
@@ -993,7 +1769,7 @@ if st.session_state.results:
     if EVAL_AVAILABLE:
         with st.expander("📊 Accuracy Evaluation · Ground Truth Comparison"):
             st.markdown(
-                "<div style='font-size:0.82rem;color:#A8897C;margin-bottom:1rem'>"
+                "<div style='font-size:0.82rem;color:rgba(255,255,255,0.5);margin-bottom:1rem'>"
                 "Select a test case with known ground truth to measure analysis accuracy.</div>",
                 unsafe_allow_html=True,
             )
@@ -1002,7 +1778,9 @@ if st.session_state.results:
             tc       = next(t for t in TEST_CASES if t["name"] == selected)
             if st.button("Run evaluation →", key="run_eval"):
                 with st.spinner("Evaluating…"):
-                    pred   = analyze_transcript(tc["transcript"], tc["language"], bypass_cache=True)
+                    pred   = analyze_transcript(
+                        tc["transcript"], tc["language"], bypass_cache=True
+                    )
                     report = evaluate(
                         pred, tc["ground_truth"], tc["transcript"],
                         tc_name=tc["name"],
@@ -1010,14 +1788,14 @@ if st.session_state.results:
                     )
                 overall = report.get("overall_score", 0)
                 c1, c2, c3, c4 = st.columns(4)
-                with c1: st.metric("Overall",    f"{overall}%")
-                with c2: st.metric("ROUGE-1",    report.get("summary",{}).get("avg_rouge1_f1","—"))
-                with c3: st.metric("Action F1",  report.get("action_items",{}).get("f1","—"))
-                with c4: st.metric("Sentiment",  report.get("sentiment",{}).get("soft_accuracy","—"))
+                with c1: st.metric("Overall", f"{overall}%")
+                with c2: st.metric("ROUGE-1", report.get("summary",{}).get("avg_rouge1_f1","—"))
+                with c3: st.metric("Action F1", report.get("action_items",{}).get("f1","—"))
+                with c4: st.metric("Sentiment", report.get("sentiment",{}).get("soft_accuracy","—"))
                 if "japan_insights" in report:
                     ji_r = report["japan_insights"]
                     c5, c6, c7 = st.columns(3)
-                    with c5: st.metric("Keigo",       ji_r["keigo"].get("grade","—"))
+                    with c5: st.metric("Keigo", ji_r["keigo"].get("grade","—"))
                     with c6: st.metric("Nemawashi P", ji_r["nemawashi"].get("precision","—"))
                     with c7: st.metric("Code-switch", ji_r["code_switching"].get("grade","—"))
                 with st.expander("Full report (JSON)"):
@@ -1031,8 +1809,8 @@ if st.session_state.results:
             else:
                 c1, c2, c3, c4 = st.columns(4)
                 with c1: st.metric("High Risk Meetings", f"{trends['high_soft_rejection_pct']}%")
-                with c2: st.metric("Avg Hallucination",  f"{trends['avg_hallucination_pct']}%")
-                with c3: st.metric("Avg Action Items",   trends["avg_action_items"])
+                with c2: st.metric("Avg Hallucination", f"{trends['avg_hallucination_pct']}%")
+                with c3: st.metric("Avg Action Items", trends["avg_action_items"])
                 with c4:
                     dur = trends["avg_duration_sec"]
                     st.metric("Avg Analysis Time", f"{dur:.0f}s" if dur < 60 else f"{dur/60:.1f}m")
@@ -1041,13 +1819,75 @@ if st.session_state.results:
                     if alert:
                         st.warning(alert)
 
-# ── Footer ───────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────
+# FOOTER — split into two st.markdown() calls to avoid Streamlit truncation
+# ────────────────────────────────────────────────────────────────────────────
 st.markdown("""
-<div style='text-align:center; padding:2.5rem 0 1.5rem;
-            color:#C4A99E; font-size:0.73rem; letter-spacing:0.05em;'>
-  🎙️ &nbsp; TranscriptAI &nbsp;·&nbsp; Speech &amp; Meeting Intelligence
-  &nbsp;·&nbsp; APPI Compliant &nbsp; 🎙️
-  <br><br>
-  <span style='color:#EDE0D8;'>Groq · Ollama · Claude · GPT-4 · Any OpenAI-compatible provider</span>
+<style>
+.tai-footer { margin-top:3rem; border-top:1px solid #EDE0D8; padding:2.5rem 0 2rem; }
+.tai-footer-card { background:linear-gradient(135deg,#FFFEFB 0%,#FEF6F8 100%); border:1px solid #EDE0D8; border-radius:16px; padding:2rem 2.5rem; max-width:860px; margin:0 auto; box-shadow:0 2px 16px rgba(217,96,128,0.06); }
+.tai-footer-name  { font-size:1.25rem; font-weight:700; color:#3C2416; letter-spacing:-0.01em; margin-bottom:0.25rem; }
+.tai-footer-title { font-size:0.78rem; color:#D96080; font-weight:500; letter-spacing:0.04em; margin-bottom:1rem; }
+.tai-footer-bio   { font-size:0.82rem; color:#7A5040; line-height:1.75; margin-bottom:1.4rem; border-left:3px solid #F2B0C0; padding-left:1rem; }
+.tai-footer-links { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:1.4rem; }
+.tai-footer-link  { display:inline-flex; align-items:center; gap:6px; padding:6px 14px; border-radius:999px; font-size:0.75rem; font-weight:500; text-decoration:none; border:1px solid; transition:box-shadow 0.2s,transform 0.2s; }
+.tai-footer-link:hover { transform:translateY(-2px); box-shadow:0 4px 12px rgba(217,96,128,0.15); }
+.tai-footer-link-gh   { background:#F8F4FF; color:#3C2416; border-color:#C8A8C8; }
+.tai-footer-link-li   { background:#EFF6FF; color:#1A56A8; border-color:#93C5FD; }
+.tai-footer-link-hf   { background:#FFF7ED; color:#C05A00; border-color:#FDB97B; }
+.tai-footer-link-mail { background:#FEF6F8; color:#BE4060; border-color:#F2B0C0; }
+.tai-footer-link-repo { background:#F0FDF4; color:#166534; border-color:#86EFAC; }
+.tai-footer-divider   { border:none; border-top:1px solid #EDE0D8; margin:1.2rem 0; }
+.tai-footer-stack { display:flex; flex-wrap:wrap; gap:7px; margin-bottom:1.2rem; }
+.tai-footer-chip  { font-size:0.68rem; padding:3px 10px; border-radius:999px; background:#FEF3EC; color:#7A5040; border:1px solid #E5D0C4; font-weight:500; }
+.tai-footer-bottom { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; font-size:0.71rem; color:#C8A898; }
+.tai-footer-stat  { display:inline-flex; align-items:center; gap:5px; background:#FEF6F8; border:1px solid #F2B0C0; border-radius:999px; padding:3px 10px; font-size:0.7rem; color:#D96080; font-weight:600; }
+@media (max-width:768px) { .tai-footer-card { padding:1.4rem 1.2rem; } .tai-footer-bottom { flex-direction:column; align-items:flex-start; } }
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+<div class="tai-footer">
+  <div class="tai-footer-card">
+    <div class="tai-footer-name">Kunal Bisht</div>
+    <div class="tai-footer-title">AI Engineer &middot; LLM Systems &amp; RAG Pipelines &middot; Multilingual NLP</div>
+    <div class="tai-footer-bio">
+      I build AI to turn real problems into actual solutions &mdash; not proof-of-concepts that never ship.
+      My focus is NLP, RAG pipelines, and language systems: work where meaning matters and silent failures cost money.
+      TranscriptAI started because I kept forgetting my meetings &mdash; it became a trilingual intelligence platform
+      rebuilt five times until accuracy went from 22% to 93%.
+    </div>
+    <div class="tai-footer-links">
+      <a class="tai-footer-link tai-footer-link-gh"   href="https://github.com/aiKunalBisht" target="_blank">GitHub</a>
+      <a class="tai-footer-link tai-footer-link-li"   href="https://linkedin.com/in/kunalhere" target="_blank">LinkedIn</a>
+      <a class="tai-footer-link tai-footer-link-hf"   href="https://huggingface.co/spaces/KunalTheBeast/TranscriptAI" target="_blank">Live Demo</a>
+      <a class="tai-footer-link tai-footer-link-repo" href="https://github.com/aiKunalBisht/Transcript-ai" target="_blank">Source Code</a>
+      <a class="tai-footer-link tai-footer-link-mail" href="mailto:kunalbisht909@gmail.com">kunalbisht909@gmail.com</a>
+    </div>
+    <div class="tai-footer-divider"></div>
+    <div class="tai-footer-stack">
+      <span class="tai-footer-chip">Python</span>
+      <span class="tai-footer-chip">FastAPI</span>
+      <span class="tai-footer-chip">LangChain</span>
+      <span class="tai-footer-chip">ChromaDB</span>
+      <span class="tai-footer-chip">Groq API</span>
+      <span class="tai-footer-chip">Ollama</span>
+      <span class="tai-footer-chip">MeCab</span>
+      <span class="tai-footer-chip">HuggingFace</span>
+      <span class="tai-footer-chip">MLflow</span>
+      <span class="tai-footer-chip">Docker</span>
+      <span class="tai-footer-chip">Streamlit</span>
+      <span class="tai-footer-chip">RAG</span>
+    </div>
+    <div class="tai-footer-bottom">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <span class="tai-footer-stat">93.8% eval accuracy</span>
+        <span class="tai-footer-stat">v5 &middot; 5 rebuilds</span>
+        <span class="tai-footer-stat">JA &middot; HI &middot; EN &middot; Mixed</span>
+        <span class="tai-footer-stat">APPI compliant</span>
+      </div>
+      <div>Bengaluru, Karnataka, India &middot; Open to Remote / Relocation</div>
+    </div>
+  </div>
 </div>
 """, unsafe_allow_html=True)
