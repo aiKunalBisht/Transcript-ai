@@ -94,6 +94,14 @@ except ImportError:
             "insight_tab_enabled": True,
         }
 
+# ── Page config — MUST be the first Streamlit command ────────────────────────
+st.set_page_config(
+    page_title="TranscriptAI · Speech & Meeting Analyzer",
+    page_icon="🎙️",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
 # ── SEO + preconnect head tags ───────────────────────────────────────────────
 st.markdown("""
 <head>
@@ -106,14 +114,6 @@ st.markdown("""
   <link rel="preconnect" href="https://api.groq.com">
 </head>
 """, unsafe_allow_html=True)
-
-# ── Page config ──────────────────────────────────────────────────────────────
-st.set_page_config(
-    page_title="TranscriptAI · Speech & Meeting Analyzer",
-    page_icon="🎙️",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
 
 # ── CSS — warm sakura/peach palette ─────────────────────────────────────────
 st.markdown("""
@@ -1490,35 +1490,28 @@ def build_results_html(R: dict, language: str, features: dict,
 .tai-health-right {{ padding: 20px 24px; }}
 .tai-health-title {{ font-size: 0.6rem; font-weight: 700; color: var(--accent); letter-spacing: 0.15em; text-transform: uppercase; margin-bottom: 14px; }}
 @media(max-width:600px) {{ .tai-health-left {{ border-right: none; border-bottom: 1px solid rgba(60,36,22,0.10); }} }}
-.tai-tab-radios {{ display: none; }}
 .tai-tab-bar {{
-  display: flex; gap: 0;
+  display: flex; gap: 4px;
   border-bottom: 1px solid rgba(60,36,22,0.12);
-  margin-bottom: 16px; overflow-x: auto;
-  scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  margin-bottom: 16px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
 }}
 .tai-tab-bar::-webkit-scrollbar {{ display: none; }}
-.tai-tab-bar label {{
-  padding: 10px 18px; font-size: 0.8rem; font-weight: 500;
-  color: var(--ink-soft); cursor: pointer;
-  border-bottom: 2px solid transparent; white-space: nowrap;
-  transition: color 0.2s, border-color 0.2s; user-select: none;
+.tai-tab {{
+  padding: 8px 16px;
+  font-size: 0.8rem; font-weight: 500;
+  color: var(--ink-soft); border: none; background: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer; white-space: nowrap;
+  transition: color 0.2s, border-color 0.2s;
 }}
-.tai-tab-bar label:hover {{ color: var(--accent); }}
+.tai-tab:hover {{ color: var(--accent); }}
+.tai-tab.active {{ color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }}
 .tai-tab-content {{ display: none; animation: fadeIn 0.25s ease; }}
+.tai-tab-content.active {{ display: block; }}
 @keyframes fadeIn {{ from{{opacity:0;transform:translateY(6px)}} to{{opacity:1;transform:none}} }}
-#tab-sum:checked ~ .tai-tab-bar label[for="tab-sum"],
-#tab-act:checked ~ .tai-tab-bar label[for="tab-act"],
-#tab-sent:checked ~ .tai-tab-bar label[for="tab-sent"],
-#tab-spk:checked ~ .tai-tab-bar label[for="tab-spk"],
-#tab-ins:checked ~ .tai-tab-bar label[for="tab-ins"] {{
-  color: var(--accent); border-bottom-color: var(--accent); font-weight: 600;
-}}
-#tab-sum:checked  ~ .tai-panel #tai-sum,
-#tab-act:checked  ~ .tai-panel #tai-act,
-#tab-sent:checked ~ .tai-panel #tai-sent,
-#tab-spk:checked  ~ .tai-panel #tai-spk,
-#tab-ins:checked  ~ .tai-panel #tai-ins {{ display: block; }}
 .tai-section-label {{
   font-size: 0.62rem; font-weight: 700; color: var(--ink-soft);
   letter-spacing: 0.16em; text-transform: uppercase;
@@ -1646,22 +1639,16 @@ def build_results_html(R: dict, language: str, features: dict,
   </div>
 </div>
 
-<input class="tai-tab-radios" type="radio" name="tai-tabs" id="tab-sum" checked>
-<input class="tai-tab-radios" type="radio" name="tai-tabs" id="tab-act">
-<input class="tai-tab-radios" type="radio" name="tai-tabs" id="tab-sent">
-<input class="tai-tab-radios" type="radio" name="tai-tabs" id="tab-spk">
-<input class="tai-tab-radios" type="radio" name="tai-tabs" id="tab-ins">
-
 <div class="tai-tab-bar">
-  <label for="tab-sum">📝 Summary</label>
-  <label for="tab-act">✅ Actions</label>
-  <label for="tab-sent">🌸 Sentiment</label>
-  <label for="tab-spk">🎤 Speakers</label>
-  <label for="tab-ins">{features.get('insight_tab_label','🌐 Insights')}</label>
+  <button class="tai-tab active" onclick="taiTab(this,'sum')">📝 Summary</button>
+  <button class="tai-tab" onclick="taiTab(this,'act')">✅ Actions</button>
+  <button class="tai-tab" onclick="taiTab(this,'sent')">🌸 Sentiment</button>
+  <button class="tai-tab" onclick="taiTab(this,'spk')">🎤 Speakers</button>
+  <button class="tai-tab" onclick="taiTab(this,'ins')">{features.get('insight_tab_label','🌐 Insights')}</button>
 </div>
 
 <div class="tai-panel">
-  <div id="tai-sum" class="tai-tab-content">{sum_html}</div>
+  <div id="tai-sum" class="tai-tab-content active">{sum_html}</div>
   <div id="tai-act" class="tai-tab-content">{act_html}</div>
   <div id="tai-sent" class="tai-tab-content">{sent_html}</div>
   <div id="tai-spk" class="tai-tab-content">{spk_html}</div>
@@ -1669,6 +1656,16 @@ def build_results_html(R: dict, language: str, features: dict,
 </div>
 
 </div>
+
+<script>
+function taiTab(btn, id) {{
+  document.querySelectorAll('.tai-tab').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tai-tab-content').forEach(c => c.classList.remove('active'));
+  btn.classList.add('active');
+  var el = document.getElementById('tai-' + id);
+  if(el) el.classList.add('active');
+}}
+</script>
 """
 
 
