@@ -26,3 +26,6 @@ numpy>=1.26.0
 langdetect>=1.0.9
 fugashi>=1.3.0
 unidic-lite>=1.0.8
+
+# Exporters
+python-pptx>=1.0.2
