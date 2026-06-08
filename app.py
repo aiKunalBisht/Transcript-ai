@@ -1053,6 +1053,9 @@ if run_analysis and final_text:
     st.session_state.results            = results
     st.session_state.current_transcript = final_text
     st.session_state.current_language   = active_lang
+    st.session_state["analysis_result"]     = results       
+    st.session_state["detected_language"]   = active_lang 
+
 
     provider   = results.get("_provider", "")
     duration   = results.get("_duration_ms", 0)
