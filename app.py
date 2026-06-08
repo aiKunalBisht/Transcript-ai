@@ -13,7 +13,9 @@ v7.1 FIXES (app.py side):
 """
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from dotenv import load_dotenv
+import pathlib
+load_dotenv(dotenv_path=pathlib.Path(__file__).resolve().parent / ".env")
 
 import time
 from datetime import datetime
