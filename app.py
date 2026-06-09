@@ -822,6 +822,11 @@ with st.sidebar:
     <hr style='border:none; border-top:1px solid #EDE0D8; margin:0 0 1rem;'/>
     """, unsafe_allow_html=True)
 
+    st.markdown("<div class='sh'>Navigation</div>", unsafe_allow_html=True)
+    st.page_link("app.py", label="🎙️  Meeting Analysis", use_container_width=True)
+    st.page_link("pages/Export_Documents.py", label="📄  Export Documents", use_container_width=True)
+    st.markdown("<hr style='border:none; border-top:1px solid #EDE0D8; margin:1rem 0;'/>", unsafe_allow_html=True)
+    
     st.markdown("<div class='sh'>Language</div>", unsafe_allow_html=True)
     lang_choice = st.selectbox(
         "lang",
