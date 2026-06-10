@@ -8,7 +8,7 @@ import pathlib
 load_dotenv(dotenv_path=pathlib.Path(__file__).resolve().parent.parent / ".env")
 
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List
 
 
 class Slide(BaseModel):
@@ -42,16 +42,15 @@ class SlideArchitectAgent:
             },
             json={
                 "model": self.model,
-                "temperature": 0.1,
-                "max_tokens": 2000,
+                "temperature": 0.2,
+                "max_tokens": 2500,
                 "response_format": {"type": "json_object"},
                 "messages": [{"role": "user", "content": prompt}],
             },
             timeout=30,
         )
         resp.raise_for_status()
-        content = resp.json()["choices"][0]["message"]["content"]
-        return json.loads(content)
+        return json.loads(resp.json()["choices"][0]["message"]["content"])
 
     def plan(self, analysis_result: dict, language: str = "en") -> PresentationPlan:
         summary      = analysis_result.get("full_summary") or ""
@@ -61,60 +60,102 @@ class SlideArchitectAgent:
 
         action_items = analysis_result.get("action_items", [])
         decisions    = analysis_result.get("key_decisions", [])
+        sentiment    = analysis_result.get("sentiment", [])
         soft         = analysis_result.get("soft_rejections", {}) or {}
         soft_risk    = soft.get("risk_level", "NONE")
         soft_signals = soft.get("total_signals", 0)
+        speakers     = analysis_result.get("speakers", [])
 
-        prompt = f"""You are a presentation architect. Convert this meeting analysis into a slide deck.
-Return ONLY a valid JSON object. No explanation, no markdown, no code fences.
+        # Build rich context for the LLM
+        action_details = []
+        for item in action_items:
+            task  = item.get("task", "")
+            owner = item.get("owner", "TBD")
+            due   = item.get("deadline", "TBD")
+            if task:
+                action_details.append(f"{task} (Owner: {owner}, Due: {due})")
 
-Meeting Summary: {summary}
-Action Items: {json.dumps([i.get("task", "") for i in action_items])}
-Key Decisions: {json.dumps(decisions)}
-Soft Rejection Risk: {soft_risk} ({soft_signals} signals)
-Language: {language}
+        sentiment_summary = []
+        for s in sentiment:
+            sentiment_summary.append(
+                f"{s.get('speaker','?')}: {s.get('score','neutral')} — {s.get('label','')}"
+            )
 
-Return exactly this JSON structure:
+        prompt = f"""You are a senior presentation architect. Convert this meeting analysis into a polished, professional slide deck.
+
+MEETING SUMMARY:
+{summary}
+
+ACTION ITEMS (with owners and deadlines):
+{json.dumps(action_details)}
+
+KEY DECISIONS:
+{json.dumps(decisions)}
+
+SPEAKER SENTIMENT:
+{json.dumps(sentiment_summary)}
+
+SOFT REJECTION RISK: {soft_risk} ({soft_signals} signals detected)
+LANGUAGE: {language}
+
+CRITICAL BULLET POINT RULES — READ CAREFULLY:
+- Every bullet must be a COMPLETE, INFORMATIVE PHRASE of 6 to 12 words
+- Include NAMES of speakers, owners, deadlines where known
+- NEVER write fragments like "Fix Needed", "Minor Bug", "No Risks", "None", "On Track"
+- BAD: "Backend Issue" | GOOD: "Vikram identified a backend bug blocking the sprint deadline"
+- BAD: "Direct Communication" | GOOD: "Sharma Sir emphasized direct escalation for all blockers"
+- BAD: "Fix Needed" | GOOD: "Priya committed to resolving the bug by tomorrow morning"
+- Each bullet must give a reader NEW information they could act on
+
+Return ONLY this exact JSON structure, no explanation, no markdown:
 {{
-  "meeting_title": "short title for the meeting",
+  "meeting_title": "descriptive title under 8 words",
   "total_slides": 5,
   "language": "{language}",
-  "executive_summary": "one sentence summary of the entire meeting",
+  "executive_summary": "one complete sentence summarising the meeting outcome",
   "slides": [
     {{
       "slide_number": 1,
-      "title": "Meeting Overview",
-      "bullets": ["first key point", "second key point", "third key point"],
-      "speaker_notes": "Two or three full sentences explaining this slide.",
+      "title": "slide title",
+      "bullets": [
+        "complete informative phrase with 6-12 words naming actors",
+        "another complete informative phrase with specific detail",
+        "third complete phrase with outcome or decision"
+      ],
+      "speaker_notes": "Two to three full sentences a presenter would actually say.",
       "language": "{language}",
       "estimated_duration_seconds": 60
     }}
   ]
 }}
 
-Rules:
-- First slide must be the overview/title slide
-- Last slide must be Next Steps or Action Items
-- If soft rejection risk is MEDIUM or HIGH, include an Unresolved Items slide
-- Each slide must have 2 to 5 bullet points
-- Each bullet point must be under 12 words
-- Total slides must be between 4 and 7
-- speaker_notes must be 2-3 full sentences"""
+SLIDE STRUCTURE RULES:
+- Slide 1: Title/Overview — summarise the meeting purpose and outcome
+- Middle slides: One theme each — discussion points, decisions, risks, team updates
+- Last slide: Next Steps — every action item as a complete bullet with owner and deadline
+- If soft rejection risk is MEDIUM or HIGH: include an "Unresolved Items" slide
+- 4 to 6 slides total
+- Each slide: exactly 3 to 4 bullets
+- speaker_notes: 2-3 full sentences, conversational, presenter-ready"""
 
         try:
             raw  = self._call_groq(prompt)
             plan = PresentationPlan(**raw)
-            # Validate bullets are lists not empty
+            # Post-process: replace any remaining fragments
             for slide in plan.slides:
-                if not slide.bullets:
-                    slide.bullets = ["See full transcript for details"]
+                slide.bullets = [
+                    b for b in slide.bullets
+                    if b and len(b.split()) >= 4
+                ] or ["See full transcript for complete details"]
             return plan
         except Exception as e:
-            # Build fallback from whatever summary we have
-            return self._build_fallback(summary, action_items, language)
+            return self._build_fallback(summary, action_items, action_details, language)
 
-    def _build_fallback(self, summary: str, action_items: list, language: str) -> PresentationPlan:
-        action_bullets = [i.get("task", "") for i in action_items[:4]] or ["Review transcript"]
+    def _build_fallback(self, summary: str, action_items: list,
+                        action_details: list, language: str) -> PresentationPlan:
+        action_bullets = action_details[:4] if action_details else [
+            "Review full transcript for action items"
+        ]
 
         return PresentationPlan(
             meeting_title="Meeting Summary",
@@ -125,15 +166,23 @@ Rules:
                 Slide(
                     slide_number=1,
                     title="Meeting Overview",
-                    bullets=[summary[:80]] if summary else ["Meeting analysis complete"],
-                    speaker_notes="This slide provides an overview of the meeting discussed.",
+                    bullets=[
+                        summary[:80] if len(summary) > 8 else "Meeting analysis is complete",
+                        "Full details available in the transcript analysis",
+                        "Review action items on the final slide",
+                    ],
+                    speaker_notes="This slide provides an overview of the meeting discussed today.",
                     language=language,
                     estimated_duration_seconds=45,
                 ),
                 Slide(
                     slide_number=2,
                     title="Key Discussion Points",
-                    bullets=["Review full transcript for details", "Analysis results available in JSON export"],
+                    bullets=[
+                        "Full transcript analysis is available in the JSON export",
+                        "Speaker sentiment and talk time captured in the analysis",
+                        "Communication signals and risk level assessed by pipeline",
+                    ],
                     speaker_notes="The key discussion points have been captured in the transcript analysis.",
                     language=language,
                     estimated_duration_seconds=60,
@@ -148,4 +197,3 @@ Rules:
                 ),
             ],
         )
-        
