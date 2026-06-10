@@ -35,6 +35,18 @@ except Exception as _pptx_err:
 # ── CSS — full sakura palette ────────────────────────────────────────────────
 st.markdown("""
 <style>
+
+[data-testid="stSidebarNav"],
+[data-testid="stSidebarNavItems"],
+[data-testid="stSidebarNavLink"],
+section[data-testid="stSidebar"] > div:first-child > div > ul,
+section[data-testid="stSidebar"] nav {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    overflow: hidden !important;
+}
+
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Noto+Sans+JP:wght@400;500&display=swap');
 :root {
     --washi:#FAF6F2; --surface:#FFFEFB; --border:#EFE2D8; --border-mid:#E5D0C4;
@@ -373,6 +385,135 @@ with col4:
         mime="application/json",
         use_container_width=True,
     )
+
+# ── 議事録 card — INSERT this as Row 3 in Export_Documents.py ────────────────
+# Place this block AFTER the col3/col4 row and BEFORE the footer.
+# Import at top of file (add alongside other imports):
+#   from agents.gijiroku_formatter import GijirokulFormatter, render_markdown, render_text
+
+try:
+    from agents.gijiroku_formatter import GijirokulFormatter, render_markdown, render_text
+    GIJIROKU_AVAILABLE = True
+except Exception as _g_err:
+    GIJIROKU_AVAILABLE = False
+    _g_err_msg = str(_g_err)
+
+# ── Row 3: 議事録 ─────────────────────────────────────────────────────────────
+st.markdown("<div style='height:0.2rem'></div>", unsafe_allow_html=True)
+col5, col6 = st.columns(2, gap="large")
+
+with col5:
+    st.markdown("""
+    <div class='export-card' style='border-color:#D0B0C8;'>
+      <div class='export-card-icon'>📋</div>
+      <div class='export-card-badge' style='background:#F5EEF8;color:#7D4E8A;border:1px solid #D0B0C8;'>
+        議事録 · Gijiroku
+      </div>
+      <div class='export-card-title'>Japanese Business Meeting Minutes</div>
+      <div class='export-card-desc'>
+        Formats your analysis as a formal <strong>議事録</strong> — the standard
+        Japanese enterprise meeting document. Includes 会議名, 出席者, 議題,
+        決定事項, アクションアイテム, and 次回予定.
+        Download as <strong>.md</strong> or <strong>.txt</strong>.
+        Compatible with Notion, Confluence, and email.
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if not GIJIROKU_AVAILABLE:
+        st.error(f"議事録 module not loaded: {_g_err_msg}")
+    else:
+        with st.expander("⚙️ Options", expanded=False):
+            g_recorder   = st.text_input("記録者 (Recorder)", value="TranscriptAI", key="g_recorder")
+            g_basho      = st.text_input("場所 (Location)", value="オンライン会議 / Online", key="g_basho")
+            g_jikai      = st.text_input("次回予定 (Next meeting)", value="未定 / TBD", key="g_jikai")
+            g_format     = st.radio("Export format", ["Markdown (.md)", "Plain Text (.txt)"], key="g_fmt", horizontal=True)
+
+        if st.button("生成する Generate 議事録", key="gen_gijiroku", use_container_width=True):
+            with st.spinner("議事録を生成中 · Formatting..."):
+                try:
+                    formatter = GijirokulFormatter()
+                    plan_g = formatter.format(
+                        analysis=R,
+                        recorder=g_recorder,
+                        basho=g_basho,
+                        jikai_yotei=g_jikai,
+                        timestamp=datetime.now().strftime("%Y年%m月%d日 %H:%M"),
+                    )
+                    if "Markdown" in g_format:
+                        content = render_markdown(plan_g)
+                        ext, mime = "md", "text/markdown"
+                    else:
+                        content = render_text(plan_g)
+                        ext, mime = "txt", "text/plain"
+
+                    st.session_state["_gijiroku_content"] = content
+                    st.session_state["_gijiroku_ext"]     = ext
+                    st.session_state["_gijiroku_mime"]    = mime
+                    st.session_state["_gijiroku_title"]   = plan_g.kaigi_mei
+                    st.success("✓ 議事録が生成されました / Document ready")
+
+                    # Preview
+                    with st.expander("プレビュー Preview", expanded=True):
+                        if ext == "md":
+                            st.markdown(content)
+                        else:
+                            st.code(content, language=None)
+
+                except Exception as e:
+                    import traceback
+                    st.error(f"議事録生成エラー: {e}")
+                    st.code(traceback.format_exc())
+
+        if st.session_state.get("_gijiroku_content"):
+            safe_title = st.session_state.get("_gijiroku_title", "meeting").replace(" ", "_")[:40]
+            ext  = st.session_state.get("_gijiroku_ext", "md")
+            mime = st.session_state.get("_gijiroku_mime", "text/markdown")
+            st.download_button(
+                label=f"⬇  議事録をダウンロード  (.{ext})",
+                data=st.session_state["_gijiroku_content"].encode("utf-8"),
+                file_name=f"gijiroku_{safe_title}_{timestamp}.{ext}",
+                mime=mime,
+                use_container_width=True,
+            )
+
+with col6:
+    st.markdown("""
+    <div class='export-card' style='border-color:#D0B0C8;background:#FDFAFF;'>
+      <div class='export-card-icon'>🗾</div>
+      <div class='export-card-badge' style='background:#F5EEF8;color:#7D4E8A;border:1px solid #D0B0C8;'>
+        フォーマット解説
+      </div>
+      <div class='export-card-title'>About 議事録 Format</div>
+      <div class='export-card-desc'>
+        議事録 (gijiroku) is the standard formal meeting minutes format
+        used in Japanese enterprise environments — Fujitsu, Hitachi, NTT Data,
+        and all major corporations expect this structure for any formal meeting.
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("""
+| フィールド | 内容 |
+|-----------|------|
+| 会議名 | Meeting name |
+| 日時 | Date and time |
+| 場所 | Location / platform |
+| 出席者 | Attendees with roles |
+| 議題 | Agenda items |
+| 決定事項 | Decisions made |
+| アクションアイテム | Who · What · By when |
+| 次回予定 | Next meeting schedule |
+| 記録者 | Recorder |
+| 特記事項 | Notes (soft rejection risk) |
+""")
+    st.caption(
+        "TranscriptAI is currently the only multilingual meeting AI "
+        "outputting 議事録 format. This covers Japanese business requirements "
+        "that Fujitsu Takane and similar enterprise tools are targeting."
+    )
+
+
 
 # ── Footer ───────────────────────────────────────────────────────────────────
 st.markdown("""

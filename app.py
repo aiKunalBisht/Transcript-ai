@@ -120,6 +120,18 @@ st.markdown("""
 # ── CSS — warm sakura/peach palette ─────────────────────────────────────────
 st.markdown("""
 <style>
+
+/* Hide Streamlit auto-injected multi-page nav */
+[data-testid="stSidebarNav"],
+[data-testid="stSidebarNavItems"],
+[data-testid="stSidebarNavLink"],
+section[data-testid="stSidebar"] > div:first-child > div > ul,
+section[data-testid="stSidebar"] nav {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    overflow: hidden !important;
+}
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Noto+Sans+JP:wght@400;500&display=swap');
 
 :root {
@@ -1028,100 +1040,100 @@ if not can_analyze and not final_text:
 # ────────────────────────────────────────────────────────────────────────────
 # ANALYSIS
 # ────────────────────────────────────────────────────────────────────────────
-if run_analysis and final_text:
+# ── Analysis state init ──────────────────────────────────────────────────────
+for _k, _v in [
+    ("_analysis_running", False), ("_analysis_done", False),
+    ("_analysis_result", None),   ("_analysis_error", None),
+    ("_analysis_lang", ""),       ("_analysis_start", 0.0),
+]:
+    if _k not in st.session_state:
+        st.session_state[_k] = _v
+
+import threading as _threading
+import time as _time
+
+def _run_analysis_bg(text_in, active_lang, pii_mask, pii_flag):
+    try:
+        result = analyze_transcript(text_in, active_lang)
+        if pii_mask is not None and pii_flag and PII_AVAILABLE:
+            result = restore_pii_in_result(result, pii_mask)
+        st.session_state["_analysis_result"] = result
+        st.session_state["_analysis_error"]  = None
+    except Exception as _e:
+        st.session_state["_analysis_result"] = None
+        st.session_state["_analysis_error"]  = str(_e)
+    finally:
+        st.session_state["_analysis_running"] = False
+        st.session_state["_analysis_done"]    = True
+
+if run_analysis and final_text and not st.session_state["_analysis_running"]:
     detected_lang = detect_language(final_text)
     active_lang   = forced_lang or detected_lang
+    pii_mask = None
+    text_in  = final_text
+    if pii_enabled and PII_AVAILABLE:
+        text_in, pii_mask = mask_transcript(final_text)
+        st.session_state.pii_report = get_pii_report(pii_mask)
+    st.session_state["_analysis_running"] = True
+    st.session_state["_analysis_done"]    = False
+    st.session_state["_analysis_result"]  = None
+    st.session_state["_analysis_error"]   = None
+    st.session_state["_analysis_lang"]    = active_lang
+    st.session_state["_analysis_start"]   = _time.time()
+    st.session_state.current_transcript   = final_text
+    st.session_state.current_language     = active_lang
+    _threading.Thread(
+        target=_run_analysis_bg,
+        args=(text_in, active_lang, pii_mask, pii_enabled),
+        daemon=True,
+    ).start()
+    st.rerun()
 
-    ph = st.empty()
-    with ph.container():
-        bar = st.progress(0, text="Detecting language…")
-        time.sleep(0.2)
+if st.session_state.get("_analysis_running"):
+    _elapsed = _time.time() - st.session_state.get("_analysis_start", _time.time())
+    _pct = min(int(_elapsed / 8 * 90) + 5, 92)
+    st.progress(_pct, text=f"Analyzing · {_elapsed:.0f}s · You can switch pages safely ✓")
+    st.info("⚡ Analysis will run in the background the results will appear here once ready.")
+    _time.sleep(0.8)
+    st.rerun()
 
-        pii_mask = None
-        text_in  = final_text
-
-        if pii_enabled and PII_AVAILABLE:
-            bar.progress(20, text="Masking PII (APPI compliance)…")
-            text_in, pii_mask = mask_transcript(final_text)
-            st.session_state.pii_report = get_pii_report(pii_mask)
-
-        bar.progress(35, text="Running AI analysis…")
-        with st.spinner("Analyzing · ~3s with Groq · 1–2 min with Ollama"):
-            results = analyze_transcript(text_in, active_lang)
-
-        if pii_mask is not None:
-            results = restore_pii_in_result(results, pii_mask)
-
-        bar.progress(92, text="Finalizing results…")
-        time.sleep(0.2)
-        bar.progress(100, text="Complete ✓")
-        time.sleep(0.3)
-    ph.empty()
-
-    st.session_state.results            = results
-    st.session_state.current_transcript = final_text
-    st.session_state.current_language   = active_lang
-    st.session_state["analysis_result"]     = results       
-    st.session_state["detected_language"]   = active_lang 
-
-
+if st.session_state.get("_analysis_done") and st.session_state.get("_analysis_result") is not None:
+    results     = st.session_state["_analysis_result"]
+    active_lang = st.session_state["_analysis_lang"]
+    st.session_state["_analysis_done"]    = False
+    st.session_state["_analysis_result"]  = None
+    st.session_state.results              = results
+    st.session_state["analysis_result"]   = results
+    st.session_state["detected_language"] = active_lang
     provider   = results.get("_provider", "")
     duration   = results.get("_duration_ms", 0)
     last_error = results.get("_last_error", "")
-
     if results.get("_from_vector_cache"):
-        sim = results.get("_cache_similarity", 0)
-        st.success(f"⚡ Loaded from vector cache · {sim:.0%} match · instant")
+        st.success(f"⚡ Loaded from vector cache · {results.get('_cache_similarity',0):.0%} match · instant")
     elif "mock" in provider:
-        groq_key_present = bool(os.getenv("GROQ_API_KEY", "").strip())
-        has_ai_summary   = results.get("_has_ai_summary", False)
-
+        groq_key_present = bool(os.getenv("GROQ_API_KEY","").strip())
         if "no_key" in provider or not groq_key_present:
-            warn_msg = (
-                "No GROQ_API_KEY found. "
-                "Go to your HuggingFace Space → Settings → Repository secrets "
-                "and add **GROQ_API_KEY** with your key from console.groq.com (free)."
-            )
+            st.warning("⚠ No GROQ_API_KEY found. Add it in Space Settings → Repository secrets.")
         elif "rate_limit" in provider or "429" in last_error:
-            if has_ai_summary:
-                warn_msg = (
-                    "Daily API limit reached — showing AI-generated summary below. "
-                    "Full structured analysis (action items, sentiment, speakers) resumes in 24 hours."
-                )
-            else:
-                warn_msg = (
-                    "Daily API limit reached — demo data shown. "
-                    "Full analysis resumes automatically within 24 hours."
-                )
-        elif "timeout" in provider or "timeout" in last_error.lower():
-            warn_msg = "Groq request timed out. Try a shorter transcript (under 800 words)."
-        elif "offline" in provider or "connection" in last_error.lower():
-            warn_msg = "Could not reach Groq API. Check network or try again in a moment."
+            st.warning("⚠ Daily API limit reached — demo data shown. Resumes in 24h.")
+        elif "timeout" in provider:
+            st.warning("⚠ Groq timed out. Try a shorter transcript (under 800 words).")
         else:
-            warn_msg = f"Analysis ran in demo mode. {last_error or 'AI provider unavailable.'}"
-
-        st.warning(f"⚠ {warn_msg}")
-
-        with st.expander("🔍 Debug info", expanded=False):
-            st.code(
-                f"provider   : {provider}\n"
-                f"groq_key   : present={groq_key_present}\n"
-                f"has_ai_sum : {has_ai_summary}\n"
-                f"last_error : {last_error or 'none'}\n"
-                f"duration   : {duration}ms",
-                language="text",
-            )
+            st.warning(f"⚠ Analysis ran in demo mode. {last_error or 'AI provider unavailable.'}")
     else:
         st.success(f"✓ Analysis complete · {provider} · {duration/1000:.1f}s")
-
     st.session_state.history = add_to_history(st.session_state.history, {
-        "timestamp": datetime.now().isoformat(),
-        "language":  active_lang,
-        "snippet":   final_text[:80],
-        "transcript":final_text,
-        "results":   results,
+        "timestamp": datetime.now().isoformat(), "language": active_lang,
+        "snippet": final_text[:80], "transcript": st.session_state.current_transcript,
+        "results": results,
     })
     st.rerun()
+
+
+if st.session_state.get("_analysis_error"):
+    st.error(f"Analysis failed: {st.session_state['_analysis_error']}")
+    st.session_state["_analysis_done"]  = False
+    st.session_state["_analysis_error"] = None
 
 # ── Streaming ────────────────────────────────────────────────────────────────
 if STREAMING_AVAILABLE and stream_mode and final_text and not run_analysis:
@@ -1669,13 +1681,44 @@ def build_results_html(R: dict, language: str, features: dict,
 </div>
 
 <script>
-function taiTab(btn, id) {{
-  document.querySelectorAll('.tai-tab').forEach(b => b.classList.remove('active'));
-  document.querySelectorAll('.tai-tab-content').forEach(c => c.classList.remove('active'));
-  btn.classList.add('active');
-  var el = document.getElementById('tai-' + id);
-  if(el) el.classList.add('active');
-}}
+(function() {{
+  function taiTab(btn, id) {{
+    document.querySelectorAll('.tai-tab').forEach(function(b) {{ b.classList.remove('active'); }});
+    document.querySelectorAll('.tai-tab-content').forEach(function(c) {{ c.classList.remove('active'); }});
+    btn.classList.add('active');
+    var el = document.getElementById('tai-' + id);
+    if (el) el.classList.add('active');
+    try {{ history.replaceState(null, '', '#tab-' + id); }} catch(e) {{}}
+  }}
+  window.taiTab = taiTab;
+ 
+  function restoreTab() {{
+    var hash = window.location.hash;
+    if (hash && hash.indexOf('#tab-') === 0) {{
+      var id = hash.replace('#tab-', '');
+      var btn = document.querySelector('.tai-tab[onclick*="\'' + id + '\'"]');
+      var content = document.getElementById('tai-' + id);
+      if (btn && content) {{
+        document.querySelectorAll('.tai-tab').forEach(function(b) {{ b.classList.remove('active'); }});
+        document.querySelectorAll('.tai-tab-content').forEach(function(c) {{ c.classList.remove('active'); }});
+        btn.classList.add('active');
+        content.classList.add('active');
+      }}
+    }}
+  }}
+ 
+  if (document.readyState === 'loading') {{
+    document.addEventListener('DOMContentLoaded', restoreTab);
+  }} else {{
+    restoreTab();
+  }}
+  var _obs = new MutationObserver(function(muts) {{
+    for (var i = 0; i < muts.length; i++) {{
+      if (muts[i].addedNodes.length) {{ restoreTab(); break; }}
+    }}
+  }});
+  _obs.observe(document.body, {{ childList: true, subtree: true }});
+}})();
 </script>
 """
 

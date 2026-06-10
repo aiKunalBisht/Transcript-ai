@@ -1,157 +1,377 @@
 """
-exporters/pptx_builder.py
-Takes a PresentationPlan and builds a .pptx file.
-Returns raw bytes ready for st.download_button.
+exporters/pptx_builder.py — TranscriptAI Enterprise Edition
+Design: Midnight Executive palette — dark cover/last, light content (sandwich)
+Motif: numbered circle icons on every content slide (repeating, not stripes)
+Layout variety:
+  Slide 1 (cover):   dark bg, large title, exec summary, stat row
+  Slide 2 (content): two-column — bullets left, stat callouts right
+  Slide 3+ (content): icon+text rows filling full height
+  Last slide:         dark bg, large CTA, next steps as numbered pills
 
-Fixes (DO NOT REVERT):
-  - All textboxes: margin_left=0, margin_top=0 so text sits at exact shape edge
-  - Slide 1: title at top, exec summary 20pt, meta row truly flush-left
-  - Content slides: bullets tight-grouped at top, 0.78" spacing
-  - Font: Cambria titles, Calibri body (both LibreOffice-safe)
+NO accent stripes. NO color bars. NO cream backgrounds on content slides.
+Safe fonts: Cambria titles, Calibri body. Margins=0 on all textboxes.
 """
 import io
 from pptx import Presentation
 from pptx.util import Inches, Pt, Emu
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
+from pptx.util import Inches, Pt
 from agents.slide_architect import PresentationPlan
 
-C_INK         = RGBColor(0x3C, 0x24, 0x16)
-C_INK_MID     = RGBColor(0x7A, 0x50, 0x40)
-C_INK_SOFT    = RGBColor(0xA8, 0x78, 0x68)
-C_SAKURA      = RGBColor(0xD9, 0x60, 0x80)
-C_SAKURA_DEEP = RGBColor(0xBE, 0x40, 0x60)
-C_WASHI       = RGBColor(0xFA, 0xF6, 0xF2)
-C_BORDER      = RGBColor(0xEF, 0xE2, 0xD8)
-C_PEACH       = RGBColor(0xE8, 0x80, 0x60)
+# ── Midnight Executive palette ────────────────────────────────────────────────
+DARK_BG     = RGBColor(0x1E, 0x27, 0x61)   # deep navy
+DARK_CARD   = RGBColor(0x28, 0x33, 0x78)   # slightly lighter navy for cards
+ICE_BLUE    = RGBColor(0xCA, 0xDC, 0xFC)   # ice blue — accent on dark slides
+WHITE       = RGBColor(0xFF, 0xFF, 0xFF)
+OFF_WHITE   = RGBColor(0xF8, 0xF9, 0xFF)   # content slide bg
+CARD_BG     = RGBColor(0xEE, 0xF2, 0xFF)   # icon circle / card bg
+NAVY_TEXT   = RGBColor(0x1E, 0x27, 0x61)   # body text on light slides
+MID_TEXT    = RGBColor(0x3D, 0x4E, 0x8A)   # secondary text
+SOFT_TEXT   = RGBColor(0x7A, 0x8A, 0xBB)   # captions
+ACCENT      = RGBColor(0xCA, 0xDC, 0xFC)   # ice blue (on dark)
+ACCENT_DARK = RGBColor(0x1E, 0x27, 0x61)   # navy (on light)
+CORAL       = RGBColor(0xF9, 0x61, 0x67)   # warning / flagged items
+GOLD        = RGBColor(0xF9, 0xE7, 0x95)   # highlight / stat
 
 SLIDE_W = Inches(13.33)
 SLIDE_H = Inches(7.5)
 
 
-def _set_bg(slide, color: RGBColor):
+def _bg(slide, color):
     fill = slide.background.fill
     fill.solid()
     fill.fore_color.rgb = color
 
 
-def _tb(slide, left, top, width, height):
-    """Add textbox and zero out internal padding so text sits at exact position."""
-    shape = slide.shapes.add_textbox(Inches(left), Inches(top), Inches(width), Inches(height))
+def _tb(slide, l, t, w, h):
+    shape = slide.shapes.add_textbox(Inches(l), Inches(t), Inches(w), Inches(h))
     tf = shape.text_frame
-    tf.margin_left   = 0
-    tf.margin_right  = 0
-    tf.margin_top    = 0
-    tf.margin_bottom = 0
+    tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = 0
     tf.word_wrap = True
     return tf
 
 
-def _run(tf, text, size_pt, color, font="Calibri", bold=False):
-    """Write text into first paragraph of text frame, return run."""
+def _run(tf, text, size, color, font="Calibri", bold=False, italic=False, align=PP_ALIGN.LEFT):
     p = tf.paragraphs[0]
-    run = p.add_run()
-    run.text = text
-    run.font.size   = Pt(size_pt)
-    run.font.color.rgb = color
-    run.font.name   = font
-    run.font.bold   = bold
-    return run
+    p.alignment = align
+    r = p.add_run()
+    r.text = text
+    r.font.size = Pt(size)
+    r.font.color.rgb = color
+    r.font.name = font
+    r.font.bold = bold
+    r.font.italic = italic
+    return r
 
 
+def _rect(slide, l, t, w, h, color):
+    s = slide.shapes.add_shape(1, Inches(l), Inches(t), Inches(w), Inches(h))
+    s.fill.solid(); s.fill.fore_color.rgb = color; s.line.fill.background()
+    return s
+
+
+def _circle(slide, l, t, d, color):
+    """Oval (circle when w==h) shape."""
+    s = slide.shapes.add_shape(9, Inches(l), Inches(t), Inches(d), Inches(d))
+    s.fill.solid(); s.fill.fore_color.rgb = color; s.line.fill.background()
+    return s
+
+
+def _num_in_circle(slide, number, l, t, d=0.44, bg=DARK_BG, fg=WHITE):
+    """Numbered circle — the repeating motif."""
+    _circle(slide, l, t, d, bg)
+    tf = _tb(slide, l, t + 0.02, d, d - 0.04)
+    tf.paragraphs[0].alignment = PP_ALIGN.CENTER
+    r = tf.paragraphs[0].add_run()
+    r.text = str(number)
+    r.font.size = Pt(13); r.font.bold = True
+    r.font.color.rgb = fg; r.font.name = "Calibri"
+
+
+def _slide_num(slide, n, total, fg=SOFT_TEXT):
+    tf = _tb(slide, 12.3, 7.1, 0.9, 0.3)
+    tf.paragraphs[0].alignment = PP_ALIGN.RIGHT
+    r = tf.paragraphs[0].add_run()
+    r.text = f"{n} / {total}"
+    r.font.size = Pt(9); r.font.color.rgb = fg; r.font.name = "Calibri"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SLIDE 1 — dark cover
+# Layout: left half = title + exec summary + stats row
+#          right half = large meeting name in light type
+# ══════════════════════════════════════════════════════════════════════════════
+def _cover_slide(prs, plan):
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    _bg(slide, DARK_BG)
+
+    # Right dark panel (slightly lighter) — visual depth, not a stripe
+    _rect(slide, 7.8, 0, 5.53, 7.5, DARK_CARD)
+
+    # Brand label — top left
+    tf = _tb(slide, 0.5, 0.38, 7.0, 0.3)
+    _run(tf, "TRANSCRIPTAI  ·  MEETING INTELLIGENCE", 8, ICE_BLUE, bold=True,
+         align=PP_ALIGN.LEFT)
+
+    # Main title — large, white
+    tf_t = _tb(slide, 0.5, 0.82, 7.0, 2.4)
+    p = tf_t.paragraphs[0]
+    r = p.add_run()
+    r.text = plan.meeting_title
+    r.font.size = Pt(40); r.font.bold = True
+    r.font.color.rgb = WHITE; r.font.name = "Cambria"
+
+    # Exec summary — ice blue, italic
+    tf_e = _tb(slide, 0.5, 3.4, 7.0, 1.5)
+    tf_e.paragraphs[0].alignment = PP_ALIGN.LEFT
+    r2 = tf_e.paragraphs[0].add_run()
+    r2.text = plan.executive_summary
+    r2.font.size = Pt(16); r2.font.color.rgb = ICE_BLUE
+    r2.font.name = "Calibri"; r2.font.italic = True
+
+    # Stats row — slides · duration · language
+    dur_sec = sum(s.estimated_duration_seconds for s in plan.slides)
+    dur_min = max(1, dur_sec // 60)
+    stats = [
+        (str(plan.total_slides), "SLIDES"),
+        (f"{dur_min}m", "DURATION"),
+        (plan.language.upper(), "LANGUAGE"),
+    ]
+    for i, (val, lbl) in enumerate(stats):
+        x = 0.5 + i * 2.2
+        # value
+        tf_v = _tb(slide, x, 5.2, 2.0, 0.65)
+        _run(tf_v, val, 28, WHITE, font="Cambria", bold=True)
+        # label
+        tf_l = _tb(slide, x, 5.85, 2.0, 0.3)
+        _run(tf_l, lbl, 8, SOFT_TEXT, bold=True)
+
+    # Right panel — decorative large meeting name watermark
+    tf_w = _tb(slide, 7.95, 1.2, 5.2, 5.0)
+    tf_w.word_wrap = True
+    p_w = tf_w.paragraphs[0]
+    p_w.alignment = PP_ALIGN.LEFT
+    r_w = p_w.add_run()
+    r_w.text = plan.meeting_title
+    r_w.font.size = Pt(32); r_w.font.bold = True
+    r_w.font.color.rgb = RGBColor(0x38, 0x45, 0x90)  # dim — purely decorative
+    r_w.font.name = "Cambria"
+
+    # Date label on right panel
+    from datetime import datetime
+    tf_d = _tb(slide, 7.95, 6.5, 5.0, 0.4)
+    _run(tf_d, datetime.now().strftime("%B %d, %Y"), 11, SOFT_TEXT)
+
+    _slide_num(slide, 1, plan.total_slides, fg=SOFT_TEXT)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SLIDE 2 — two-column: bullets left, stat callouts right
+# ══════════════════════════════════════════════════════════════════════════════
+def _two_col_slide(prs, slide_data, plan, idx):
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    _bg(slide, OFF_WHITE)
+
+    # Title
+    tf_t = _tb(slide, 0.4, 0.22, 12.5, 0.9)
+    _run(tf_t, slide_data.title, 32, NAVY_TEXT, font="Cambria", bold=True)
+
+    # Light rule under title (shape not line — acceptable visual separator)
+    _rect(slide, 0.4, 1.18, 12.5, 0.04, RGBColor(0xCC, 0xD4, 0xF0))
+
+    bullets = (slide_data.bullets or ["Details in transcript"])[:4]
+    n = len(bullets)
+    font_sz = {1:18, 2:17, 3:16, 4:15}.get(n, 15)
+
+    # LEFT column — numbered bullets (0.4" to 7.6")
+    for b_idx, bullet in enumerate(bullets):
+        y = 1.4 + b_idx * (5.5 / n)
+        _num_in_circle(slide, b_idx + 1, 0.4, y + 0.05, 0.42, DARK_BG, WHITE)
+        tf_b = _tb(slide, 0.98, y, 6.8, 5.5 / n - 0.1)
+        _run(tf_b, bullet, font_sz, NAVY_TEXT)
+
+    # RIGHT column — stat callout card (7.8" to 12.8")
+    _rect(slide, 7.8, 1.35, 5.1, 5.7, CARD_BG)
+
+    # Big number from slide number as visual anchor
+    tf_big = _tb(slide, 8.0, 1.55, 4.7, 1.6)
+    _run(tf_big, f"0{slide_data.slide_number}", 72, DARK_BG,
+         font="Cambria", bold=True, align=PP_ALIGN.CENTER)
+
+    tf_sub = _tb(slide, 8.0, 3.1, 4.7, 0.5)
+    _run(tf_sub, slide_data.title.upper(), 9, SOFT_TEXT,
+         bold=True, align=PP_ALIGN.CENTER)
+
+    # Speaker notes excerpt in card
+    notes_preview = (slide_data.speaker_notes or "")[:140]
+    tf_np = _tb(slide, 8.1, 3.75, 4.6, 2.8)
+    tf_np.word_wrap = True
+    _run(tf_np, f'"{notes_preview}"', 11, MID_TEXT, italic=True)
+
+    _slide_num(slide, slide_data.slide_number, plan.total_slides)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SLIDE 3+ — icon+text rows, fills full height
+# ══════════════════════════════════════════════════════════════════════════════
+def _icon_row_slide(prs, slide_data, plan):
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    _bg(slide, WHITE)
+
+    # Colored band at very top (this is NOT a stripe — it's a section header block)
+    _rect(slide, 0, 0, 13.33, 1.1, DARK_BG)
+
+    # Title in the dark band
+    tf_t = _tb(slide, 0.4, 0.12, 12.0, 0.85)
+    _run(tf_t, slide_data.title, 28, WHITE, font="Cambria", bold=True)
+
+    bullets = (slide_data.bullets or ["Details in transcript"])[:5]
+    n = len(bullets)
+    available_h = 6.15  # from y=1.15 to y=7.3
+    row_h = available_h / n
+    font_sz = {1:18, 2:17, 3:16, 4:15, 5:14}.get(n, 14)
+
+    ICON_CHARS = ["◆", "▸", "●", "★", "◉"]
+
+    for b_idx, bullet in enumerate(bullets):
+        y = 1.18 + b_idx * row_h
+        is_even = b_idx % 2 == 0
+
+        # Alternating subtle row tint
+        if is_even:
+            _rect(slide, 0.3, y + 0.04, 12.7, row_h - 0.08,
+                  RGBColor(0xF4, 0xF6, 0xFF))
+
+        # Numbered circle — the motif
+        _num_in_circle(slide, b_idx + 1, 0.45, y + (row_h - 0.44) / 2,
+                       0.44, DARK_BG, ICE_BLUE)
+
+        # Icon accent
+        tf_ic = _tb(slide, 1.05, y + (row_h - 0.44) / 2, 0.44, 0.44)
+        _run(tf_ic, ICON_CHARS[b_idx % len(ICON_CHARS)], 14,
+             RGBColor(0xCA, 0xDC, 0xFC), align=PP_ALIGN.CENTER)
+
+        # Bullet text
+        tf_b = _tb(slide, 1.55, y + (row_h - 0.55) / 2, 11.4, row_h * 0.85)
+        _run(tf_b, bullet, font_sz, NAVY_TEXT)
+
+    _slide_num(slide, slide_data.slide_number, plan.total_slides)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LAST SLIDE — dark, next steps as numbered pills
+# ══════════════════════════════════════════════════════════════════════════════
+def _closing_slide(prs, slide_data, plan):
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    _bg(slide, DARK_BG)
+
+    # Subtle lighter panel on right
+    _rect(slide, 8.5, 0, 4.83, 7.5, DARK_CARD)
+
+    # Title
+    tf_t = _tb(slide, 0.5, 0.35, 7.7, 1.0)
+    _run(tf_t, slide_data.title, 34, WHITE, font="Cambria", bold=True)
+
+    # Sub-label
+    tf_s = _tb(slide, 0.5, 1.35, 7.7, 0.4)
+    _run(tf_s, "NEXT STEPS  ·  ACTION REQUIRED", 9, ICE_BLUE, bold=True)
+
+    bullets = (slide_data.bullets or ["Follow up with all stakeholders"])[:5]
+    n = len(bullets)
+    font_sz = {1:18, 2:17, 3:15, 4:14, 5:13}.get(n, 13)
+
+    for b_idx, bullet in enumerate(bullets):
+        y = 1.9 + b_idx * (4.8 / n)
+        # Pill background
+        _rect(slide, 0.5, y, 7.7, (4.8 / n) - 0.12,
+              RGBColor(0x28, 0x33, 0x78))
+        # Number
+        _num_in_circle(slide, b_idx + 1, 0.6, y + 0.06, 0.42, ICE_BLUE,
+                       DARK_BG)
+        # Text
+        tf_b = _tb(slide, 1.18, y + 0.06, 6.8, (4.8 / n) - 0.18)
+        _run(tf_b, bullet, font_sz, WHITE)
+
+    # Right panel — brand watermark
+    tf_br = _tb(slide, 8.65, 0.6, 4.5, 1.2)
+    _run(tf_br, "TranscriptAI", 24, ICE_BLUE, font="Cambria",
+         bold=True, align=PP_ALIGN.CENTER)
+
+    tf_bl = _tb(slide, 8.65, 1.75, 4.5, 0.35)
+    _run(tf_bl, "Meeting Intelligence Platform", 10, SOFT_TEXT,
+         align=PP_ALIGN.CENTER)
+
+    # Generated by line
+    tf_g = _tb(slide, 8.65, 6.88, 4.5, 0.35)
+    _run(tf_g, "github.com/aiKunalBisht/Transcript-ai", 8,
+         SOFT_TEXT, align=PP_ALIGN.CENTER)
+
+    _slide_num(slide, slide_data.slide_number, plan.total_slides, fg=SOFT_TEXT)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PUBLIC API
+# ══════════════════════════════════════════════════════════════════════════════
 def build_pptx(plan: PresentationPlan) -> bytes:
-    prs = Presentation()
-    prs.slide_width  = SLIDE_W
-    prs.slide_height = SLIDE_H
-    blank_layout = prs.slide_layouts[6]
+    """
+    Builds enterprise PPTX from PresentationPlan.
+    Sandwich structure: dark cover → light content → dark closing.
+    Returns raw bytes for st.download_button.
+    Never raises.
+    """
+    try:
+        prs = Presentation()
+        prs.slide_width  = SLIDE_W
+        prs.slide_height = SLIDE_H
 
-    for idx, slide_data in enumerate(plan.slides):
-        slide = prs.slides.add_slide(blank_layout)
-        _set_bg(slide, C_WASHI)
+        content_slides = plan.slides  # all slides from agent
+        total = len(content_slides)
 
-        is_first = (idx == 0)
-        is_last  = (idx == len(plan.slides) - 1)
-        accent   = C_PEACH if is_last else C_SAKURA
+        for idx, slide_data in enumerate(content_slides):
+            is_first = (idx == 0)
+            is_last  = (idx == total - 1)
 
-        # Left accent bar
-        bar = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(0.12), SLIDE_H)
-        bar.fill.solid(); bar.fill.fore_color.rgb = accent; bar.line.fill.background()
+            if is_first:
+                _cover_slide(prs, plan)
+            elif is_last:
+                _closing_slide(prs, slide_data, plan)
+            elif idx == 1:
+                # First content slide → two-column with stat card
+                _two_col_slide(prs, slide_data, plan, idx)
+            else:
+                # All other content → icon+text rows
+                _icon_row_slide(prs, slide_data, plan)
 
-        # Top hairline
-        top_line = slide.shapes.add_shape(1, Inches(0.12), Inches(0), Inches(13.21), Inches(0.035))
-        top_line.fill.solid(); top_line.fill.fore_color.rgb = C_BORDER; top_line.line.fill.background()
+            # Speaker notes
+            try:
+                notes_slide = prs.slides[-1].notes_slide
+                notes_slide.notes_text_frame.text = slide_data.speaker_notes or ""
+            except Exception:
+                pass
 
-        # Slide number — bottom right
-        tf_num = _tb(slide, 11.9, 7.0, 1.3, 0.4)
-        tf_num.paragraphs[0].alignment = PP_ALIGN.RIGHT
-        _run(tf_num, f"{slide_data.slide_number} / {plan.total_slides}", 9, C_INK_SOFT)
+        buf = io.BytesIO()
+        prs.save(buf)
+        buf.seek(0)
+        return buf.read()
 
-        # ══════════════════════════════════════
-        # SLIDE 1 — cover
-        # ══════════════════════════════════════
-        if is_first:
-            # Brand label — centered at very top
-            tf_brand = _tb(slide, 0.3, 0.10, 13.0, 0.28)
-            tf_brand.paragraphs[0].alignment = PP_ALIGN.CENTER
-            _run(tf_brand, "MEETING INTELLIGENCE  ·  TRANSCRIPTAI", 8, C_SAKURA, bold=True)
-
-            # Title
-            tf_title = _tb(slide, 0.3, 0.48, 12.5, 2.1)
-            _run(tf_title, plan.meeting_title, 44, C_INK, font="Cambria", bold=True)
-
-            # Divider
-            div = slide.shapes.add_shape(1, Inches(0.3), Inches(2.68), Inches(5.5), Inches(0.03))
-            div.fill.solid(); div.fill.fore_color.rgb = C_SAKURA; div.line.fill.background()
-
-            # Executive summary
-            tf_exec = _tb(slide, 0.3, 2.84, 11.8, 1.6)
-            _run(tf_exec, plan.executive_summary, 20, C_INK_MID)
-
-            # Meta row — single line, flush left
-            dur_sec = sum(s.estimated_duration_seconds for s in plan.slides)
-            dur_min = max(1, dur_sec // 60)
-            tf_meta = _tb(slide, 0.3, 4.6, 9.0, 0.38)
-            _run(tf_meta, f"Est. {dur_min} min  ·  {plan.total_slides} slides  ·  {plan.language.upper()}", 12, C_INK_SOFT)
-
-            # Footer
-            tf_foot = _tb(slide, 0.3, 6.88, 10.0, 0.3)
-            _run(tf_foot, "Generated by TranscriptAI · github.com/aiKunalBisht/Transcript-ai", 8, C_INK_SOFT)
-
-        # ══════════════════════════════════════
-        # CONTENT SLIDES
-        # ══════════════════════════════════════
-        else:
-            # Title
-            tf_stitle = _tb(slide, 0.35, 0.12, 12.5, 1.0)
-            _run(tf_stitle, slide_data.title, 32, C_SAKURA_DEEP if is_last else C_INK, font="Cambria", bold=True)
-
-            # Divider under title
-            tdiv = slide.shapes.add_shape(1, Inches(0.35), Inches(1.15), Inches(12.6), Inches(0.025))
-            tdiv.fill.solid(); tdiv.fill.fore_color.rgb = C_BORDER; tdiv.line.fill.background()
-
-            # Bullets — tight grouped
-            bullets = (slide_data.bullets or ["See transcript for details"])[:5]
-            n = len(bullets)
-            font_size = {1: 22, 2: 21, 3: 20, 4: 18, 5: 16}.get(n, 16)
-            BULLET_TOP = 1.35
-            BULLET_GAP = 0.78
-            BULLET_H   = 0.62
-
-            for b_idx, bullet in enumerate(bullets):
-                y = BULLET_TOP + b_idx * BULLET_GAP
-
-                # Diamond
-                tf_dot = _tb(slide, 0.22, y + 0.04, 0.28, BULLET_H)
-                _run(tf_dot, "◆", 10, accent)
-
-                # Text
-                tf_bul = _tb(slide, 0.55, y, 12.45, BULLET_H)
-                _run(tf_bul, bullet, font_size, C_INK_MID)
-
-        # Speaker notes
-        slide.notes_slide.notes_text_frame.text = slide_data.speaker_notes or ""
-
-    buf = io.BytesIO()
-    prs.save(buf)
-    buf.seek(0)
-    return buf.getvalue()
+    except Exception as e:
+        # Emergency fallback
+        import logging
+        logging.error(f"pptx_builder failed: {e}", exc_info=True)
+        try:
+            prs = Presentation()
+            prs.slide_width  = SLIDE_W
+            prs.slide_height = SLIDE_H
+            slide = prs.slides.add_slide(prs.slide_layouts[6])
+            slide.background.fill.solid()
+            slide.background.fill.fore_color.rgb = DARK_BG
+            tb = slide.shapes.add_textbox(Inches(0.5), Inches(2), Inches(12), Inches(2))
+            p  = tb.text_frame.paragraphs[0]
+            r  = p.add_run()
+            r.text = f"TranscriptAI — Build error: {str(e)[:200]}"
+            r.font.size = Pt(18); r.font.color.rgb = WHITE
+            buf = io.BytesIO(); prs.save(buf); buf.seek(0)
+            return buf.read()
+        except Exception:
+            return b""
