@@ -2,10 +2,16 @@
 exporters/pptx_builder.py
 Takes a PresentationPlan and builds a .pptx file.
 Returns raw bytes ready for st.download_button.
+
+Fixes (DO NOT REVERT):
+  - All textboxes: margin_left=0, margin_top=0 so text sits at exact shape edge
+  - Slide 1: title at top, exec summary 20pt, meta row truly flush-left
+  - Content slides: bullets tight-grouped at top, 0.78" spacing
+  - Font: Cambria titles, Calibri body (both LibreOffice-safe)
 """
 import io
 from pptx import Presentation
-from pptx.util import Inches, Pt
+from pptx.util import Inches, Pt, Emu
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
 from agents.slide_architect import PresentationPlan
@@ -19,6 +25,9 @@ C_WASHI       = RGBColor(0xFA, 0xF6, 0xF2)
 C_BORDER      = RGBColor(0xEF, 0xE2, 0xD8)
 C_PEACH       = RGBColor(0xE8, 0x80, 0x60)
 
+SLIDE_W = Inches(13.33)
+SLIDE_H = Inches(7.5)
+
 
 def _set_bg(slide, color: RGBColor):
     fill = slide.background.fill
@@ -26,11 +35,34 @@ def _set_bg(slide, color: RGBColor):
     fill.fore_color.rgb = color
 
 
+def _tb(slide, left, top, width, height):
+    """Add textbox and zero out internal padding so text sits at exact position."""
+    shape = slide.shapes.add_textbox(Inches(left), Inches(top), Inches(width), Inches(height))
+    tf = shape.text_frame
+    tf.margin_left   = 0
+    tf.margin_right  = 0
+    tf.margin_top    = 0
+    tf.margin_bottom = 0
+    tf.word_wrap = True
+    return tf
+
+
+def _run(tf, text, size_pt, color, font="Calibri", bold=False):
+    """Write text into first paragraph of text frame, return run."""
+    p = tf.paragraphs[0]
+    run = p.add_run()
+    run.text = text
+    run.font.size   = Pt(size_pt)
+    run.font.color.rgb = color
+    run.font.name   = font
+    run.font.bold   = bold
+    return run
+
+
 def build_pptx(plan: PresentationPlan) -> bytes:
     prs = Presentation()
-    prs.slide_width  = Inches(13.33)
-    prs.slide_height = Inches(7.5)
-
+    prs.slide_width  = SLIDE_W
+    prs.slide_height = SLIDE_H
     blank_layout = prs.slide_layouts[6]
 
     for idx, slide_data in enumerate(plan.slides):
@@ -42,125 +74,84 @@ def build_pptx(plan: PresentationPlan) -> bytes:
         accent   = C_PEACH if is_last else C_SAKURA
 
         # Left accent bar
-        bar = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(0.12), Inches(7.5))
-        bar.fill.solid()
-        bar.fill.fore_color.rgb = accent
-        bar.line.fill.background()
+        bar = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(0.12), SLIDE_H)
+        bar.fill.solid(); bar.fill.fore_color.rgb = accent; bar.line.fill.background()
 
-        # Top line
-        top = slide.shapes.add_shape(1, Inches(0.12), Inches(0), Inches(13.21), Inches(0.04))
-        top.fill.solid()
-        top.fill.fore_color.rgb = C_BORDER
-        top.line.fill.background()
+        # Top hairline
+        top_line = slide.shapes.add_shape(1, Inches(0.12), Inches(0), Inches(13.21), Inches(0.035))
+        top_line.fill.solid(); top_line.fill.fore_color.rgb = C_BORDER; top_line.line.fill.background()
 
-        # Slide number bottom right
-        nb = slide.shapes.add_textbox(Inches(12.0), Inches(7.1), Inches(1.2), Inches(0.3))
-        np = nb.text_frame.add_paragraph()
-        np.text = f"{slide_data.slide_number} / {plan.total_slides}"
-        np.alignment = PP_ALIGN.RIGHT
-        nr = np.runs[0]
-        nr.font.size = Pt(9)
-        nr.font.color.rgb = C_INK_SOFT
-        nr.font.name = "Calibri"
+        # Slide number — bottom right
+        tf_num = _tb(slide, 11.9, 7.0, 1.3, 0.4)
+        tf_num.paragraphs[0].alignment = PP_ALIGN.RIGHT
+        _run(tf_num, f"{slide_data.slide_number} / {plan.total_slides}", 9, C_INK_SOFT)
 
+        # ══════════════════════════════════════
+        # SLIDE 1 — cover
+        # ══════════════════════════════════════
         if is_first:
-            # Brand label
-            lb = slide.shapes.add_textbox(Inches(0.5), Inches(1.2), Inches(12.0), Inches(0.3))
-            lp = lb.text_frame.add_paragraph()
-            lp.text = "MEETING INTELLIGENCE  ·  TRANSCRIPTAI"
-            lr = lp.runs[0]
-            lr.font.size = Pt(9)
-            lr.font.bold = True
-            lr.font.color.rgb = C_SAKURA
-            lr.font.name = "Calibri"
+            # Brand label — centered at very top
+            tf_brand = _tb(slide, 0.3, 0.10, 13.0, 0.28)
+            tf_brand.paragraphs[0].alignment = PP_ALIGN.CENTER
+            _run(tf_brand, "MEETING INTELLIGENCE  ·  TRANSCRIPTAI", 8, C_SAKURA, bold=True)
 
-            # Main title
-            tb = slide.shapes.add_textbox(Inches(0.5), Inches(1.7), Inches(11.5), Inches(1.8))
-            tb.text_frame.word_wrap = True
-            tp2 = tb.text_frame.add_paragraph()
-            tp2.text = plan.meeting_title
-            tr2 = tp2.runs[0]
-            tr2.font.size = Pt(40)
-            tr2.font.bold = True
-            tr2.font.color.rgb = C_INK
-            tr2.font.name = "Georgia"
+            # Title
+            tf_title = _tb(slide, 0.3, 0.48, 12.5, 2.1)
+            _run(tf_title, plan.meeting_title, 44, C_INK, font="Cambria", bold=True)
 
             # Divider
-            div = slide.shapes.add_shape(1, Inches(0.5), Inches(3.6), Inches(4.5), Inches(0.025))
-            div.fill.solid()
-            div.fill.fore_color.rgb = C_SAKURA
-            div.line.fill.background()
+            div = slide.shapes.add_shape(1, Inches(0.3), Inches(2.68), Inches(5.5), Inches(0.03))
+            div.fill.solid(); div.fill.fore_color.rgb = C_SAKURA; div.line.fill.background()
 
             # Executive summary
-            eb = slide.shapes.add_textbox(Inches(0.5), Inches(3.75), Inches(10.5), Inches(1.2))
-            eb.text_frame.word_wrap = True
-            ep2 = eb.text_frame.add_paragraph()
-            ep2.text = plan.executive_summary
-            er2 = ep2.runs[0]
-            er2.font.size = Pt(17)
-            er2.font.color.rgb = C_INK_MID
-            er2.font.name = "Calibri"
+            tf_exec = _tb(slide, 0.3, 2.84, 11.8, 1.6)
+            _run(tf_exec, plan.executive_summary, 20, C_INK_MID)
 
-            # Duration
+            # Meta row — single line, flush left
             dur_sec = sum(s.estimated_duration_seconds for s in plan.slides)
             dur_min = max(1, dur_sec // 60)
-            db = slide.shapes.add_textbox(Inches(0.5), Inches(5.1), Inches(5.0), Inches(0.3))
-            dp2 = db.text_frame.add_paragraph()
-            dp2.text = f"Est. duration: {dur_min} min  ·  {plan.total_slides} slides"
-            dr2 = dp2.runs[0]
-            dr2.font.size = Pt(11)
-            dr2.font.color.rgb = C_INK_SOFT
-            dr2.font.name = "Calibri"
+            tf_meta = _tb(slide, 0.3, 4.6, 9.0, 0.38)
+            _run(tf_meta, f"Est. {dur_min} min  ·  {plan.total_slides} slides  ·  {plan.language.upper()}", 12, C_INK_SOFT)
 
+            # Footer
+            tf_foot = _tb(slide, 0.3, 6.88, 10.0, 0.3)
+            _run(tf_foot, "Generated by TranscriptAI · github.com/aiKunalBisht/Transcript-ai", 8, C_INK_SOFT)
+
+        # ══════════════════════════════════════
+        # CONTENT SLIDES
+        # ══════════════════════════════════════
         else:
-            # Slide title
-            tb = slide.shapes.add_textbox(Inches(0.35), Inches(0.2), Inches(12.5), Inches(0.9))
-            tb.text_frame.word_wrap = True
-            tp2 = tb.text_frame.add_paragraph()
-            tp2.text = slide_data.title
-            tr2 = tp2.runs[0]
-            tr2.font.size = Pt(30)
-            tr2.font.bold = True
-            tr2.font.color.rgb = C_SAKURA_DEEP if is_last else C_INK
-            tr2.font.name = "Georgia"
+            # Title
+            tf_stitle = _tb(slide, 0.35, 0.12, 12.5, 1.0)
+            _run(tf_stitle, slide_data.title, 32, C_SAKURA_DEEP if is_last else C_INK, font="Cambria", bold=True)
 
             # Divider under title
-            div = slide.shapes.add_shape(1, Inches(0.35), Inches(1.15), Inches(12.6), Inches(0.025))
-            div.fill.solid()
-            div.fill.fore_color.rgb = C_BORDER
-            div.line.fill.background()
+            tdiv = slide.shapes.add_shape(1, Inches(0.35), Inches(1.15), Inches(12.6), Inches(0.025))
+            tdiv.fill.solid(); tdiv.fill.fore_color.rgb = C_BORDER; tdiv.line.fill.background()
 
-            # Bullets
-            bullets = slide_data.bullets or ["See transcript for details"]
-            for b_idx, bullet in enumerate(bullets[:5]):
-                y_pos = 1.4 + b_idx * 0.82
+            # Bullets — tight grouped
+            bullets = (slide_data.bullets or ["See transcript for details"])[:5]
+            n = len(bullets)
+            font_size = {1: 22, 2: 21, 3: 20, 4: 18, 5: 16}.get(n, 16)
+            BULLET_TOP = 1.35
+            BULLET_GAP = 0.78
+            BULLET_H   = 0.62
 
-                # Diamond dot
-                dot = slide.shapes.add_textbox(Inches(0.3), Inches(y_pos), Inches(0.25), Inches(0.45))
-                dp2 = dot.text_frame.add_paragraph()
-                dp2.text = "◆"
-                dr2 = dp2.runs[0]
-                dr2.font.size = Pt(10)
-                dr2.font.color.rgb = accent
-                dr2.font.name = "Calibri"
+            for b_idx, bullet in enumerate(bullets):
+                y = BULLET_TOP + b_idx * BULLET_GAP
 
-                # Bullet text
-                bb = slide.shapes.add_textbox(Inches(0.58), Inches(y_pos), Inches(12.0), Inches(0.7))
-                bb.text_frame.word_wrap = True
-                bp2 = bb.text_frame.add_paragraph()
-                bp2.text = bullet
-                br2 = bp2.runs[0]
-                br2.font.size = Pt(21)
-                br2.font.color.rgb = C_INK_MID
-                br2.font.name = "Calibri"
-                br2.font.bold = False
+                # Diamond
+                tf_dot = _tb(slide, 0.22, y + 0.04, 0.28, BULLET_H)
+                _run(tf_dot, "◆", 10, accent)
+
+                # Text
+                tf_bul = _tb(slide, 0.55, y, 12.45, BULLET_H)
+                _run(tf_bul, bullet, font_size, C_INK_MID)
 
         # Speaker notes
-        notes_slide = slide.notes_slide
-        notes_slide.notes_text_frame.text = slide_data.speaker_notes
+        slide.notes_slide.notes_text_frame.text = slide_data.speaker_notes or ""
 
     buf = io.BytesIO()
     prs.save(buf)
     buf.seek(0)
     return buf.getvalue()
-    
