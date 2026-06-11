@@ -1212,7 +1212,7 @@ if _BUS["running"]:
     _elapsed = _time.time() - _BUS.get("start", _time.time())
     _pct = min(int(_elapsed / 6 * 88) + 5, 93)
     st.progress(_pct, text=f"Analyzing · {_elapsed:.0f}s · navigate freely ✓")
-    st.caption("⚡ Running in background — you can switch to Export Documents and come back.")
+    st.caption("⚡ Running in background , the result will appear here.")
     _time.sleep(1.5)   # 1.5s poll — less flicker than 0.8s, still responsive
     st.rerun()
  
