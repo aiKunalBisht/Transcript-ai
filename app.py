@@ -121,14 +121,115 @@ st.markdown("""
 st.markdown("""
 <style>
 
-/* Hide Streamlit auto-injected multi-page nav */
+ 
+[data-testid="stSidebar"] {
+    background-color: #FDF8F5 !important;
+    border-right: 1px solid var(--border) !important;
+    background-image:
+        radial-gradient(circle at 50% 0%,   rgba(217,96,128,0.07) 0%, transparent 55%),
+        radial-gradient(circle at 100% 100%, rgba(184,120,48,0.04) 0%, transparent 50%) !important;
+    box-shadow: 2px 0 20px rgba(60,36,22,0.06) !important;
+    /* NO min-width/max-width/display:flex/transform overrides */
+}
+/* Collapse button: show it but style it to match */
+[data-testid="stSidebarCollapseButton"] {
+    display: flex !important;
+}
+[data-testid="stSidebarCollapseButton"] button {
+    background: transparent !important;
+    border: none !important;
+    color: var(--ink-soft) !important;
+}
+ 
+/* FIX 2: Reduce top spacing — page starts 1-2 inches below URL bar */
+.block-container {
+    background: transparent !important;
+    padding-top: 0.5rem !important;      /* was 1rem, reduces gap */
+    padding-left: 1.5rem !important;
+    padding-right: 1.5rem !important;
+    max-width: 1200px !important;
+}
+ 
+/* FIX 3: Hide Streamlit default top toolbar spacer */
+[data-testid="stAppViewBlockContainer"] {
+    padding-top: 0.5rem !important;
+}
+.stMainBlockContainer {
+    padding-top: 0.5rem !important;
+}
+ 
+/* FIX 4: Summary box — max-height so it doesn't eat the whole page */
+.tai-summary-box {
+    max-height: 220px !important;
+    overflow-y: auto !important;
+    scrollbar-width: thin !important;
+}
+.tai-summary-box p {
+    font-size: 0.85rem !important;     /* was 0.93rem — too large */
+    line-height: 1.75 !important;
+}
+ 
+/* FIX 5: Bilingual label styling */
+.tai-lang-label {
+    display: inline-block;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 999px;
+    margin-right: 6px;
+    margin-bottom: 6px;
+}
+.tai-lang-ja {
+    background: rgba(217,96,128,0.12);
+    color: #BE4060;
+    border: 1px solid rgba(217,96,128,0.3);
+}
+.tai-lang-en {
+    background: rgba(72,104,88,0.12);
+    color: #2D7A55;
+    border: 1px solid rgba(72,104,88,0.3);
+}
+.tai-bilingual-block {
+    border: 1px solid rgba(60,36,22,0.10);
+    border-radius: 10px;
+    padding: 12px 16px;
+    margin-bottom: 10px;
+    background: rgba(255,254,251,0.8);
+}
+.tai-bilingual-ja {
+    font-family: 'Noto Sans JP', sans-serif;
+    font-size: 0.88rem;
+    color: #3C2416;
+    line-height: 1.8;
+    margin-bottom: 6px;
+}
+.tai-bilingual-en {
+    font-size: 0.80rem;
+    color: #7A5040;
+    line-height: 1.65;
+    font-style: italic;
+    border-top: 1px dashed rgba(60,36,22,0.12);
+    padding-top: 6px;
+    margin-top: 4px;
+}
+ 
+/* FIX 6: Reduce spacing between sections — too much whitespace */
+[data-testid="stVerticalBlock"] > [data-testid="stVerticalBlock"] {
+    gap: 0.4rem !important;
+}
+div[data-testid="stMarkdown"] + div[data-testid="stMarkdown"] {
+    margin-top: 0 !important;
+}
+ 
+/* FIX 7: Auto-nav hide (already applied but keep here for Export page too) */
 [data-testid="stSidebarNav"],
 [data-testid="stSidebarNavItems"],
 [data-testid="stSidebarNavLink"],
 section[data-testid="stSidebar"] > div:first-child > div > ul,
 section[data-testid="stSidebar"] nav {
     display: none !important;
-    visibility: hidden !important;
     height: 0 !important;
     overflow: hidden !important;
 }
@@ -755,36 +856,21 @@ for k, v in [
 
 # ── Cold start: Groq warmup ──────────────────────────────────────────────────
 if not st.session_state.groq_warmed:
-    import threading
-
+    import threading as _cs_thread
+ 
     def _cold_start_tasks():
         """
-        FIX-A: Only reads key from os.getenv — st.secrets is NOT thread-safe.
+        Read-only cache warmup. Never calls the LLM API.
+        Only checks if vector cache is available and logs stats.
         """
         try:
-            from utils.vector_cache import get_cached_result, store_result, is_available
-            from analysis.analyzer import analyze_transcript as _analyze
-            import os as _os
-            key = _os.getenv("GROQ_API_KEY", "").strip()
-            if is_available() and key:
-                samples_to_cache = [
-                    (SAMPLE_TRILINGUAL,       "mixed"),
-                    (SAMPLE_HIGH_CONFLICT,    "mixed"),
-                    (SAMPLE_HINGLISH_STANDUP, "hi"),
-                ]
-                for _s_text, _s_lang in samples_to_cache:
-                    try:
-                        _cached = get_cached_result(_s_text, _s_lang)
-                        if not _cached:
-                            _result = _analyze(_s_text, _s_lang)
-                            if "mock" not in _result.get("_provider", ""):
-                                store_result(_s_text, _s_lang, _result)
-                    except Exception:
-                        pass
+            from utils.vector_cache import is_available, get_cache_stats
+            if is_available():
+                _ = get_cache_stats()   # warms the ChromaDB connection only
         except Exception:
             pass
-
-    threading.Thread(target=_cold_start_tasks, daemon=True).start()
+ 
+    _cs_thread.Thread(target=_cold_start_tasks, daemon=True).start()
     st.session_state.groq_warmed = True
 
 
@@ -1041,77 +1127,119 @@ if not can_analyze and not final_text:
 # ANALYSIS
 # ────────────────────────────────────────────────────────────────────────────
 # ── Analysis state init ──────────────────────────────────────────────────────
-for _k, _v in [
-    ("_analysis_running", False), ("_analysis_done", False),
-    ("_analysis_result", None),   ("_analysis_error", None),
-    ("_analysis_lang", ""),       ("_analysis_start", 0.0),
-]:
-    if _k not in st.session_state:
-        st.session_state[_k] = _v
 
 import threading as _threading
 import time as _time
-
-def _run_analysis_bg(text_in, active_lang, pii_mask, pii_flag):
+ 
+# Module-level result bus — thread writes here, main thread reads here.
+# Dict is mutable and shared by reference — safe for one-writer/one-reader.
+if "_RESULT_BUS" not in st.session_state:
+    # Store the bus object itself in session_state so it survives reruns
+    # but is NOT written to by the thread (only the dict contents change)
+    import builtins
+    if not hasattr(builtins, "_TAI_RESULT_BUS"):
+        builtins._TAI_RESULT_BUS = {
+            "running": False,
+            "done": False,
+            "result": None,
+            "error": None,
+            "lang": "",
+            "start": 0.0,
+        }
+    st.session_state["_RESULT_BUS"] = builtins._TAI_RESULT_BUS
+ 
+_BUS = st.session_state["_RESULT_BUS"]
+ 
+# Also init session keys the main thread owns
+for _k, _v in [
+    ("_analysis_triggered", False),
+]:
+    if _k not in st.session_state:
+        st.session_state[_k] = _v
+ 
+ 
+def _run_analysis_bg(text_in, active_lang, pii_mask, pii_flag, bus):
+    """
+    Background thread. Writes ONLY to `bus` dict — never touches session_state.
+    bus is a plain dict shared via builtins — no Streamlit involvement.
+    """
     try:
         result = analyze_transcript(text_in, active_lang)
         if pii_mask is not None and pii_flag and PII_AVAILABLE:
             result = restore_pii_in_result(result, pii_mask)
-        st.session_state["_analysis_result"] = result
-        st.session_state["_analysis_error"]  = None
+        bus["result"] = result
+        bus["error"]  = None
     except Exception as _e:
-        st.session_state["_analysis_result"] = None
-        st.session_state["_analysis_error"]  = str(_e)
+        bus["result"] = None
+        bus["error"]  = str(_e)
     finally:
-        st.session_state["_analysis_running"] = False
-        st.session_state["_analysis_done"]    = True
-
-if run_analysis and final_text and not st.session_state["_analysis_running"]:
+        bus["running"] = False
+        bus["done"]    = True   # main thread polls this
+ 
+ 
+# ── Trigger ──────────────────────────────────────────────────────────────────
+if run_analysis and final_text and not _BUS["running"] and not _BUS["done"]:
     detected_lang = detect_language(final_text)
     active_lang   = forced_lang or detected_lang
+ 
     pii_mask = None
     text_in  = final_text
     if pii_enabled and PII_AVAILABLE:
         text_in, pii_mask = mask_transcript(final_text)
         st.session_state.pii_report = get_pii_report(pii_mask)
-    st.session_state["_analysis_running"] = True
-    st.session_state["_analysis_done"]    = False
-    st.session_state["_analysis_result"]  = None
-    st.session_state["_analysis_error"]   = None
-    st.session_state["_analysis_lang"]    = active_lang
-    st.session_state["_analysis_start"]   = _time.time()
-    st.session_state.current_transcript   = final_text
-    st.session_state.current_language     = active_lang
+ 
+    # Reset bus
+    _BUS["running"] = True
+    _BUS["done"]    = False
+    _BUS["result"]  = None
+    _BUS["error"]   = None
+    _BUS["lang"]    = active_lang
+    _BUS["start"]   = _time.time()
+ 
+    st.session_state.current_transcript = final_text
+    st.session_state.current_language   = active_lang
+ 
     _threading.Thread(
         target=_run_analysis_bg,
-        args=(text_in, active_lang, pii_mask, pii_enabled),
+        args=(text_in, active_lang, pii_mask, pii_enabled, _BUS),
         daemon=True,
     ).start()
     st.rerun()
-
-if st.session_state.get("_analysis_running"):
-    _elapsed = _time.time() - st.session_state.get("_analysis_start", _time.time())
-    _pct = min(int(_elapsed / 8 * 90) + 5, 92)
-    st.progress(_pct, text=f"Analyzing · {_elapsed:.0f}s · You can switch pages safely ✓")
-    st.info("⚡ Analysis will run in the background the results will appear here once ready.")
-    _time.sleep(0.8)
+ 
+ 
+# ── Poll — show progress while thread runs ───────────────────────────────────
+if _BUS["running"]:
+    _elapsed = _time.time() - _BUS.get("start", _time.time())
+    _pct = min(int(_elapsed / 6 * 88) + 5, 93)
+    st.progress(_pct, text=f"Analyzing · {_elapsed:.0f}s · navigate freely ✓")
+    st.caption("⚡ Running in background — you can switch to Export Documents and come back.")
+    _time.sleep(1.5)   # 1.5s poll — less flicker than 0.8s, still responsive
     st.rerun()
-
-if st.session_state.get("_analysis_done") and st.session_state.get("_analysis_result") is not None:
-    results     = st.session_state["_analysis_result"]
-    active_lang = st.session_state["_analysis_lang"]
-    st.session_state["_analysis_done"]    = False
-    st.session_state["_analysis_result"]  = None
+ 
+ 
+# ── Collect result ────────────────────────────────────────────────────────────
+if _BUS["done"] and _BUS["result"] is not None:
+    results     = _BUS["result"]
+    active_lang = _BUS["lang"]
+ 
+    # Reset bus for next run
+    _BUS["done"]    = False
+    _BUS["result"]  = None
+    _BUS["running"] = False
+ 
+    # Write to session_state from main thread only — safe
     st.session_state.results              = results
     st.session_state["analysis_result"]   = results
     st.session_state["detected_language"] = active_lang
+ 
     provider   = results.get("_provider", "")
     duration   = results.get("_duration_ms", 0)
     last_error = results.get("_last_error", "")
+ 
     if results.get("_from_vector_cache"):
-        st.success(f"⚡ Loaded from vector cache · {results.get('_cache_similarity',0):.0%} match · instant")
+        st.success(f"⚡ Vector cache hit · {results.get('_cache_similarity',0):.0%} match · instant")
     elif "mock" in provider:
-        groq_key_present = bool(os.getenv("GROQ_API_KEY","").strip())
+        groq_key_present = bool(os.getenv("GROQ_API_KEY", "").strip())
         if "no_key" in provider or not groq_key_present:
             st.warning("⚠ No GROQ_API_KEY found. Add it in Space Settings → Repository secrets.")
         elif "rate_limit" in provider or "429" in last_error:
@@ -1119,21 +1247,24 @@ if st.session_state.get("_analysis_done") and st.session_state.get("_analysis_re
         elif "timeout" in provider:
             st.warning("⚠ Groq timed out. Try a shorter transcript (under 800 words).")
         else:
-            st.warning(f"⚠ Analysis ran in demo mode. {last_error or 'AI provider unavailable.'}")
+            st.warning(f"⚠ Demo mode. {last_error or 'AI provider unavailable.'}")
     else:
-        st.success(f"✓ Analysis complete · {provider} · {duration/1000:.1f}s")
+        st.success(f"✓ Done · {provider} · {duration/1000:.1f}s")
+ 
     st.session_state.history = add_to_history(st.session_state.history, {
-        "timestamp": datetime.now().isoformat(), "language": active_lang,
-        "snippet": final_text[:80], "transcript": st.session_state.current_transcript,
-        "results": results,
+        "timestamp":  datetime.now().isoformat(),
+        "language":   active_lang,
+        "snippet":    final_text[:80],
+        "transcript": st.session_state.current_transcript,
+        "results":    results,
     })
     st.rerun()
-
-
-if st.session_state.get("_analysis_error"):
-    st.error(f"Analysis failed: {st.session_state['_analysis_error']}")
-    st.session_state["_analysis_done"]  = False
-    st.session_state["_analysis_error"] = None
+ 
+if _BUS["done"] and _BUS["error"]:
+    st.error(f"Analysis failed: {_BUS['error']}")
+    _BUS["done"]  = False
+    _BUS["error"] = None
+ 
 
 # ── Streaming ────────────────────────────────────────────────────────────────
 if STREAMING_AVAILABLE and stream_mode and final_text and not run_analysis:
@@ -1287,23 +1418,73 @@ def build_results_html(R: dict, language: str, features: dict,
     # ── Tab 1: Summary ────────────────────────────────────────────────────────
     full_sum = R.get("full_summary", "")
     bullets  = R.get("summary", [])
-    sum_html = ""
-    if full_sum:
-        sum_html += (
-            f"<div class='tai-summary-box'>"
-            f"<div class='tai-summary-label'>📋 Meeting Overview</div>"
-            f"<p style='margin:0;line-height:1.9;font-size:0.93rem;color:#3C2416'>"
-            f"{full_sum}</p></div>"
-        )
-    sum_html += f"<div class='tai-section-label'>{len(bullets)} Key Points</div>"
-    sum_html += "".join(
-        f"<div class='tai-bullet-card'>"
-        f"<span class='tai-bullet-num'>{i:02d}</span>"
-        f"<span style='color:#3C2416;font-size:0.9rem;line-height:1.65'>{b}</span>"
-        f"</div>"
-        for i, b in enumerate(bullets, 1)
-    )
+    # en_summary is populated by the analyzer for JA transcripts
+    # as a parallel English translation. Falls back to full_sum if absent.
+    en_summary  = R.get("en_summary", "") or R.get("english_summary", "")
+    is_japanese = language in ("ja", "mixed")
 
+    sum_html = ""
+
+    # ── Meeting Overview block ────────────────────────────────────────────
+    if full_sum:
+        if is_japanese and en_summary and en_summary.strip() != full_sum.strip():
+            # Bilingual: show Japanese original + English translation
+            sum_html += (
+                f"<div class='tai-summary-box'>"
+                f"<div class='tai-summary-label'>📋 Meeting Overview</div>"
+                f"<div class='tai-bilingual-block'>"
+                f"<span class='tai-lang-label tai-lang-ja'>JA</span>"
+                f"<div class='tai-bilingual-ja'>{full_sum}</div>"
+                f"<span class='tai-lang-label tai-lang-en'>EN</span>"
+                f"<div class='tai-bilingual-en'>{en_summary}</div>"
+                f"</div>"
+                f"</div>"
+            )
+        elif is_japanese and not en_summary:
+            # Japanese only — show as-is but with JA label
+            sum_html += (
+                f"<div class='tai-summary-box'>"
+                f"<div class='tai-summary-label'>📋 Meeting Overview</div>"
+                f"<span class='tai-lang-label tai-lang-ja'>JA</span>"
+                f"<p style='margin:0;line-height:1.9;font-size:0.85rem;"
+                f"font-family:Noto Sans JP,sans-serif;color:#3C2416'>"
+                f"{full_sum}</p>"
+                f"</div>"
+            )
+        else:
+            # English / Hindi — plain summary
+            sum_html += (
+                f"<div class='tai-summary-box'>"
+                f"<div class='tai-summary-label'>📋 Meeting Overview</div>"
+                f"<p style='margin:0;line-height:1.75;font-size:0.85rem;color:#3C2416'>"
+                f"{full_sum}</p>"
+                f"</div>"
+            )
+
+    # ── Key Points ────────────────────────────────────────────────────────
+    if bullets:
+        sum_html += f"<div class='tai-section-label'>{len(bullets)} Key Points</div>"
+        for i, b in enumerate(bullets, 1):
+            # Detect if this bullet is Japanese text
+            has_cjk = any('\u4e00' <= c <= '\u9fff' or
+                          '\u3040' <= c <= '\u309f' or
+                          '\u30a0' <= c <= '\u30ff'
+                          for c in str(b))
+            bullet_font = (
+                "font-family:'Noto Sans JP',sans-serif;" if has_cjk else ""
+            )
+            sum_html += (
+                f"<div class='tai-bullet-card'>"
+                f"<span class='tai-bullet-num'>{i:02d}</span>"
+                f"<span style='color:#3C2416;font-size:0.88rem;"
+                f"line-height:1.65;{bullet_font}'>{b}</span>"
+                f"</div>"
+            )
+    elif not full_sum:
+        sum_html += (
+            "<div style='color:#A87868;font-size:0.85rem;padding:1rem 0'>"
+            "No summary extracted. Try a longer transcript.</div>"
+        )
     # ── Tab 2: Actions ────────────────────────────────────────────────────────
     items    = R.get("action_items", [])
     v_count  = sum(1 for i in items if not i.get("hallucination_flag"))
@@ -1878,69 +2059,57 @@ if st.session_state.results:
 # ────────────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-.tai-footer { margin-top:3rem; border-top:1px solid #EDE0D8; padding:2.5rem 0 2rem; }
-.tai-footer-card { background:linear-gradient(135deg,#FFFEFB 0%,#FEF6F8 100%); border:1px solid #EDE0D8; border-radius:16px; padding:2rem 2.5rem; max-width:860px; margin:0 auto; box-shadow:0 2px 16px rgba(217,96,128,0.06); }
-.tai-footer-name  { font-size:1.25rem; font-weight:700; color:#3C2416; letter-spacing:-0.01em; margin-bottom:0.25rem; }
-.tai-footer-title { font-size:0.78rem; color:#D96080; font-weight:500; letter-spacing:0.04em; margin-bottom:1rem; }
-.tai-footer-bio   { font-size:0.82rem; color:#7A5040; line-height:1.75; margin-bottom:1.4rem; border-left:3px solid #F2B0C0; padding-left:1rem; }
-.tai-footer-links { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:1.4rem; }
-.tai-footer-link  { display:inline-flex; align-items:center; gap:6px; padding:6px 14px; border-radius:999px; font-size:0.75rem; font-weight:500; text-decoration:none; border:1px solid; transition:box-shadow 0.2s,transform 0.2s; }
-.tai-footer-link:hover { transform:translateY(-2px); box-shadow:0 4px 12px rgba(217,96,128,0.15); }
-.tai-footer-link-gh   { background:#F8F4FF; color:#3C2416; border-color:#C8A8C8; }
-.tai-footer-link-li   { background:#EFF6FF; color:#1A56A8; border-color:#93C5FD; }
-.tai-footer-link-hf   { background:#FFF7ED; color:#C05A00; border-color:#FDB97B; }
-.tai-footer-link-mail { background:#FEF6F8; color:#BE4060; border-color:#F2B0C0; }
-.tai-footer-link-repo { background:#F0FDF4; color:#166534; border-color:#86EFAC; }
-.tai-footer-divider   { border:none; border-top:1px solid #EDE0D8; margin:1.2rem 0; }
-.tai-footer-stack { display:flex; flex-wrap:wrap; gap:7px; margin-bottom:1.2rem; }
-.tai-footer-chip  { font-size:0.68rem; padding:3px 10px; border-radius:999px; background:#FEF3EC; color:#7A5040; border:1px solid #E5D0C4; font-weight:500; }
-.tai-footer-bottom { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; font-size:0.71rem; color:#C8A898; }
-.tai-footer-stat  { display:inline-flex; align-items:center; gap:5px; background:#FEF6F8; border:1px solid #F2B0C0; border-radius:999px; padding:3px 10px; font-size:0.7rem; color:#D96080; font-weight:600; }
-@media (max-width:768px) { .tai-footer-card { padding:1.4rem 1.2rem; } .tai-footer-bottom { flex-direction:column; align-items:flex-start; } }
+.tai-footer{margin-top:2rem;border-top:1px solid #EDE0D8;padding:1.8rem 0 1.4rem;}
+.tai-footer-card{background:linear-gradient(135deg,#FFFEFB 0%,#FEF6F8 100%);border:1px solid #EDE0D8;border-radius:16px;padding:1.6rem 2rem;max-width:860px;margin:0 auto;box-shadow:0 2px 16px rgba(217,96,128,0.06);}
+.tai-footer-name{font-size:1.1rem;font-weight:700;color:#3C2416;letter-spacing:-0.01em;margin-bottom:0.2rem;}
+.tai-footer-title{font-size:0.74rem;color:#D96080;font-weight:500;letter-spacing:0.04em;margin-bottom:0.8rem;}
+.tai-footer-bio{font-size:0.79rem;color:#7A5040;line-height:1.7;margin-bottom:1.1rem;border-left:3px solid #F2B0C0;padding-left:0.9rem;}
+.tai-footer-links{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:1rem;}
+.tai-footer-link{display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:999px;font-size:0.72rem;font-weight:500;text-decoration:none;border:1px solid;transition:box-shadow 0.2s,transform 0.2s;}
+.tai-footer-link:hover{transform:translateY(-2px);box-shadow:0 4px 12px rgba(217,96,128,0.15);}
+.tai-footer-link-gh{background:#F8F4FF;color:#3C2416;border-color:#C8A8C8;}
+.tai-footer-link-li{background:#EFF6FF;color:#1A56A8;border-color:#93C5FD;}
+.tai-footer-link-hf{background:#FFF7ED;color:#C05A00;border-color:#FDB97B;}
+.tai-footer-link-mail{background:#FEF6F8;color:#BE4060;border-color:#F2B0C0;}
+.tai-footer-link-repo{background:#F0FDF4;color:#166534;border-color:#86EFAC;}
+.tai-footer-divider{border:none;border-top:1px solid #EDE0D8;margin:0.9rem 0;}
+.tai-footer-stack{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:0.9rem;}
+.tai-footer-chip{font-size:0.66rem;padding:2px 9px;border-radius:999px;background:#FEF3EC;color:#7A5040;border:1px solid #E5D0C4;font-weight:500;}
+.tai-footer-bottom{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;font-size:0.69rem;color:#C8A898;}
+.tai-footer-stat{display:inline-flex;align-items:center;gap:4px;background:#FEF6F8;border:1px solid #F2B0C0;border-radius:999px;padding:2px 9px;font-size:0.68rem;color:#D96080;font-weight:600;}
 </style>
-""", unsafe_allow_html=True)
-
-st.markdown("""
 <div class="tai-footer">
   <div class="tai-footer-card">
     <div class="tai-footer-name">Kunal Bisht</div>
     <div class="tai-footer-title">AI Engineer &middot; LLM Systems &amp; RAG Pipelines &middot; Multilingual NLP</div>
     <div class="tai-footer-bio">
       I build AI to turn real problems into actual solutions &mdash; not proof-of-concepts that never ship.
-      My focus is NLP, RAG pipelines, and language systems: work where meaning matters and silent failures cost money.
       TranscriptAI started because I kept forgetting my meetings &mdash; it became a trilingual intelligence platform
       rebuilt five times until accuracy went from 22% to 93%.
     </div>
     <div class="tai-footer-links">
-      <a class="tai-footer-link tai-footer-link-gh"   href="https://github.com/aiKunalBisht" target="_blank">GitHub</a>
-      <a class="tai-footer-link tai-footer-link-li"   href="https://linkedin.com/in/kunalhere" target="_blank">LinkedIn</a>
+      <a class="tai-footer-link tai-footer-link-gh"   href="https://github.com/aiKunalBisht"   target="_blank">GitHub</a>
+      <a class="tai-footer-link tai-footer-link-li"   href="https://linkedin.com/in/kunalhere"  target="_blank">LinkedIn</a>
       <a class="tai-footer-link tai-footer-link-hf"   href="https://huggingface.co/spaces/KunalTheBeast/TranscriptAI" target="_blank">Live Demo</a>
       <a class="tai-footer-link tai-footer-link-repo" href="https://github.com/aiKunalBisht/Transcript-ai" target="_blank">Source Code</a>
       <a class="tai-footer-link tai-footer-link-mail" href="mailto:kunalbisht909@gmail.com">kunalbisht909@gmail.com</a>
     </div>
     <div class="tai-footer-divider"></div>
     <div class="tai-footer-stack">
-      <span class="tai-footer-chip">Python</span>
-      <span class="tai-footer-chip">FastAPI</span>
-      <span class="tai-footer-chip">LangChain</span>
-      <span class="tai-footer-chip">ChromaDB</span>
-      <span class="tai-footer-chip">Groq API</span>
-      <span class="tai-footer-chip">Ollama</span>
-      <span class="tai-footer-chip">MeCab</span>
-      <span class="tai-footer-chip">HuggingFace</span>
-      <span class="tai-footer-chip">MLflow</span>
-      <span class="tai-footer-chip">Docker</span>
-      <span class="tai-footer-chip">Streamlit</span>
-      <span class="tai-footer-chip">RAG</span>
+      <span class="tai-footer-chip">Python</span><span class="tai-footer-chip">FastAPI</span>
+      <span class="tai-footer-chip">LangChain</span><span class="tai-footer-chip">ChromaDB</span>
+      <span class="tai-footer-chip">Groq API</span><span class="tai-footer-chip">MeCab</span>
+      <span class="tai-footer-chip">HuggingFace</span><span class="tai-footer-chip">MLflow</span>
+      <span class="tai-footer-chip">Streamlit</span><span class="tai-footer-chip">RAG</span>
     </div>
     <div class="tai-footer-bottom">
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <div style="display:flex;gap:7px;flex-wrap:wrap;">
         <span class="tai-footer-stat">93.8% eval accuracy</span>
-        <span class="tai-footer-stat">v5 &middot; 5 rebuilds</span>
-        <span class="tai-footer-stat">JA &middot; HI &middot; EN &middot; Mixed</span>
+        <span class="tai-footer-stat">v7.3 &middot; 5 rebuilds</span>
+        <span class="tai-footer-stat">JA &middot; HI &middot; EN</span>
         <span class="tai-footer-stat">APPI compliant</span>
       </div>
-      <div>Bengaluru, Karnataka, India &middot; Open to Remote / Relocation</div>
+      <div>Bengaluru, India &middot; Open to Remote / Relocation</div>
     </div>
   </div>
 </div>
