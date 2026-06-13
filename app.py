@@ -1518,4 +1518,4 @@ render_footer()
 
 if needs_rerun:
     time.sleep(1.5)
-    st.rerun()
+    st.rerun() 
