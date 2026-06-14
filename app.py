@@ -1,14 +1,12 @@
 """
-app.py — TranscriptAI  v7.5
+app.py — TranscriptAI  v7.6
 Japanese Business Intelligence Platform
 
-FIXES v7.5:
+FIXES v7.6:
+  - Export banner extracted from Summary tab and made persistent across ALL tabs
   - Navbar transparent and polished styling
   - Top padding (~1cm) removed for flush alignment
   - Footer display guaranteed during background execution
-  - Summary Tab now contains direct Export_Documents action block
-  - `analysis_done` session state added to control Export page description logic
-  - Href routing fixed
 """
 import sys
 import os
@@ -24,6 +22,7 @@ from utils import (
     add_to_history, build_export_json, clean_text, detect_language,
     export_filename, format_history_label, language_display_name, parse_uploaded_file,
 )
+
 
 # ── Optional dependencies ────────────────────────────────────────────────────
 try:
@@ -193,17 +192,26 @@ html, body, [class*="css"] {
 [data-testid="stSidebar"] span,
 [data-testid="stSidebar"] label { color: var(--ink-mid) !important; }
 
-/* Collapse button — always visible, styled to match theme */
+/* Collapse button — hidden permanently to prevent accidental sidebar closure */
 [data-testid="stSidebarCollapseButton"],
 [data-testid="collapsedControl"] {
-    display: flex !important;
-    visibility: visible !important;
+    display: none !important;
+    visibility: hidden !important;
 }
 [data-testid="stSidebarCollapseButton"] button,
 [data-testid="collapsedControl"] button {
-    background: transparent !important;
-    border: none !important;
-    color: var(--ink-soft) !important;
+    display: none !important;
+}
+
+/* Streamlit auto-nav — hidden to prevent duplication with custom navigation */
+[data-testid="stSidebarNav"],
+[data-testid="stSidebarNavItems"],
+[data-testid="stSidebarNavLink"],
+section[data-testid="stSidebar"] > div:first-child > div > ul,
+section[data-testid="stSidebar"] nav {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
 }
 
 /* ── App background ──────────────────────────────────────────────────────── */
@@ -436,13 +444,40 @@ li[role="option"]:hover { background: var(--sakura-pale) !important; }
 .tai-tile-val  { font-size:1.6rem; font-weight:800; color:var(--sakura-deep); letter-spacing:-0.02em; line-height:1; }
 .tai-tile-lbl  { font-size:0.6rem; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.12em; margin-top:4px; font-weight:600; }
 
-/* Health card */
-.tai-health { display:grid; grid-template-columns:140px 1fr; background:linear-gradient(135deg,rgba(232,130,154,0.08),rgba(244,160,122,0.05)); border:1px solid rgba(232,130,154,0.2); border-radius:var(--r); overflow:hidden; margin-bottom:16px; }
-@media(max-width:600px) { .tai-health { grid-template-columns:1fr; } }
-.tai-health-left  { padding:24px 20px; display:flex; align-items:center; justify-content:center; border-right:1px solid rgba(60,36,22,0.10); }
-.tai-health-right { padding:20px 24px; }
+/* ── New Responsive Health Layout ───────────────────────────────── */
+.tai-health { 
+    display:grid; 
+    grid-template-columns: 240px 1fr; /* Metrics on left, content on right */
+    gap: 20px;
+    background: transparent;
+    margin-bottom: 24px; 
+}
+@media(max-width:900px) { 
+    .tai-health { grid-template-columns:1fr; } 
+}
+
+/* Left: Centered Metrics */
+.tai-health-left  { 
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    align-content: start;
+}
+.tai-health-left .tai-tile {
+    min-height: 80px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+/* Right: Main Content */
+.tai-health-right { 
+    background:var(--surface); 
+    border:1px solid var(--glass-b); 
+    border-radius:var(--r); 
+    padding:24px; 
+}
 .tai-health-title { font-size:0.6rem; font-weight:700; color:var(--sakura-deep); letter-spacing:0.15em; text-transform:uppercase; margin-bottom:14px; }
-@media(max-width:600px) { .tai-health-left { border-right:none; border-bottom:1px solid rgba(60,36,22,0.10); } }
 
 /* ── Radio tab system ───────────────────────────────────── */
 .tai-radio-tabs { display:contents; }
@@ -497,40 +532,6 @@ li[role="option"]:hover { background: var(--sakura-pale) !important; }
 .tai-sent-row:hover { border-color:rgba(232,130,154,0.25); transform:translateX(3px); }
 .tai-sent-badge { font-size:0.65rem; font-weight:700; letter-spacing:0.08em; padding:4px 10px; border-radius:999px; }
 .tai-sent-positive { background:rgba(45,122,85,0.10); color:#2D7A55; border:1px solid rgba(45,122,85,0.25); }
-.tai-sent-neutral  { background:rgba(120,80,64,0.08); color:#7A5040; border:1px solid rgba(120,80,64,0.20); }
-.tai-sent-negative { background:rgba(176,64,64,0.10); color:#963030; border:1px solid rgba(176,64,64,0.25); }
-.tai-spk-row { display:flex; align-items:center; gap:14px; background:var(--glass); border:1px solid var(--glass-b); border-radius:10px; padding:14px 16px; margin-bottom:10px; transition:border-color 0.2s; }
-.tai-spk-row:hover { border-color:rgba(190,64,96,0.30); }
-.tai-insight-chip { background:var(--glass); border:1px solid var(--glass-b); border-radius:10px; padding:12px 16px; min-width:100px; flex:1; }
-.tai-nemawashi-pill { display:inline-block; background:rgba(190,64,96,0.08); border:1px solid rgba(190,64,96,0.25); border-radius:999px; padding:5px 14px; font-size:0.82rem; color:#BE4060; font-family:'Noto Sans JP',sans-serif; margin:0 6px 8px 0; }
-.tai-sig-high { background:rgba(176,64,64,0.07); border-left:3px solid #963030; border-radius:0 10px 10px 0; padding:12px 16px; margin-bottom:10px; color:#3C2416; }
-.tai-sig-med  { background:rgba(152,104,32,0.07); border-left:3px solid #986820; border-radius:0 10px 10px 0; padding:12px 16px; margin-bottom:10px; color:#3C2416; }
-.tai-pii-pill { display:inline-flex; align-items:center; gap:6px; background:rgba(45,122,85,0.10); border:1px solid rgba(45,122,85,0.30); border-radius:999px; padding:5px 14px; font-size:0.73rem; color:#2D7A55; font-weight:500; margin-bottom:14px; }
-
-/* ── Top navbar (Redesigned & Transparent) ────────────────────────────────── */
-.tai-navbar { 
-    position:sticky; top:0; z-index:999; display:flex; align-items:center; 
-    justify-content:space-between; 
-    background: transparent; 
-    backdrop-filter: none; -webkit-backdrop-filter: none; 
-    border-bottom: none; 
-    padding: 0.5rem 1rem; height: auto; margin-bottom: 0.5rem; 
-    box-shadow: none; 
-}
-.tai-navbar-brand { display:flex; align-items:center; gap:8px; font-size:0.9rem; font-weight:700; color:var(--ink); text-decoration:none; letter-spacing:-0.01em; flex-shrink:0; }
-.tai-navbar-links { display:flex; align-items:center; gap:8px; }
-.tai-navbar-link { 
-    display:inline-flex; align-items:center; gap:6px; padding:6px 14px; 
-    border-radius:999px; font-size:0.8rem; font-weight:500; color:var(--ink-soft); 
-    text-decoration:none; transition:all 0.2s; white-space:nowrap; 
-    border:1px solid rgba(60,36,22,0.1); background: rgba(255, 254, 251, 0.65);
-    backdrop-filter: blur(8px);
-}
-.tai-navbar-link:hover { background:var(--surface); color:var(--sakura-deep); border-color:var(--sakura-light); box-shadow: 0 4px 12px rgba(217,96,128,0.1); transform: translateY(-1px); }
-.tai-navbar-link.tai-nav-active { background:var(--surface); color:var(--sakura-deep); border-color:var(--sakura); font-weight:600; box-shadow: 0 2px 8px rgba(217,96,128,0.1); }
-.tai-navbar-link.tai-nav-active .tai-nav-dot { display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--sakura); flex-shrink:0; }
-.tai-navbar-link .tai-nav-dot { display:none; }
-@media(max-width:540px) { .tai-navbar-brand-text { display:none; } .tai-navbar-link { padding:6px 9px; font-size:0.74rem; } }
 
 /* Gijiroku preview card inside summary tab */
 .tai-gijiroku-card { border:1px solid #D0B0C8; border-radius:14px; overflow:hidden; background:#FDFAFF; margin-top:20px; }
@@ -702,24 +703,6 @@ with st.sidebar:
 
 *Set `GROQ_API_KEY` for 3s cloud inference. Or run Ollama locally.*
 """)
-
-# ── Top navbar ───────────────────────────────────────────────────────────────
-st.markdown("""
-<nav class="tai-navbar">
-  <a class="tai-navbar-brand" href="/" target="_self">
-    <span>🎙️</span>
-    <span class="tai-navbar-brand-text">TranscriptAI</span>
-  </a>
-  <div class="tai-navbar-links">
-    <a class="tai-navbar-link tai-nav-active" href="/" target="_self">
-      <span class="tai-nav-dot"></span>🎙️ Meeting Analysis
-    </a>
-    <a class="tai-navbar-link" href="Export_Documents" target="_self">
-      📄 Export Documents
-    </a>
-  </div>
-</nav>
-""", unsafe_allow_html=True)
 
 # ── Header ────────────────────────────────────────────────────────────────────
 st.markdown("""
@@ -971,6 +954,11 @@ def _health_ring(score: int, color: str) -> str:
 
 
 def _build_gijiroku_preview(R: dict, language: str) -> str:
+    def _clean_val(v):
+        if isinstance(v, dict): return " ".join(str(val) for val in v.values() if val)
+        if isinstance(v, list): return " ".join(str(val) for val in v if val)
+        return str(v)
+
     try:
         from agents.gijiroku_formatter import GijirokulFormatter, render_markdown
         formatter = GijirokulFormatter()
@@ -979,7 +967,7 @@ def _build_gijiroku_preview(R: dict, language: str) -> str:
         attendee_chips = "".join(
             f"<span style='display:inline-block;background:rgba(125,78,138,0.10);border:1px solid #D0B0C8;"
             f"border-radius:999px;padding:3px 12px;font-size:0.72rem;color:#7D4E8A;margin:2px 4px 2px 0;'>"
-            f"{s}</span>"
+            f"{_clean_val(s)}</span>"
             for s in plan.shussekisha[:6]
         )
 
@@ -987,7 +975,7 @@ def _build_gijiroku_preview(R: dict, language: str) -> str:
             f"<div style='display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;'>"
             f"<span style='background:#7D4E8A;color:#fff;border-radius:5px;padding:1px 7px;"
             f"font-size:0.6rem;font-weight:700;flex-shrink:0;margin-top:2px'>{i:02d}</span>"
-            f"<span style='font-size:0.82rem;color:#3C2416;line-height:1.5;'>{item}</span>"
+            f"<span style='font-size:0.82rem;color:#3C2416;line-height:1.5;'>{_clean_val(item)}</span>"
             f"</div>"
             for i, item in enumerate(plan.gidai[:3], 1)
         )
@@ -1017,10 +1005,9 @@ def _build_gijiroku_preview(R: dict, language: str) -> str:
 
         return f"""
 <div style='margin-top:20px;border:1px solid #D0B0C8;border-radius:14px;overflow:hidden;background:#FDFAFF;'>
-  <!-- Header bar -->
   <div style='background:linear-gradient(135deg,#7D4E8A 0%,#A06CB5 100%);padding:14px 18px;display:flex;align-items:center;justify-content:space-between;'>
     <div>
-      <div style='font-size:0.6rem;color:rgba(255,255,255,0.7);letter-spacing:0.15em;text-transform:uppercase;margin-bottom:3px;'>議事録 Gijiroku</div>
+      <div style='font-size:0.6rem;color:rgba(255,255,255,0.7);letter-spacing:0.15em;text-transform:uppercase;margin-bottom:3px;'>議事録 · Japanese Formal Business Minutes</div>
       <div style='font-size:0.95rem;font-weight:700;color:#fff;font-family:"Noto Sans JP",sans-serif;'>{plan.kaigi_mei}</div>
     </div>
     <div style='text-align:right;'>
@@ -1028,43 +1015,38 @@ def _build_gijiroku_preview(R: dict, language: str) -> str:
       <div style='font-size:0.65rem;color:rgba(255,255,255,0.6);margin-top:2px;'>{plan.basho}</div>
     </div>
   </div>
-  <!-- Body -->
   <div style='padding:16px 18px;'>
-    <!-- Attendees -->
-    <div style='font-size:0.6rem;font-weight:700;color:#7D4E8A;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:7px;'>出席者 Attendees</div>
+    <div style='font-size:0.6rem;font-weight:700;color:#7D4E8A;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:7px;'>出席者 · Attendees</div>
     <div style='margin-bottom:14px;'>{attendee_chips}</div>
-    <!-- Two-column: agenda + risk -->
     <div style='display:grid;grid-template-columns:1fr auto;gap:16px;margin-bottom:14px;align-items:start;'>
       <div>
-        <div style='font-size:0.6rem;font-weight:700;color:#7D4E8A;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:8px;'>議題 Agenda</div>
+        <div style='font-size:0.6rem;font-weight:700;color:#7D4E8A;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:8px;'>議題 · Agenda</div>
         {agenda_items}
       </div>
-      <div style='min-width:90px;text-align:center;'>
-        <div style='font-size:0.6rem;font-weight:700;color:#7D4E8A;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:7px;'>リスク Risk</div>
+      <div style='min-width:100px;text-align:center;'>
+        <div style='font-size:0.6rem;font-weight:700;color:#7D4E8A;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:7px;'>リスク · Risk Level</div>
         <div style='background:{risk_bg};border:1px solid {risk_clr}33;border-radius:8px;padding:8px 12px;'>
           <div style='font-size:1rem;font-weight:800;color:{risk_clr};'>{risk}</div>
           <div style='font-size:0.6rem;color:#A87868;margin-top:2px;'>{soft.get("total_signals",0)} signals</div>
         </div>
       </div>
     </div>
-    <!-- Action items -->
-    <div style='font-size:0.6rem;font-weight:700;color:#7D4E8A;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:8px;'>アクションアイテム</div>
+    <div style='font-size:0.6rem;font-weight:700;color:#7D4E8A;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:8px;'>アクションアイテム · Action Items</div>
     <div style='border:1px solid #EFE2D8;border-radius:8px;overflow:hidden;'>
       <table style='width:100%;border-collapse:collapse;'>
         <thead>
           <tr style='background:#F5EEF8;'>
-            <th style='padding:6px 10px;font-size:0.6rem;font-weight:700;color:#7D4E8A;text-align:left;letter-spacing:0.08em;text-transform:uppercase;'>担当者</th>
-            <th style='padding:6px 10px;font-size:0.6rem;font-weight:700;color:#7D4E8A;text-align:left;letter-spacing:0.08em;text-transform:uppercase;'>タスク</th>
-            <th style='padding:6px 10px;font-size:0.6rem;font-weight:700;color:#7D4E8A;text-align:left;letter-spacing:0.08em;text-transform:uppercase;'>期限</th>
+            <th style='padding:6px 10px;font-size:0.6rem;font-weight:700;color:#7D4E8A;text-align:left;letter-spacing:0.08em;text-transform:uppercase;'>担当者 <span style="font-weight:500;color:#A87868;text-transform:none;letter-spacing:0;">Owner</span></th>
+            <th style='padding:6px 10px;font-size:0.6rem;font-weight:700;color:#7D4E8A;text-align:left;letter-spacing:0.08em;text-transform:uppercase;'>タスク <span style="font-weight:500;color:#A87868;text-transform:none;letter-spacing:0;">Task</span></th>
+            <th style='padding:6px 10px;font-size:0.6rem;font-weight:700;color:#7D4E8A;text-align:left;letter-spacing:0.08em;text-transform:uppercase;'>期限 <span style="font-weight:500;color:#A87868;text-transform:none;letter-spacing:0;">Deadline</span></th>
           </tr>
         </thead>
         <tbody>{action_rows}</tbody>
       </table>
     </div>
     {tokki}
-    <!-- Footer links -->
     <div style='margin-top:12px;display:flex;justify-content:space-between;align-items:center;'>
-      <div style='font-size:0.68rem;color:#A87868;'>次回予定: {plan.jikai_yotei}</div>
+      <div style='font-size:0.68rem;color:#A87868;'>次回予定 · Next Meeting: {plan.jikai_yotei}</div>
     </div>
   </div>
 </div>"""
@@ -1144,9 +1126,14 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
         )
 
     # ── Tab 1: Summary ────────────────────────────────────────────────────────
-    full_sum    = R.get("full_summary", "")
-    bullets     = R.get("summary", [])
-    en_summary  = R.get("en_summary", "") or R.get("english_summary", "")
+    def _clean_val(v):
+        if isinstance(v, dict): return " ".join(str(val) for val in v.values() if val)
+        if isinstance(v, list): return " ".join(str(val) for val in v if val)
+        return str(v)
+
+    full_sum    = _clean_val(R.get("full_summary", ""))
+    bullets     = [_clean_val(b) for b in R.get("summary", [])]
+    en_summary  = _clean_val(R.get("en_summary", "") or R.get("english_summary", ""))
     is_japanese = language in ("ja", "mixed")
 
     sum_html = ""
@@ -1196,19 +1183,6 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
     gijiroku_preview = _build_gijiroku_preview(R, language)
     if gijiroku_preview:
         sum_html += gijiroku_preview
-
-    # ADDED EXPORT SECTION TO SUMMARY TAB
-    sum_html += f"""
-    <div style='margin-top:20px; padding:18px; background:linear-gradient(135deg, rgba(125,78,138,0.04), rgba(160,108,181,0.06)); border:1px solid #D0B0C8; border-radius:12px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;'>
-        <div>
-            <div style='font-size:0.9rem; font-weight:700; color:#7D4E8A; margin-bottom:4px;'>✨ Analysis Complete</div>
-            <div style='font-size:0.75rem; color:#A87868;'>Your meeting intelligence is ready. Export full documents directly to PPT, MD, or TXT.</div>
-        </div>
-        <a href='Export_Documents' target='_self' style='background:linear-gradient(135deg, #7D4E8A, #A06CB5); color:#fff; padding:10px 18px; border-radius:8px; font-size:0.8rem; font-weight:600; text-decoration:none; box-shadow:0 4px 14px rgba(125,78,138,0.25); transition:transform 0.2s;'>
-            📄 Go to Export Page →
-        </a>
-    </div>
-    """
 
     # ── Tab 2: Actions ────────────────────────────────────────────────────────
     items    = R.get("action_items", [])
@@ -1340,11 +1314,28 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
     if not insight_label:
         insight_label = "インサイト" if language == "ja" else "Insights"
 
+    # Persistent export banner appended to the end of the panel (visible across all tabs)
+    export_banner = """
+    <div style='margin-top:20px; padding:18px; background:linear-gradient(135deg, rgba(125,78,138,0.04), rgba(160,108,181,0.06)); border:1px solid #D0B0C8; border-radius:12px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;'>
+        <div>
+            <div style='font-size:0.9rem; font-weight:700; color:#7D4E8A; margin-bottom:4px;'>✨ Analysis Complete</div>
+            <div style='font-size:0.75rem; color:#A87868;'>Your meeting intelligence is ready. Export full documents directly to PPT, MD, or TXT.</div>
+    """
+
     return (
         '<div class="tai-results">'
         + pii_html
         + '<div class="tai-tiles">' + tiles + '</div>'
         + '<div class="tai-health">'
+        + '<div style="margin-bottom:16px;border:1px solid #D0B0C8;border-radius:12px;overflow:hidden;">'
+        +   '<div style="background:linear-gradient(135deg,#7D4E8A,#A06CB5);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;">'
+        +     '<div style="font-size:0.72rem;font-weight:700;color:#fff;letter-spacing:0.1em;text-transform:uppercase;">🗾 議事録 Format · Japanese Business Minutes</div>'
+        +     '<div style="font-size:0.65rem;color:rgba(255,255,255,0.7);">Standard enterprise document structure</div>'
+        +   '</div>'
+        +   '<div style="padding:16px;background:#FDFAFF;display:grid;grid-template-columns:repeat(5, 1fr);gap:8px;text-align:center;align-items:center;">'
+        +     ''.join(f"<div style='padding:6px 4px;'><div style='font-size:0.78rem;font-weight:700;color:#7D4E8A;font-family:Noto Sans JP,sans-serif;'>{ja}</div><div style='font-size:0.6rem;color:#A87868;margin-top:2px;'>{en}</div></div>" for ja, en in [("会議名","Meeting name"),("出席者","Attendees"),("議題","Agenda"),("決定事項","Decisions"),("アクション","Action items")])
+        +   '</div>'
+        + '</div>'
         +   '<div class="tai-health-left">' + _health_ring(score, hc) + '</div>'
         +   '<div class="tai-health-right">'
         +     '<div class="tai-health-title">Meeting Health Breakdown</div>'
@@ -1369,8 +1360,76 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
         +     '<div id="tai-sent" class="tai-tab-content">' + sent_html + '</div>'
         +     '<div id="tai-spk"  class="tai-tab-content">' + spk_html  + '</div>'
         +     '<div id="tai-ins"  class="tai-tab-content">' + ins_html  + '</div>'
+        +     export_banner
         +   '</div>'
         + '</div>'
+        + '''<script>
+(function(){
+  var TAB_KEY = 'tai-active-tab';
+  var ids = ['tai-radio-sum','tai-radio-act','tai-radio-sent','tai-radio-spk','tai-radio-ins'];
+  var panels = ['tai-sum','tai-act','tai-sent','tai-spk','tai-ins'];
+  function activateTab(radioId) {
+    ids.forEach(function(id, idx) {
+      var radio = document.getElementById(id);
+      var panel = document.getElementById(panels[idx]);
+      if (radio && panel) {
+        if (id === radioId) {
+          radio.checked = true;
+          panel.style.display = 'block';
+        } else {
+          radio.checked = false;
+          panel.style.display = 'none';
+        }
+      }
+    });
+    // Update label styles
+    document.querySelectorAll('.tai-tab-label').forEach(function(lbl) {
+      var forId = lbl.getAttribute('for');
+      if (forId === radioId) {
+        lbl.style.color = '#BE4060';
+        lbl.style.borderBottomColor = '#D96080';
+        lbl.style.fontWeight = '600';
+        lbl.style.background = 'rgba(190,64,96,0.04)';
+      } else {
+        lbl.style.color = '';
+        lbl.style.borderBottomColor = '';
+        lbl.style.fontWeight = '';
+        lbl.style.background = '';
+      }
+    });
+    try { sessionStorage.setItem(TAB_KEY, radioId); } catch(e) {}
+  }
+  function init() {
+    var saved = null;
+    try { saved = sessionStorage.getItem(TAB_KEY); } catch(e) {}
+    if (saved && ids.indexOf(saved) !== -1) {
+      activateTab(saved);
+    } else {
+      activateTab('tai-radio-sum');
+    }
+    // Attach click handlers
+    document.querySelectorAll('.tai-tab-label').forEach(function(lbl) {
+      lbl.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        var targetId = lbl.getAttribute('for');
+        activateTab(targetId);
+      });
+    });
+    // Intercept radio changes from CSS (Streamlit resets)
+    ids.forEach(function(id) {
+      var radio = document.getElementById(id);
+      if (radio) {
+        radio.addEventListener('change', function() {
+          if (radio.checked) activateTab(id);
+        });
+      }
+    });
+  }
+  if (document.getElementById('tai-radio-sum')) { init(); }
+  else { setTimeout(init, 100); }
+})()
+</script>'''
         + '</div>'
     )
 
@@ -1426,6 +1485,9 @@ if st.session_state.results:
     st.markdown(build_results_html(R, language, features, pii_rep), unsafe_allow_html=True)
     st.markdown("<div style='height:0.8rem'></div>", unsafe_allow_html=True)
 
+    if st.button("📄  Export Documents — PPT · 議事録 · MD · JSON →", key="go_export", use_container_width=True):
+        st.switch_page("pages/Export_Documents.py")
+
     from utils import build_export_json, export_filename
     exp = build_export_json(st.session_state.current_transcript, language, R)
     st.download_button(
@@ -1443,11 +1505,41 @@ if st.session_state.results:
                     pred   = analyze_transcript(tc["transcript"], tc["language"], bypass_cache=True)
                     report = evaluate(pred, tc["ground_truth"], tc["transcript"], tc_name=tc["name"], provider=pred.get("_provider","unknown"))
                 overall = report.get("overall_score", 0)
-                c1,c2,c3,c4 = st.columns(4)
-                with c1: st.metric("Overall", f"{overall}%")
-                with c2: st.metric("ROUGE-1", report.get("summary",{}).get("avg_rouge1_f1","—"))
-                with c3: st.metric("Action F1", report.get("action_items",{}).get("f1","—"))
-                with c4: st.metric("Sentiment", report.get("sentiment",{}).get("soft_accuracy","—"))
+                rouge1  = report.get("summary",{}).get("avg_rouge1_f1","—")
+                act_f1  = report.get("action_items",{}).get("f1","—")
+                sent_acc = report.get("sentiment",{}).get("soft_accuracy","—")
+                ov_color = "#2D9E6B" if isinstance(overall, (int,float)) and overall >= 80 else "#B87830" if isinstance(overall, (int,float)) and overall >= 60 else "#C84040"
+                st.markdown(f"""
+                <div style='display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:12px 0;'>
+                  <div style='background:linear-gradient(135deg,rgba(60,36,22,0.03),rgba(217,96,128,0.06));
+                       border:1px solid rgba(60,36,22,0.10);border-top:3px solid {ov_color};
+                       border-radius:12px;padding:16px 12px;text-align:center;'>
+                    <div style='font-size:0.6rem;color:#A87868;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:6px;font-weight:600;'>🎯 Overall</div>
+                    <div style='font-size:1.6rem;font-weight:800;color:{ov_color};line-height:1;'>{overall}%</div>
+                    <div style='height:4px;background:rgba(60,36,22,0.08);border-radius:999px;margin-top:8px;'>
+                      <div style='height:100%;width:{overall}%;background:{ov_color};border-radius:999px;'></div>
+                    </div>
+                  </div>
+                  <div style='background:linear-gradient(135deg,rgba(60,36,22,0.03),rgba(72,104,88,0.06));
+                       border:1px solid rgba(60,36,22,0.10);border-top:3px solid #486858;
+                       border-radius:12px;padding:16px 12px;text-align:center;'>
+                    <div style='font-size:0.6rem;color:#A87868;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:6px;font-weight:600;'>📊 ROUGE-1</div>
+                    <div style='font-size:1.6rem;font-weight:800;color:#486858;line-height:1;'>{rouge1}</div>
+                  </div>
+                  <div style='background:linear-gradient(135deg,rgba(60,36,22,0.03),rgba(232,128,96,0.06));
+                       border:1px solid rgba(60,36,22,0.10);border-top:3px solid #E88060;
+                       border-radius:12px;padding:16px 12px;text-align:center;'>
+                    <div style='font-size:0.6rem;color:#A87868;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:6px;font-weight:600;'>✅ Action F1</div>
+                    <div style='font-size:1.6rem;font-weight:800;color:#E88060;line-height:1;'>{act_f1}</div>
+                  </div>
+                  <div style='background:linear-gradient(135deg,rgba(60,36,22,0.03),rgba(184,120,48,0.06));
+                       border:1px solid rgba(60,36,22,0.10);border-top:3px solid #B87830;
+                       border-radius:12px;padding:16px 12px;text-align:center;'>
+                    <div style='font-size:0.6rem;color:#A87868;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:6px;font-weight:600;'>🌸 Sentiment</div>
+                    <div style='font-size:1.6rem;font-weight:800;color:#B87830;line-height:1;'>{sent_acc}</div>
+                  </div>
+                </div>
+                """, unsafe_allow_html=True)
                 with st.expander("Full report (JSON)"): st.json(report)
 
     if TRENDS_AVAILABLE:
@@ -1456,13 +1548,51 @@ if st.session_state.results:
             if trends.get("empty"):
                 st.info(trends.get("message","No trend data yet."))
             else:
-                c1,c2,c3,c4 = st.columns(4)
-                with c1: st.metric("High Risk Meetings", f"{trends['high_soft_rejection_pct']}%")
-                with c2: st.metric("Avg Hallucination", f"{trends['avg_hallucination_pct']}%")
-                with c3: st.metric("Avg Action Items", trends["avg_action_items"])
-                with c4:
-                    dur = trends["avg_duration_sec"]
-                    st.metric("Avg Analysis Time", f"{dur:.0f}s" if dur < 60 else f"{dur/60:.1f}m")
+                hr_pct = trends['high_soft_rejection_pct']
+                h_pct  = trends['avg_hallucination_pct']
+                avg_ai = trends['avg_action_items']
+                dur    = trends['avg_duration_sec']
+                dur_s  = f"{dur:.0f}s" if dur < 60 else f"{dur/60:.1f}m"
+                hr_clr = "#C84040" if isinstance(hr_pct, (int,float)) and hr_pct > 30 else "#B87830" if isinstance(hr_pct, (int,float)) and hr_pct > 15 else "#2D9E6B"
+                h_clr  = "#C84040" if isinstance(h_pct, (int,float)) and h_pct > 20 else "#B87830" if isinstance(h_pct, (int,float)) and h_pct > 10 else "#2D9E6B"
+                st.markdown(f"""
+                <div style='display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:12px 0;'>
+                  <div style='background:linear-gradient(135deg,rgba(60,36,22,0.03),rgba(200,64,64,0.06));
+                       border:1px solid rgba(60,36,22,0.10);border-top:3px solid {hr_clr};
+                       border-radius:12px;padding:16px 12px;text-align:center;transition:transform 0.2s;'>
+                    <div style='font-size:0.6rem;color:#A87868;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:6px;font-weight:600;'>🚨 High Risk</div>
+                    <div style='font-size:1.6rem;font-weight:800;color:{hr_clr};line-height:1;'>{hr_pct}%</div>
+                    <div style='font-size:0.65rem;color:#A87868;margin-top:4px;'>of meetings</div>
+                    <div style='height:4px;background:rgba(60,36,22,0.08);border-radius:999px;margin-top:6px;'>
+                      <div style='height:100%;width:{min(hr_pct if isinstance(hr_pct,(int,float)) else 0, 100)}%;background:{hr_clr};border-radius:999px;'></div>
+                    </div>
+                  </div>
+                  <div style='background:linear-gradient(135deg,rgba(60,36,22,0.03),rgba(184,120,48,0.06));
+                       border:1px solid rgba(60,36,22,0.10);border-top:3px solid {h_clr};
+                       border-radius:12px;padding:16px 12px;text-align:center;transition:transform 0.2s;'>
+                    <div style='font-size:0.6rem;color:#A87868;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:6px;font-weight:600;'>🔍 Hallucination</div>
+                    <div style='font-size:1.6rem;font-weight:800;color:{h_clr};line-height:1;'>{h_pct}%</div>
+                    <div style='font-size:0.65rem;color:#A87868;margin-top:4px;'>avg rate</div>
+                    <div style='height:4px;background:rgba(60,36,22,0.08);border-radius:999px;margin-top:6px;'>
+                      <div style='height:100%;width:{min(h_pct if isinstance(h_pct,(int,float)) else 0, 100)}%;background:{h_clr};border-radius:999px;'></div>
+                    </div>
+                  </div>
+                  <div style='background:linear-gradient(135deg,rgba(60,36,22,0.03),rgba(72,104,88,0.06));
+                       border:1px solid rgba(60,36,22,0.10);border-top:3px solid #486858;
+                       border-radius:12px;padding:16px 12px;text-align:center;transition:transform 0.2s;'>
+                    <div style='font-size:0.6rem;color:#A87868;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:6px;font-weight:600;'>✅ Avg Actions</div>
+                    <div style='font-size:1.6rem;font-weight:800;color:#486858;line-height:1;'>{avg_ai}</div>
+                    <div style='font-size:0.65rem;color:#A87868;margin-top:4px;'>per meeting</div>
+                  </div>
+                  <div style='background:linear-gradient(135deg,rgba(60,36,22,0.03),rgba(217,96,128,0.06));
+                       border:1px solid rgba(60,36,22,0.10);border-top:3px solid #D96080;
+                       border-radius:12px;padding:16px 12px;text-align:center;transition:transform 0.2s;'>
+                    <div style='font-size:0.6rem;color:#A87868;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:6px;font-weight:600;'>⚡ Avg Time</div>
+                    <div style='font-size:1.6rem;font-weight:800;color:#D96080;line-height:1;'>{dur_s}</div>
+                    <div style='font-size:0.65rem;color:#A87868;margin-top:4px;'>analysis speed</div>
+                  </div>
+                </div>
+                """, unsafe_allow_html=True)
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 def render_footer():
@@ -1518,4 +1648,4 @@ render_footer()
 
 if needs_rerun:
     time.sleep(1.5)
-    st.rerun() 
+    st.rerun()
