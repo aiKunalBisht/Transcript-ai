@@ -79,20 +79,26 @@ html,body,[class*="css"]{font-family:'DM Sans','Noto Sans JP',sans-serif!importa
 [data-testid="stSidebar"]{background-color:#FDF8F5!important;border-right:1px solid var(--border)!important;box-shadow:2px 0 20px rgba(60,36,22,0.06)!important;}
 [data-testid="stSidebar"] *{color:var(--ink)!important;}
 
-/* Collapse button — always accessible */
-[data-testid="stSidebarCollapseButton"],[data-testid="collapsedControl"]{display:flex!important;visibility:visible!important;}
-[data-testid="stSidebarCollapseButton"] button,[data-testid="collapsedControl"] button{background:transparent!important;border:none!important;color:var(--ink-soft)!important;}
+/* Collapse button — hidden permanently to prevent accidental sidebar closure */
+[data-testid="stSidebarCollapseButton"],
+[data-testid="collapsedControl"] {
+    display: none !important;
+    visibility: hidden !important;
+}
+[data-testid="stSidebarCollapseButton"] button,
+[data-testid="collapsedControl"] button {
+    display: none !important;
+}
 
-/* Streamlit auto-nav — visible (restored) */
+/* Streamlit auto-nav — hidden to prevent duplication with custom navigation */
 [data-testid="stSidebarNav"],
 [data-testid="stSidebarNavItems"],
 [data-testid="stSidebarNavLink"],
 section[data-testid="stSidebar"] > div:first-child > div > ul,
 section[data-testid="stSidebar"] nav {
-    display: block !important;
-    height: auto !important;
-    overflow: visible !important;
-    visibility: visible !important;
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
 }
 
 /* ── Buttons ─────────────────────────────────────────────────────────────── */
@@ -201,24 +207,6 @@ with st.sidebar:
 **JSON** — Full raw analysis data for developers
 """)
 
-
-# ── Top navbar ───────────────────────────────────────────────────────────────
-st.markdown("""
-<nav class="tai-navbar">
-  <a class="tai-navbar-brand" href="/" target="_self">
-    <span>🎙️</span>
-    <span class="tai-navbar-brand-text">TranscriptAI</span>
-  </a>
-  <div class="tai-navbar-links">
-    <a class="tai-navbar-link tai-nav-active" href="/" target="_self">
-      <span class="tai-nav-dot"></span>🎙️ Meeting Analysis
-    </a>
-    <a class="tai-navbar-link" href="Export_Documents" target="_self">
-      📄 Export Documents
-    </a>
-  </div>
-</nav>
-""", unsafe_allow_html=True)
 # ── FIX-1: Reduced header padding ────────────────────────────────────────────
 st.markdown("""
 <div style='padding:0.8rem 0 1.2rem;'>
@@ -228,9 +216,6 @@ st.markdown("""
   <h1 style='font-size:2.1rem;font-weight:600;color:#3C2416;margin:0 0 0.6rem;letter-spacing:-0.025em;'>
     Export Documents
   </h1>
-  <div style='font-size:0.88rem;color:#A87868;line-height:1.6;'>
-    Turn your analyzed meeting into a presentation, report, or document — ready to share in seconds.
-  </div>
 </div>
 <hr style='border:none;border-top:1px solid rgba(60,36,22,0.10);margin:0 0 1.4rem;'/>
 """, unsafe_allow_html=True)
@@ -274,111 +259,6 @@ st.markdown("<div style='height:0.4rem'></div>", unsafe_allow_html=True)
 col1, col2 = st.columns(2, gap="large")
 
 with col1:
-    st.markdown("""
-    <div class='export-card'>
-      <div class='export-card-icon'>📊</div>
-      <div class='export-card-badge badge-ppt'>PowerPoint</div>
-      <div class='export-card-title'>Slide Presentation</div>
-      <div class='export-card-desc'>
-        Auto-generates a slide deck from your meeting — titles, bullet points,
-        and speaker notes for every key topic. Download as <strong>.pptx</strong>
-        and open in PowerPoint or Google Slides.
-      </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    if not PPTX_AVAILABLE:
-        st.error(f"PPT module not loaded: {_pptx_err_msg}")
-    else:
-        if st.button("Generate Presentation", key="gen_ppt", use_container_width=True):
-            groq_key = os.getenv("GROQ_API_KEY", "").strip()
-            if not groq_key:
-                try: groq_key = st.secrets.get("GROQ_API_KEY", "")
-                except Exception: groq_key = ""
-            if not groq_key:
-                st.error("GROQ_API_KEY not found. Add it to `.env` or HuggingFace Space secrets.")
-            else:
-                with st.spinner("Building slide deck · calling Groq · ~5s"):
-                    try:
-                        agent      = SlideArchitectAgent(groq_api_key=groq_key)
-                        plan       = agent.plan(R, language=lang)
-                        pptx_bytes = build_pptx(plan)
-                        st.session_state["_pptx_ready"]  = pptx_bytes
-                        st.session_state["_pptx_slides"] = len(plan.slides or [])
-                        st.session_state["_pptx_title"]  = plan.meeting_title or "Meeting"
-                    except Exception as e:
-                        import traceback
-                        st.error(f"Slide generation failed: {e}")
-                        st.code(traceback.format_exc())
-
-        if st.session_state.get("_pptx_ready"):
-            n     = st.session_state.get("_pptx_slides", "?")
-            title = st.session_state.get("_pptx_title", "meeting")
-            safe  = str(title).replace(" ", "_")[:40]
-            st.success(f"✓ {n} slides ready — {title}")
-            st.download_button(
-                label=f"⬇  Download .pptx  ({n} slides)",
-                data=st.session_state["_pptx_ready"],
-                file_name=f"{safe}_{timestamp}.pptx",
-                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                use_container_width=True,
-            )
-
-with col2:
-    st.markdown("""
-    <div class='export-card'>
-      <div class='export-card-icon'>📝</div>
-      <div class='export-card-badge badge-md'>Markdown</div>
-      <div class='export-card-title'>Markdown Report</div>
-      <div class='export-card-desc'>
-        A clean, structured <strong>.md</strong> file with summary, action items,
-        speaker sentiment, and insights. Perfect for Notion, GitHub, or Obsidian.
-      </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    md_lines = [f"# {meeting_title}", f"**Date:** {timestamp}  ", f"**Language:** {str(lang).upper()}  ",
-                f"**Speakers:** {', '.join(speaker_names) if speaker_names else 'Unknown'}", "", "---", "", "## Summary"]
-    if full_summary: md_lines += [full_summary, ""]
-    if summary_bullets:
-        md_lines.append("### Key Points")
-        for b in summary_bullets: md_lines.append(f"- {b}")
-        md_lines.append("")
-    if action_items:
-        md_lines.append("## Action Items")
-        for item in action_items:
-            if item and isinstance(item, dict):
-                flag = " ⚠️" if item.get("hallucination_flag") else ""
-                md_lines.append(f"- [ ] **{item.get('task','') or ''}**{flag}  ")
-                md_lines.append(f"  Owner: {item.get('owner','') or 'TBD'} · Deadline: {item.get('deadline','') or 'TBD'}")
-        md_lines.append("")
-        
-    sentiment = R.get("sentiment") or []
-    if sentiment:
-        md_lines.append("## Speaker Sentiment")
-        for s in sentiment: 
-            if s and isinstance(s, dict):
-                score_str = str(s.get('score') or '').upper()
-                md_lines.append(f"- **{s.get('speaker','') or ''}**: {score_str} — {s.get('label','') or ''}")
-        md_lines.append("")
-        
-    soft = R.get("soft_rejections") or {}
-    if soft and soft.get("total_signals", 0) > 0:
-        md_lines += ["## Communication Signals", f"**Risk Level:** {soft.get('risk_level','NONE')}  ",
-                     f"**Total Signals:** {soft.get('total_signals',0)}"]
-        if soft.get("cultural_note"): md_lines.append(f"\n> {soft['cultural_note']}")
-        md_lines.append("")
-    md_lines += ["---", "*Generated by TranscriptAI · github.com/aiKunalBisht/Transcript-ai*"]
-    md_content = "\n".join(md_lines)
-
-    st.download_button(label="⬇  Download .md", data=md_content,
-                       file_name=f"meeting_{timestamp}.md", mime="text/markdown", use_container_width=True)
-
-# ── FIX-2: Row 2 = 議事録 (moved up from Row 3) ───────────────────────────────
-st.markdown("<div style='height:0.3rem'></div>", unsafe_allow_html=True)
-col5, col6 = st.columns(2, gap="large")
-
-with col5:
     st.markdown("""
     <div class='export-card' style='border-color:var(--purple-border);'>
       <div class='export-card-icon'>📋</div>
@@ -432,21 +312,26 @@ with col5:
                     _rc = _risk_colors.get(str(_risk).upper(), "#2D7A55")
                     _rb = _risk_bgs.get(str(_risk).upper(), "#EDF3EF")
 
+                    def _clean_val(v):
+                        if isinstance(v, dict): return " ".join(str(val) for val in v.values() if val)
+                        if isinstance(v, list): return " ".join(str(val) for val in v if val)
+                        return str(v)
+
                     _attendee_chips = "".join(
-                        f"<span class='gijiroku-chip'>{s}</span>"
+                        f"<span class='gijiroku-chip'>{_clean_val(s)}</span>"
                         for s in (plan_g.shussekisha or [])
                     )
                     _agenda_html = "".join(
                         f"<div class='gijiroku-decision-row'>"
                         f"<span class='gijiroku-decision-num'>{i:02d}</span>"
-                        f"<span style='font-size:0.83rem;color:#3C2416;line-height:1.5;'>{item}</span>"
+                        f"<span style='font-size:0.83rem;color:#3C2416;line-height:1.5;'>{_clean_val(item)}</span>"
                         f"</div>"
                         for i, item in enumerate(plan_g.gidai or [], 1)
                     )
                     _decision_html = "".join(
                         f"<div class='gijiroku-decision-row'>"
                         f"<span class='gijiroku-decision-num'>{i:02d}</span>"
-                        f"<span style='font-size:0.83rem;color:#3C2416;line-height:1.5;'>{d}</span>"
+                        f"<span style='font-size:0.83rem;color:#3C2416;line-height:1.5;'>{_clean_val(d)}</span>"
                         f"</div>"
                         for i, d in enumerate(plan_g.kettei_jiko or [], 1)
                     )
@@ -528,7 +413,63 @@ with col5:
                 mime=mime, use_container_width=True,
             )
 
-with col6:
+
+with col2:
+    st.markdown("""
+    <div class='export-card'>
+      <div class='export-card-icon'>📊</div>
+      <div class='export-card-badge badge-ppt'>PowerPoint</div>
+      <div class='export-card-title'>Slide Presentation</div>
+      <div class='export-card-desc'>
+        Auto-generates a slide deck from your meeting — titles, bullet points,
+        and speaker notes for every key topic. Download as <strong>.pptx</strong>
+        and open in PowerPoint or Google Slides.
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if not PPTX_AVAILABLE:
+        st.error(f"PPT module not loaded: {_pptx_err_msg}")
+    else:
+        if st.button("Generate Presentation", key="gen_ppt", use_container_width=True):
+            groq_key = os.getenv("GROQ_API_KEY", "").strip()
+            if not groq_key:
+                try: groq_key = st.secrets.get("GROQ_API_KEY", "")
+                except Exception: groq_key = ""
+            if not groq_key:
+                st.error("GROQ_API_KEY not found. Add it to `.env` or HuggingFace Space secrets.")
+            else:
+                with st.spinner("Building slide deck · calling Groq · ~5s"):
+                    try:
+                        agent      = SlideArchitectAgent(groq_api_key=groq_key)
+                        plan       = agent.plan(R, language=lang)
+                        pptx_bytes = build_pptx(plan)
+                        st.session_state["_pptx_ready"]  = pptx_bytes
+                        st.session_state["_pptx_slides"] = len(plan.slides or [])
+                        st.session_state["_pptx_title"]  = plan.meeting_title or "Meeting"
+                    except Exception as e:
+                        import traceback
+                        st.error(f"Slide generation failed: {e}")
+                        st.code(traceback.format_exc())
+
+        if st.session_state.get("_pptx_ready"):
+            n     = st.session_state.get("_pptx_slides", "?")
+            title = st.session_state.get("_pptx_title", "meeting")
+            safe  = str(title).replace(" ", "_")[:40]
+            st.success(f"✓ {n} slides ready — {title}")
+            st.download_button(
+                label=f"⬇  Download .pptx  ({n} slides)",
+                data=st.session_state["_pptx_ready"],
+                file_name=f"{safe}_{timestamp}.pptx",
+                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                use_container_width=True,
+            )
+
+# ── FIX-2: Row 2 = 議事録 (moved up from Row 3) ───────────────────────────────
+st.markdown("<div style='height:0.3rem'></div>", unsafe_allow_html=True)
+col5, col6 = st.columns(2, gap="large")
+
+with col5:
     st.markdown("""
     <div class='export-card' style='border-color:var(--purple-border);background:#FDFAFF;'>
       <div class='export-card-icon'>🗾</div>
@@ -561,6 +502,57 @@ with col6:
         "outputting 議事録 format. This covers Japanese business requirements "
         "that Fujitsu Takane and similar enterprise tools are targeting."
     )
+
+with col6:
+    st.markdown("""
+    <div class='export-card'>
+      <div class='export-card-icon'>📝</div>
+      <div class='export-card-badge badge-md'>Markdown</div>
+      <div class='export-card-title'>Markdown Report</div>
+      <div class='export-card-desc'>
+        A clean, structured <strong>.md</strong> file with summary, action items,
+        speaker sentiment, and insights. Perfect for Notion, GitHub, or Obsidian.
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    md_lines = [f"# {meeting_title}", f"**Date:** {timestamp}  ", f"**Language:** {str(lang).upper()}  ",
+                f"**Speakers:** {', '.join(speaker_names) if speaker_names else 'Unknown'}", "", "---", "", "## Summary"]
+    if full_summary: md_lines += [full_summary, ""]
+    if summary_bullets:
+        md_lines.append("### Key Points")
+        for b in summary_bullets: md_lines.append(f"- {b}")
+        md_lines.append("")
+    if action_items:
+        md_lines.append("## Action Items")
+        for item in action_items:
+            if item and isinstance(item, dict):
+                flag = " ⚠️" if item.get("hallucination_flag") else ""
+                md_lines.append(f"- [ ] **{item.get('task','') or ''}**{flag}  ")
+                md_lines.append(f"  Owner: {item.get('owner','') or 'TBD'} · Deadline: {item.get('deadline','') or 'TBD'}")
+        md_lines.append("")
+        
+    sentiment = R.get("sentiment") or []
+    if sentiment:
+        md_lines.append("## Speaker Sentiment")
+        for s in sentiment: 
+            if s and isinstance(s, dict):
+                score_str = str(s.get('score') or '').upper()
+                md_lines.append(f"- **{s.get('speaker','') or ''}**: {score_str} — {s.get('label','') or ''}")
+        md_lines.append("")
+        
+    soft = R.get("soft_rejections") or {}
+    if soft and soft.get("total_signals", 0) > 0:
+        md_lines += ["## Communication Signals", f"**Risk Level:** {soft.get('risk_level','NONE')}  ",
+                     f"**Total Signals:** {soft.get('total_signals',0)}"]
+        if soft.get("cultural_note"): md_lines.append(f"\n> {soft['cultural_note']}")
+        md_lines.append("")
+    md_lines += ["---", "*Generated by TranscriptAI · github.com/aiKunalBisht/Transcript-ai*"]
+    md_content = "\n".join(md_lines)
+
+    st.download_button(label="⬇  Download .md", data=md_content,
+                       file_name=f"meeting_{timestamp}.md", mime="text/markdown", use_container_width=True)
+
 
 # ── Row 3: Plain Text + JSON (moved down from Row 2) ─────────────────────────
 st.markdown("<div style='height:0.3rem'></div>", unsafe_allow_html=True)
@@ -622,16 +614,52 @@ with col4:
     )
 
 # ── Footer ────────────────────────────────────────────────────────────────────
-st.markdown("""
-<style>
-.tai-footer-mini{margin-top:3rem;border-top:1px solid #EDE0D8;padding:1.5rem 0;text-align:center;font-size:0.75rem;color:#C8A898;}
-.tai-footer-mini a{color:#D96080;text-decoration:none;font-weight:500;}
-</style>
-<div class='tai-footer-mini'>
-  TranscriptAI by <a href='https://linkedin.com/in/kunalhere' target='_blank'>Kunal Bisht</a>
-  &nbsp;·&nbsp;
-  <a href='https://github.com/aiKunalBisht/Transcript-ai' target='_blank'>GitHub</a>
-  &nbsp;·&nbsp;
-  <a href='https://huggingface.co/spaces/KunalTheBeast/TranscriptAI' target='_blank'>Live Demo</a>
-</div>
-""", unsafe_allow_html=True)
+def render_footer():
+    st.markdown("""
+    <style>
+    .tai-footer{margin-top:2rem;border-top:1px solid #EDE0D8;padding:1.8rem 0 1.4rem;}
+    .tai-footer-card{background:linear-gradient(135deg,#FFFEFB 0%,#FEF6F8 100%);border:1px solid #EDE0D8;border-radius:16px;padding:1.6rem 2rem;max-width:860px;margin:0 auto;box-shadow:0 2px 16px rgba(217,96,128,0.06);}
+    .tai-footer-name{font-size:1.1rem;font-weight:700;color:#3C2416;letter-spacing:-0.01em;margin-bottom:0.2rem;}
+    .tai-footer-title{font-size:0.74rem;color:#D96080;font-weight:500;letter-spacing:0.04em;margin-bottom:0.8rem;}
+    .tai-footer-bio{font-size:0.79rem;color:#7A5040;line-height:1.7;margin-bottom:1.1rem;border-left:3px solid #F2B0C0;padding-left:0.9rem;}
+    .tai-footer-links{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:1rem;}
+    .tai-footer-link-pill{display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:999px;font-size:0.72rem;font-weight:500;text-decoration:none;border:1px solid;transition:box-shadow 0.2s,transform 0.2s;}
+    .tai-footer-link-pill:hover{transform:translateY(-2px);box-shadow:0 4px 12px rgba(217,96,128,0.15);}
+    .tai-footer-link-gh{background:#F8F4FF;color:#3C2416;border-color:#C8A8C8;}
+    .tai-footer-link-li{background:#EFF6FF;color:#1A56A8;border-color:#93C5FD;}
+    .tai-footer-link-hf{background:#FFF7ED;color:#C05A00;border-color:#FDB97B;}
+    .tai-footer-link-mail{background:#FEF6F8;color:#BE4060;border-color:#F2B0C0;}
+    .tai-footer-link-repo{background:#F0FDF4;color:#166534;border-color:#86EFAC;}
+    .tai-footer-divider{border:none;border-top:1px solid #EDE0D8;margin:0.9rem 0;}
+    .tai-footer-stack{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:0.9rem;}
+    .tai-footer-chip{font-size:0.66rem;padding:2px 9px;border-radius:999px;background:#FEF3EC;color:#7A5040;border:1px solid #E5D0C4;font-weight:500;}
+    .tai-footer-bottom{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;font-size:0.69rem;color:#C8A898;}
+    .tai-footer-stat{display:inline-flex;align-items:center;gap:4px;background:#FEF6F8;border:1px solid #F2B0C0;border-radius:999px;padding:2px 9px;font-size:0.68rem;color:#D96080;font-weight:600;}
+    </style>
+    <div class="tai-footer">
+      <div class="tai-footer-card">
+        <div class="tai-footer-name">Kunal Bisht</div>
+        <div class="tai-footer-title">AI Engineer &middot; LLM Systems &amp; RAG Pipelines &middot; Multilingual NLP</div>
+        <div class="tai-footer-bio">
+          I build AI to turn real problems into actual solutions &mdash; not proof-of-concepts that never ship.
+          TranscriptAI started because I kept forgetting my meetings &mdash; it became a trilingual intelligence platform
+          rebuilt five times until accuracy went from 22% to 93%.
+        </div>
+        <div class="tai-footer-links">
+          <a class="tai-footer-link-pill tai-footer-link-gh"   href="https://github.com/aiKunalBisht"   target="_blank">GitHub</a>
+          <a class="tai-footer-link-pill tai-footer-link-li"   href="https://linkedin.com/in/kunalhere"  target="_blank">LinkedIn</a>
+          <a class="tai-footer-link-pill tai-footer-link-hf"   href="https://huggingface.co/spaces/KunalTheBeast/TranscriptAI" target="_blank">Live Demo</a>
+          <a class="tai-footer-link-pill tai-footer-link-repo" href="https://github.com/aiKunalBisht/Transcript-ai" target="_blank">Source Code</a>
+          <a class="tai-footer-link-pill tai-footer-link-mail" href="mailto:kunalbisht909@gmail.com">kunalbisht909@gmail.com</a>
+        </div>
+        <div class="tai-footer-divider"></div>
+        <div class="tai-footer-stack">
+          <span class="tai-footer-chip">Python</span><span class="tai-footer-chip">FastAPI</span>
+          <span class="tai-footer-chip">LangChain</span><span class="tai-footer-chip">ChromaDB</span>
+          <span class="tai-footer-chip">Streamlit</span>
+        </div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+render_footer()
