@@ -178,7 +178,7 @@ html, body, [class*="css"] {
     margin-top: 0 !important;
 }
 
-/* ── Sidebar — let Streamlit control its own collapse ──────────── */
+/* ── Sidebar background & border ───────────────────────────────── */
 [data-testid="stSidebar"] {
     background-color: #FDF8F5 !important;
     border-right: 1px solid var(--border) !important;
@@ -187,32 +187,54 @@ html, body, [class*="css"] {
         radial-gradient(circle at 100% 100%, rgba(184,120,48,0.04) 0%, transparent 50%) !important;
     box-shadow: 2px 0 20px rgba(60,36,22,0.06) !important;
 }
+
+/* ── Collapse button — pulled out of flow, takes zero height ───── */
+[data-testid="stSidebarCollapseButton"],
+[data-testid="collapsedControl"] {
+    position: absolute !important;
+    display: none !important;
+    height: 0 !important;
+    width: 0 !important;
+    overflow: hidden !important;
+    visibility: hidden !important;
+}
+
+/* ── Auto-nav — pulled OUT of flow so it contributes zero height ─ */
+[data-testid="stSidebarNav"],
+[data-testid="stSidebarNavItems"],
+[data-testid="stSidebarNavLink"] {
+    position: absolute !important;
+    display: none !important;
+    height: 0 !important;
+    min-height: 0 !important;
+    max-height: 0 !important;
+    overflow: hidden !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    visibility: hidden !important;
+}
+
+/* ── Kill top padding at every level of the sidebar DOM tree ───── */
+/* Level 1 — inner wrapper */
+[data-testid="stSidebar"] > div:first-child {
+    padding-top: 0 !important;
+    margin-top: 0 !important;
+}
+/* Level 2 — scroll container: THIS is where Streamlit 1.32 injects the gap */
+[data-testid="stSidebar"] > div:first-child > div:first-child {
+    padding-top: 0.5rem !important;
+    margin-top: 0 !important;
+}
+/* Level 3 — belt-and-suspenders for the user content wrapper */
+[data-testid="stSidebar"] > div > div > div:first-child {
+    padding-top: 0 !important;
+    margin-top: 0 !important;
+}
+
 [data-testid="stSidebar"] * { color: var(--ink) !important; }
 [data-testid="stSidebar"] p,
 [data-testid="stSidebar"] span,
 [data-testid="stSidebar"] label { color: var(--ink-mid) !important; }
-
-/* Collapse button — hidden permanently to prevent accidental sidebar closure */
-[data-testid="stSidebarCollapseButton"],
-[data-testid="collapsedControl"] {
-    display: none !important;
-    visibility: hidden !important;
-}
-[data-testid="stSidebarCollapseButton"] button,
-[data-testid="collapsedControl"] button {
-    display: none !important;
-}
-
-/* Streamlit auto-nav — hidden to prevent duplication with custom navigation */
-[data-testid="stSidebarNav"],
-[data-testid="stSidebarNavItems"],
-[data-testid="stSidebarNavLink"],
-section[data-testid="stSidebar"] > div:first-child > div > ul,
-section[data-testid="stSidebar"] nav {
-    display: none !important;
-    visibility: hidden !important;
-    height: 0 !important;
-}
 
 /* ── App background ──────────────────────────────────────────────────────── */
 .stApp {
@@ -611,8 +633,8 @@ if not st.session_state.groq_warmed:
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("""
-    <div style='padding:1.8rem 0.5rem 1.2rem;'>
-      <div style='font-size:1.6rem; margin-bottom:0.4rem;'>🎙️</div>
+    <div style='padding:0.3rem 0.5rem 1.2rem;'>
+      <div style='font-size:1.6rem; margin-bottom:0.1rem;'>🎙️</div>
       <div style='font-size:1rem; font-weight:600; color:#3D2B1F; letter-spacing:0.01em;'>
         TranscriptAI
       </div>
