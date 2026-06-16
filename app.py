@@ -178,7 +178,7 @@ html, body, [class*="css"] {
     margin-top: 0 !important;
 }
 
-/* ── Sidebar background & border ───────────────────────────────── */
+/* ── Sidebar ────────────────────────────────────────────────────── */
 [data-testid="stSidebar"] {
     background-color: #FDF8F5 !important;
     border-right: 1px solid var(--border) !important;
@@ -187,55 +187,26 @@ html, body, [class*="css"] {
         radial-gradient(circle at 100% 100%, rgba(184,120,48,0.04) 0%, transparent 50%) !important;
     box-shadow: 2px 0 20px rgba(60,36,22,0.06) !important;
 }
-
-/* ── Collapse button — pulled out of flow, takes zero height ───── */
-[data-testid="stSidebarCollapseButton"],
-[data-testid="collapsedControl"] {
-    position: absolute !important;
-    display: none !important;
-    height: 0 !important;
-    width: 0 !important;
-    overflow: hidden !important;
-    visibility: hidden !important;
-}
-
-/* ── Auto-nav — pulled OUT of flow so it contributes zero height ─ */
+/* Hide ONLY the auto page-nav — JS physically removes it from DOM below */
 [data-testid="stSidebarNav"],
 [data-testid="stSidebarNavItems"],
 [data-testid="stSidebarNavLink"] {
-    position: absolute !important;
     display: none !important;
     height: 0 !important;
-    min-height: 0 !important;
-    max-height: 0 !important;
     overflow: hidden !important;
-    padding: 0 !important;
-    margin: 0 !important;
     visibility: hidden !important;
 }
-
-/* ── Kill top padding at every level of the sidebar DOM tree ───── */
-/* Level 1 — inner wrapper */
-[data-testid="stSidebar"] > div:first-child {
-    padding-top: 0 !important;
-    margin-top: 0 !important;
+/* Hide the close button INSIDE the sidebar only.
+   NEVER touch collapsedControl — that is the expand arrow on the main page.
+   Without it, a collapsed sidebar has no way to reopen. */
+[data-testid="stSidebarCollapseButton"] {
+    display: none !important;
+    visibility: hidden !important;
 }
-/* Level 2 — scroll container: THIS is where Streamlit 1.32 injects the gap */
-[data-testid="stSidebar"] > div:first-child > div:first-child {
-    padding-top: 0.5rem !important;
-    margin-top: 0 !important;
-}
-/* Level 3 — belt-and-suspenders for the user content wrapper */
-[data-testid="stSidebar"] > div > div > div:first-child {
-    padding-top: 0 !important;
-    margin-top: 0 !important;
-}
-
 [data-testid="stSidebar"] * { color: var(--ink) !important; }
 [data-testid="stSidebar"] p,
 [data-testid="stSidebar"] span,
 [data-testid="stSidebar"] label { color: var(--ink-mid) !important; }
-
 /* ── App background ──────────────────────────────────────────────────────── */
 .stApp {
     background-color: var(--washi) !important;
@@ -565,6 +536,38 @@ li[role="option"]:hover { background: var(--sakura-pale) !important; }
 .tai-gijiroku-table td { padding:7px 10px; font-size:0.78rem; color:var(--ink); border-top:1px solid var(--border); }
 
 </style>
+""", unsafe_allow_html=True)
+
+# ── JS: remove stSidebarNav gap on every Streamlit rerun ─────────────────────
+# ONLY removes stSidebarNav. Never touches collapsedControl or stSidebarCollapseButton.
+# Padding zeroed at levels 1-2 only — level 3 is the actual user content wrapper.
+st.markdown("""
+<script>
+(function(){
+    function _removeNav(){
+        var nav = document.querySelector('[data-testid="stSidebarNav"]');
+        if(nav && nav.parentNode){ nav.parentNode.removeChild(nav); }
+        var sb = document.querySelector('section[data-testid="stSidebar"]');
+        if(sb){
+            var lv1 = sb.querySelector(':scope > div');
+            if(lv1){
+                lv1.style.setProperty('padding-top','0','important');
+                lv1.style.setProperty('margin-top','0','important');
+                var lv2 = lv1.querySelector(':scope > div');
+                if(lv2){
+                    lv2.style.setProperty('padding-top','0','important');
+                    lv2.style.setProperty('margin-top','0','important');
+                }
+            }
+        }
+    }
+    _removeNav();
+    [80, 300, 800].forEach(function(t){ setTimeout(_removeNav, t); });
+    new MutationObserver(_removeNav).observe(
+        document.documentElement, { childList: true, subtree: true }
+    );
+})();
+</script>
 """, unsafe_allow_html=True)
 
 
@@ -1005,7 +1008,7 @@ def _build_gijiroku_preview(R: dict, language: str) -> str:
         action_rows = "".join(
             f"<tr><td style='padding:5px 10px;font-size:0.75rem;color:#7A5040;border-bottom:1px solid #EFE2D8;'>{a.owner}</td>"
             f"<td style='padding:5px 10px;font-size:0.75rem;color:#3C2416;border-bottom:1px solid #EFE2D8;'>{a.task}"
-            f"{'<span style=\"color:#963030\"> ⚠</span>' if a.flag else ''}</td>"
+            ("" if not a.flag else "<span style='color:#963030'> ⚠</span>") + "</td>"
             f"<td style='padding:5px 10px;font-size:0.75rem;color:#A87868;border-bottom:1px solid #EFE2D8;'>{a.deadline}</td></tr>"
             for a in plan.action_items[:4]
         )

@@ -52,6 +52,7 @@ except Exception as _g_err:
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Noto+Sans+JP:wght@400;500&display=swap');
+
 :root {
     --washi:#FAF6F2; --surface:#FFFEFB; --border:#EFE2D8; --border-mid:#E5D0C4;
     --ink:#3C2416; --ink-mid:#7A5040; --ink-soft:#A87868; --ink-faint:#C8A898;
