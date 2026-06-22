@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}TranscriptAI · Speech &amp; Meeting Analyzer{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/htmx/1.9.12/htmx.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/alpinejs/3.14.1/cdn.min.js" defer></script>
+</head>
+<body>
+<div class="tai-app" x-data="tai()" x-init="loadHistory()">
+
+  <aside class="tai-sidebar">
+    <div class="tai-sidebar-logo">
+      <div class="tai-sidebar-logo-icon">🎙️</div>
+      <div class="tai-sidebar-logo-name">TranscriptAI</div>
+      <div class="tai-sidebar-logo-sub">Speech &amp; Meeting Intelligence</div>
+    </div>
+    <hr class="tai-hr" style="margin-top:0">
+
+    <div class="sh">Navigation</div>
+    <nav class="tai-nav">
+      <a href="/"       class="tai-nav-link {% if active_page == 'index'  %}active{% endif %}">🎙️&nbsp; Meeting Analysis</a>
+      <a href="/export" class="tai-nav-link {% if active_page == 'export' %}active{% endif %}">📄&nbsp; Export Documents</a>
+    </nav>
+    <hr class="tai-hr">
+
+    <div class="sh">Language</div>
+    <select class="tai-select" x-model="language">
+      <option value="">Auto-detect</option>
+      <option value="ja">Japanese (日本語)</option>
+      <option value="en">English</option>
+      <option value="hi">Hindi (हिन्दी)</option>
+    </select>
+    <hr class="tai-hr">
+
+    <div class="sh">Privacy · APPI</div>
+    <div class="tai-toggle-row">
+      <label class="tai-toggle">
+        <input type="checkbox" x-model="maskPii" checked>
+        <span class="tai-toggle-thumb"></span>
+      </label>
+      <span class="tai-toggle-label">Mask PII before analysis</span>
+    </div>
+    <div x-show="maskPii" style="font-size:0.75rem;color:#5A7D6B;margin-top:0.3rem;" x-cloak>✓ APPI compliant</div>
+    <hr class="tai-hr">
+
+    <div class="sh">Recent Analyses</div>
+    <div x-show="history.length === 0" class="tai-history-empty">No analyses yet.</div>
+    <template x-for="(entry, idx) in history" :key="entry.ts">
+      <button type="button" class="tai-history-item" @click="restoreHistory(idx)">
+        <span x-text="'↩  ' + entry.label"></span>
+      </button>
+    </template>
+    <hr class="tai-hr">
+
+    {% if cache_stats %}
+    <div class="tai-cache-pill">
+      ⚡ Vector cache · {{ cache_stats.transcript_count }} transcript{{ 's' if cache_stats.transcript_count != 1 else '' }} stored
+    </div>
+    {% endif %}
+
+    <details class="tai-details">
+      <summary>About</summary>
+      <div class="tai-details-body">
+        <p><strong>TranscriptAI</strong> turns any meeting or speech recording into structured intelligence — summaries, action items, speaker sentiment, and communication risk signals.</p>
+        <p><strong>Input</strong> &nbsp;·&nbsp; TXT · VTT · JSON · MP4 · MP3 · WAV</p>
+        <p><strong>Languages</strong> &nbsp;·&nbsp; English · Hindi · Japanese · Mixed</p>
+        <p><strong>Analysis</strong> &nbsp;·&nbsp; Formality level · Indirect signals · Soft rejection · Code-switch</p>
+        <p><em>Set GROQ_API_KEY for 3s cloud inference. Or run Ollama locally.</em></p>
+      </div>
+    </details>
+  </aside>
+
+  <main class="tai-main">
+    {% block content %}{% endblock %}
+
+    <div class="tai-footer">
+      <div class="tai-footer-card">
+        <div class="tai-footer-name">Kunal Bisht</div>
+        <div class="tai-footer-title">AI Engineer &middot; LLM Systems &amp; RAG Pipelines &middot; Multilingual NLP</div>
+        <div class="tai-footer-bio">
+          I build AI to turn real problems into actual solutions &mdash; not proof-of-concepts that never ship.
+          TranscriptAI started because I kept forgetting my meetings &mdash; it became a trilingual intelligence platform
+          rebuilt five times until accuracy went from 22% to 93%.
+        </div>
+        <div class="tai-footer-links">
+          <a class="tai-footer-link-pill tai-footer-link-gh"   href="https://github.com/aiKunalBisht"   target="_blank" rel="noopener">GitHub</a>
+          <a class="tai-footer-link-pill tai-footer-link-li"   href="https://linkedin.com/in/kunalhere"  target="_blank" rel="noopener">LinkedIn</a>
+          <a class="tai-footer-link-pill tai-footer-link-hf"   href="https://huggingface.co/spaces/KunalTheBeast/TranscriptAI" target="_blank" rel="noopener">Live Demo</a>
+          <a class="tai-footer-link-pill tai-footer-link-repo" href="https://github.com/aiKunalBisht/Transcript-ai" target="_blank" rel="noopener">Source Code</a>
+          <a class="tai-footer-link-pill tai-footer-link-mail" href="mailto:kunalbisht909@gmail.com">kunalbisht909@gmail.com</a>
+        </div>
+        <div class="tai-footer-divider"></div>
+        <div class="tai-footer-stack">
+          <span class="tai-footer-chip">Python</span><span class="tai-footer-chip">FastAPI</span>
+          <span class="tai-footer-chip">LangChain</span><span class="tai-footer-chip">ChromaDB</span>
+          <span class="tai-footer-chip">Groq</span>
+        </div>
+      </div>
+    </div>
+  </main>
+
+</div>
+
+<script>
+const SAMPLE_TRILINGUAL = `Rahul: Good morning everyone. Aaj hum Q3 product launch ke baare mein discuss karenge.
+Priya: Haan, main ready hoon. Mujhe kuch concerns hain about the timeline.
+田中: おはようございます。よろしくお願いいたします。
+Rahul: Tanaka-san, can you give us the Japan market update first?
+田中: はい。Q3の日本市場では、売上目標の92%に達しています。ただ、新機能のリリースについては少し懸念がございます。
+Priya: Tanaka, yeh concern kya hai exactly? Timeline issue hai ya technical?
+田中: 検討いたします。Technical team se confirm karna padega. It might be difficult to meet the October deadline.
+Rahul: Okay. प्रिया, kya tum India market ka update de sakti ho?
+Priya: Haan bilkul. India mein hum 87% pe hain. Main blocker hai ki support team short-staffed hai.
+Rahul: Priya, can you prepare a staffing proposal by Friday?
+Priya: Dekhte hain. Thoda mushkil hai but koshish karenge.
+Rahul: I need a yes or no — Friday tak hoga ya nahi?
+Priya: Okay, yes. Friday tak de dungi.
+田中: 承知しました。Japan side se bhi ek resource provide kar sakte hain if needed.
+Rahul: Perfect. 田中 will confirm technical timeline by Wednesday. Next meeting Monday 10am.
+田中: はい、水曜日までに確認いたします。お疲れ様でした。`;
+
+const SAMPLE_HIGH_CONFLICT = `Client: This is completely unacceptable. The system has been down for 6 hours.
+Kenji: 大変申し訳ございません。We are working on it as fast as possible.
+Client: This is the second major outage this month. I need a written commitment.
+Kenji: ご要望はよく分かりました。上司に相談して、2時間以内に書面でご回答します。
+Client: If this isn't resolved by Friday we will reconsider the entire contract.
+Kenji: 誠に申し訳ございません。全力で対応いたします。We will not let that happen.`;
+
+const SAMPLE_HINGLISH_STANDUP = `Sharma Sir: Sprint ka kya status hai? Deadline kal hai.
+Vikram: Haan sir, almost done hai. Bas ek bug hai jo thoda mushkil hai.
+Sharma Sir: Thoda mushkil matlab? Done hoga ya nahi kal tak?
+Vikram: Haan haan bilkul sir. Koshish karenge. Dekhte hain, manage ho jayega.
+Priya: Main help kar sakti hoon. Kal tak fix ho jayega, 100% committed hoon.
+Vikram: Main bhi karta hoon sir. Upar se baat karta hoon agar koi blocker aaya.
+Sharma Sir: Seedha mujhe batao. Aap jo theek samjhe karo, but kal tak complete chahiye.`;
+</script>
+
+<script>
+const TAI_HISTORY_KEY = 'tai_history_v1';
+const TAI_LAST_RESULT_KEY = 'tai_last_result_v1';
+const TAI_HISTORY_MAX = 6;
+
+function tai() {
+  return {
+    language: '',
+    maskPii: true,
+    lastResult: null,
+    history: [],
+    transcriptText: '',
+    analyzing: false,
+
+    loadHistory() {
+      try {
+        this.history = JSON.parse(localStorage.getItem(TAI_HISTORY_KEY) || '[]');
+      } catch(e) { this.history = []; }
+      try {
+        const saved = localStorage.getItem(TAI_LAST_RESULT_KEY);
+        if (saved) this.lastResult = JSON.parse(saved);
+      } catch(e) {}
+    },
+
+    pushHistory(transcriptSnippet, lang, html, resultJson) {
+      const label = (lang ? lang.toUpperCase() + ' · ' : '') + (transcriptSnippet.length > 36 ? transcriptSnippet.slice(0,36) + '…' : transcriptSnippet);
+      const entry = { ts: Date.now(), label, html, result: resultJson };
+      this.history.unshift(entry);
+      this.history = this.history.slice(0, TAI_HISTORY_MAX);
+      try { localStorage.setItem(TAI_HISTORY_KEY, JSON.stringify(this.history)); } catch(e) {}
+    },
+
+    restoreHistory(idx) {
+      const entry = this.history[idx];
+      if (!entry) return;
+      const target = document.getElementById('results');
+      if (target) target.innerHTML = entry.html;
+      this.lastResult = entry.result;
+      try { localStorage.setItem(TAI_LAST_RESULT_KEY, JSON.stringify(entry.result)); } catch(e) {}
+    },
+
+    /* Direct fetch — no htmx form bridging. This is the fix for the
+       Analyze button: hidden-input :value bindings were racing with
+       htmx's submit-time DOM serialization. This reads Alpine state
+       directly, guaranteed correct. */
+    async runAnalyze() {
+      if (this.transcriptText.trim().length < 20 || this.analyzing) return;
+      this.analyzing = true;
+      const resultsEl = document.getElementById('results');
+      try {
+        const fd = new FormData();
+        fd.append('transcript', this.transcriptText);
+        fd.append('language', this.language);
+        fd.append('mask_pii', this.maskPii);
+        const r = await fetch('/analyze-text', { method: 'POST', body: fd });
+        const html = await r.text();
+        if (resultsEl) resultsEl.innerHTML = html;
+
+        const dataEl = document.getElementById('tai-result-data');
+        if (dataEl) {
+          this.captureResult(dataEl.textContent.trim());
+          this.pushHistory(this.transcriptText.trim(), this.language, resultsEl.innerHTML, this.lastResult);
+        }
+        document.getElementById('results-top')?.scrollIntoView({behavior:'smooth',block:'start'});
+      } catch (err) {
+        if (resultsEl) resultsEl.innerHTML =
+          '<div style="background:var(--red-bg);border-left:3px solid var(--red);border-radius:0 10px 10px 0;padding:14px 18px;color:#3C2416;margin-top:12px"><b style="color:var(--red)">⚠ Error</b><br>' + err + '</div>';
+      } finally {
+        this.analyzing = false;
+      }
+    },
+
+    captureResult(s) {
+      try {
+        this.lastResult = JSON.parse(s);
+        localStorage.setItem(TAI_LAST_RESULT_KEY, s);
+      } catch(e) {}
+    },
+    hasResult() { return this.lastResult !== null; },
+
+    async exportAs(format) {
+      if (!this.lastResult) { alert('Run an analysis first.'); return; }
+      const ext = {pptx:'pptx',markdown:'md',json:'json',txt:'txt'}[format] ?? format;
+      const btn = document.getElementById('btn-'+format);
+      if (btn) btn.disabled = true;
+      try {
+        const r = await fetch('/export/'+format, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({result: this.lastResult})
+        });
+        if (!r.ok) { alert('Export failed: '+(await r.text())); return; }
+        const blob = await r.blob();
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href = url; a.download = 'transcript_'+Date.now()+'.'+ext;
+        document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(url);
+      } finally { if (btn) btn.disabled = false; }
+    },
+    async exportGijiroku() {
+      if (!this.lastResult) { alert('Run an analysis first.'); return; }
+      const r = await fetch('/export/gijiroku', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({result: this.lastResult})
+      });
+      if (!r.ok) { alert('Gijiroku export failed.'); return; }
+      const d    = await r.json();
+      const blob = new Blob([d.gijiroku], {type:'text/plain;charset=utf-8'});
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url; a.download = 'gijiroku_'+Date.now()+'.txt';
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    }
+  };
+}
+
+</script>
+{% block extra_scripts %}{% endblock %}
+</body>
+</html>

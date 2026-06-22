@@ -1,0 +1,370 @@
+"""
+main.py - TranscriptAI v3.0
+FastAPI server replacing Streamlit (app.py).
+Run: uvicorn main:app --reload --port 7860
+
+v3.1 correction: the original port of this file assumed a class-based
+AudioProcessor with a .transcribe() method. The real interface (used in
+app.py) is function-based: transcribe_audio(bytes, filename) -> dict,
+format_transcript_with_timestamps(segments) -> str. Fixed here.
+
+Also replicates app.py's actual two-step flow: upload/paste fills the
+transcript box first (/transcribe), then a single "Analyze" button runs
+the NLP pipeline (/analyze-text) — not a combined one-click upload+analyze.
+"""
+import asyncio, io, json as _json, os
+from pathlib import Path
+from typing import Optional
+
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+
+from analysis.analyzer import analyze_transcript
+from utils import detect_language, clean_text, parse_uploaded_file
+from utils.html_renderer import build_results_html
+
+# ── Optional modules — same guard pattern as app.py ───────────────────────────
+try:
+    from transcription.pii_masker import mask_transcript, restore_pii_in_result, get_pii_report
+    PII_AVAILABLE = True
+except ImportError:
+    PII_AVAILABLE = False
+
+try:
+    from transcription.audio_processor import (
+        transcribe_audio, format_transcript_with_timestamps, MAX_FILE_SIZE_MB
+    )
+    AUDIO_AVAILABLE = True
+except ImportError:
+    AUDIO_AVAILABLE = False
+    MAX_FILE_SIZE_MB = 25
+
+try:
+    from analysis.soft_rejection_detector import detect_soft_rejections
+    SOFT_REJECTION_AVAILABLE = True
+except ImportError:
+    SOFT_REJECTION_AVAILABLE = False
+
+try:
+    from analysis.hallucination_guard import verify_result
+    HALLUCINATION_GUARD_AVAILABLE = True
+except ImportError:
+    HALLUCINATION_GUARD_AVAILABLE = False
+
+try:
+    from exporters.pptx_builder import build_pptx
+    PPTX_AVAILABLE = True
+except ImportError:
+    PPTX_AVAILABLE = False
+
+try:
+    from agents.gijiroku_formatter import format_gijiroku
+    GIJIROKU_AVAILABLE = True
+except ImportError:
+    GIJIROKU_AVAILABLE = False
+
+try:
+    from agents.slide_architect import build_slide_structure
+    SLIDE_ARCHITECT_AVAILABLE = True
+except ImportError:
+    SLIDE_ARCHITECT_AVAILABLE = False
+
+# ── get_features — ported exactly from app.py's import/fallback chain ────────
+try:
+    from utils.language_intelligence import get_features, detect_hindi_patterns
+    LANGUAGE_INTEL_AVAILABLE = True
+except ImportError:
+    LANGUAGE_INTEL_AVAILABLE = False
+
+try:
+    from analysis.english_analyzer import detect_english_patterns
+    ENGLISH_NLP_AVAILABLE = True
+except ImportError:
+    ENGLISH_NLP_AVAILABLE = False
+
+try:
+    from analysis.hindi_analyzer import detect_hindi_patterns as detect_hindi_nlp
+    HINDI_NLP_AVAILABLE = True
+except ImportError:
+    HINDI_NLP_AVAILABLE = False
+    LANGUAGE_INTEL_AVAILABLE = False
+    def get_features(lang):
+        has_ja = lang in ("ja", "mixed")
+        return {
+            "show_japan_insights": has_ja,
+            "show_hindi_insights": lang == "hi",
+            "show_english_insights": lang == "en",
+            "show_bilingual_insights": lang == "mixed" and not has_ja,
+            "show_code_switch": has_ja,
+            "insight_tab_label": (
+                "🔍 Communication Intelligence" if has_ja else
+                "💬 English Analysis"           if lang == "en" else
+                "🗣️ Hindi Analysis"             if lang == "hi" else
+                "🌐 Insights"
+            ),
+            "insight_tab_enabled": True,
+        }
+
+AUDIO_EXT = {".mp3", ".wav", ".m4a", ".mp4", ".ogg", ".webm"}
+TEXT_EXT  = {".txt", ".vtt", ".json"}
+
+# ── App ───────────────────────────────────────────────────────────────────────
+app = FastAPI(title="TranscriptAI", version="3.0.0", docs_url="/docs")
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
+                   allow_methods=["*"], allow_headers=["*"])
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
+
+from api.api import app as _rest_api
+app.mount("/api", _rest_api)
+
+
+# ── Shared: vector cache stats for the sidebar ────────────────────────────────
+def _get_cache_stats():
+    try:
+        from utils.vector_cache import get_cache_stats
+        vc = get_cache_stats()
+        return vc if vc.get("available") else None
+    except Exception:
+        return None
+
+
+# ── Pages ─────────────────────────────────────────────────────────────────────
+@app.get("/", response_class=HTMLResponse)
+async def index(request: Request):
+    return templates.TemplateResponse(request, "index.html", {"cache_stats": _get_cache_stats()})
+
+
+@app.get("/export", response_class=HTMLResponse)
+async def export_page(request: Request):
+    return templates.TemplateResponse(request, "export.html", {
+        "pptx_available":     PPTX_AVAILABLE,
+        "gijiroku_available": GIJIROKU_AVAILABLE,
+        "cache_stats":        _get_cache_stats(),
+    })
+
+
+# ── /transcribe — step 1: file in, transcript text out (no analysis yet) ─────
+class _FileShim:
+    """Minimal shim so utils.parse_uploaded_file (written for Streamlit's
+    UploadedFile) works unchanged against FastAPI's UploadFile bytes."""
+    def __init__(self, filename: str, data: bytes):
+        self.name = filename
+        self._data = data
+    def getvalue(self): return self._data
+    def read(self):     return self._data
+
+
+@app.post("/transcribe")
+async def transcribe(file: UploadFile = File(...)):
+    """
+    Mirrors app.py's upload handling exactly:
+    - audio (.mp3/.wav/.m4a/.mp4/.webm/.ogg) -> transcribe_audio(), then
+      format_transcript_with_timestamps() if segments are available
+    - text (.txt/.vtt/.json) -> parse_uploaded_file()
+    Returns the transcript text only. The caller fills the textarea with
+    it; analysis happens separately via /analyze-text.
+    """
+    filename = file.filename or ""
+    ext = Path(filename).suffix.lower()
+    content = await file.read()
+
+    if ext in AUDIO_EXT:
+        if not AUDIO_AVAILABLE:
+            return JSONResponse({"success": False, "error": "Audio transcription module unavailable."})
+        size_mb = len(content) / (1024 * 1024)
+        if size_mb > MAX_FILE_SIZE_MB:
+            return JSONResponse({"success": False, "error": f"File too large ({size_mb:.1f} MB). Max: {MAX_FILE_SIZE_MB} MB"})
+        try:
+            res = await asyncio.to_thread(transcribe_audio, content, filename)
+        except Exception as exc:
+            return JSONResponse({"success": False, "error": str(exc)})
+        if not res.get("success"):
+            return JSONResponse({"success": False, "error": res.get("error", "Transcription failed")})
+        seg  = format_transcript_with_timestamps(res.get("segments", []))
+        text = seg or res.get("text", "")
+        return JSONResponse({
+            "success": True, "transcript": text,
+            "meta": {
+                "duration": res.get("duration", 0),
+                "language": res.get("language", "?"),
+                "provider": res.get("provider", ""),
+            },
+        })
+
+    if ext in TEXT_EXT:
+        try:
+            shim = _FileShim(filename, content)
+            parsed = parse_uploaded_file(shim)
+            return JSONResponse({"success": True, "transcript": parsed, "meta": {"chars": len(parsed)}})
+        except Exception as exc:
+            return JSONResponse({"success": False, "error": str(exc)})
+
+    return JSONResponse({"success": False, "error": f"Unsupported file type: {ext}"})
+
+
+# ── /analyze-text — step 2: run the NLP pipeline on whatever's in the box ────
+@app.post("/analyze-text", response_class=HTMLResponse)
+async def analyze_text_route(
+    transcript: str           = Form(...),
+    language:   Optional[str] = Form(None),
+    mask_pii:   bool          = Form(True),
+):
+    if len(transcript.strip()) < 20:
+        return HTMLResponse(content=_err("Transcript too short (min 20 chars)."), status_code=400)
+    try:
+        cleaned = clean_text(transcript)
+        detected_lang = language or detect_language(cleaned)
+
+        pii_report = pii_mask = None
+        text_to_analyze = cleaned
+        if mask_pii and PII_AVAILABLE:
+            text_to_analyze, pii_mask = mask_transcript(cleaned)
+            pii_report = get_pii_report(pii_mask)
+
+        result = await asyncio.to_thread(analyze_transcript, text_to_analyze, detected_lang)
+
+        if pii_mask is not None:
+            result = restore_pii_in_result(result, pii_mask)
+        if SOFT_REJECTION_AVAILABLE:
+            result["soft_rejections"] = detect_soft_rejections(cleaned)
+
+        result["_detected_language"] = detected_lang
+
+        features = get_features(detected_lang)
+        html = build_results_html(result, detected_lang, features, pii_report)
+        tag = ('<div id="tai-result-data" style="display:none">' +
+               _json.dumps(result, ensure_ascii=False) + '</div>')
+        return HTMLResponse(content=html + tag)
+
+    except Exception as exc:
+        return HTMLResponse(content=_err(str(exc)), status_code=500)
+
+
+# ── Export ────────────────────────────────────────────────────────────────────
+@app.post("/export/pptx")
+async def export_pptx(request: Request):
+    if not PPTX_AVAILABLE:
+        raise HTTPException(503, "PPTX builder not available")
+    body       = await request.json()
+    pptx_bytes = await asyncio.to_thread(build_pptx, body.get("result", body))
+    return StreamingResponse(
+        io.BytesIO(pptx_bytes),
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        headers={"Content-Disposition": "attachment; filename=meeting_report.pptx"},
+    )
+
+
+@app.post("/export/gijiroku")
+async def export_gijiroku(request: Request):
+    if not GIJIROKU_AVAILABLE:
+        raise HTTPException(503, "Gijiroku not available")
+    body = await request.json()
+    text = await asyncio.to_thread(format_gijiroku, body.get("result", body))
+    return JSONResponse({"gijiroku": text})
+
+
+@app.post("/export/markdown")
+async def export_markdown(request: Request):
+    body = await request.json()
+    r    = body.get("result", body)
+    lines = ["# Meeting Analysis\n"]
+    if r.get("full_summary"): lines += ["## Overview\n", r["full_summary"], "\n"]
+    if r.get("summary"):      lines += ["## Key Points\n"] + [f"- {b}\n" for b in r["summary"]]
+    if r.get("action_items"):
+        lines += ["\n## Action Items\n"]
+        for i in r["action_items"]:
+            flag = " \u26a0" if i.get("hallucination_flag") else ""
+            lines.append(f"- **{i.get('task','')}**{flag}  \n"
+                         f"  Owner: {i.get('owner','TBD')}  Deadline: {i.get('deadline','TBD')}\n")
+    md = "".join(lines)
+    return StreamingResponse(
+        io.BytesIO(md.encode("utf-8")), media_type="text/markdown",
+        headers={"Content-Disposition": "attachment; filename=meeting_notes.md"},
+    )
+
+
+@app.post("/export/json")
+async def export_json_route(request: Request):
+    body = await request.json()
+    raw  = _json.dumps(body.get("result", body), ensure_ascii=False, indent=2).encode("utf-8")
+    return StreamingResponse(
+        io.BytesIO(raw), media_type="application/json",
+        headers={"Content-Disposition": "attachment; filename=analysis.json"},
+    )
+
+
+@app.post("/export/txt")
+async def export_txt_route(request: Request):
+    """Plain-text export — same content as Markdown, no markdown syntax.
+    Added per request: simplest, most universally-readable format, last
+    in the export lineup."""
+    body = await request.json()
+    r    = body.get("result", body)
+    lines = ["MEETING ANALYSIS", "=" * 40, ""]
+    if r.get("full_summary"):
+        lines += ["OVERVIEW", "-" * 20, r["full_summary"], ""]
+    if r.get("summary"):
+        lines += ["KEY POINTS", "-" * 20]
+        lines += [f"{i}. {b}" for i, b in enumerate(r["summary"], 1)]
+        lines.append("")
+    if r.get("action_items"):
+        lines += ["ACTION ITEMS", "-" * 20]
+        for i in r["action_items"]:
+            flag = " [FLAGGED]" if i.get("hallucination_flag") else ""
+            lines.append(f"- {i.get('task','')}{flag}")
+            lines.append(f"    Owner: {i.get('owner','TBD')}   Deadline: {i.get('deadline','TBD')}")
+        lines.append("")
+    if r.get("sentiment"):
+        lines += ["SENTIMENT", "-" * 20]
+        lines += [f"- {s.get('speaker','')}: {s.get('score','').upper()}" for s in r["sentiment"]]
+        lines.append("")
+    if r.get("speakers"):
+        lines += ["SPEAKERS", "-" * 20]
+        for spk in r["speakers"]:
+            lines.append(f"- {spk.get('name','')}: {spk.get('talk_time_pct',0)}% ({spk.get('tone','')})")
+        lines.append("")
+    txt = "\n".join(lines)
+    return StreamingResponse(
+        io.BytesIO(txt.encode("utf-8")), media_type="text/plain",
+        headers={"Content-Disposition": "attachment; filename=meeting_notes.txt"},
+    )
+
+
+# ── Health ────────────────────────────────────────────────────────────────────
+@app.get("/health")
+async def health():
+    return {
+        "status": "healthy", "version": "3.0.0", "mode": "fastapi+jinja2+htmx",
+        "provider": "groq" if os.getenv("GROQ_API_KEY") else "mock",
+        "appi_compliant": PII_AVAILABLE,
+        "modules": {
+            "audio":              AUDIO_AVAILABLE,
+            "pii_masker":         PII_AVAILABLE,
+            "soft_rejection":     SOFT_REJECTION_AVAILABLE,
+            "hallucination":      HALLUCINATION_GUARD_AVAILABLE,
+            "pptx":               PPTX_AVAILABLE,
+            "gijiroku":           GIJIROKU_AVAILABLE,
+            "slide_architect":    SLIDE_ARCHITECT_AVAILABLE,
+            "language_intel":     LANGUAGE_INTEL_AVAILABLE,
+        },
+    }
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+def _err(msg: str) -> str:
+    return (f'<div style="background:var(--red-bg);border-left:3px solid var(--red);'
+            f'border-radius:0 10px 10px 0;padding:14px 18px;color:#3C2416;margin-top:12px">'
+            f'<b style="color:var(--red)">⚠ Error</b><br>{msg}</div>')
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0",
+                port=int(os.getenv("PORT", 7860)),
+                reload=os.getenv("ENV") == "development",
+                workers=1)

@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% set active_page = "index" %}
+{% block title %}TranscriptAI · Speech &amp; Meeting Analyzer{% endblock %}
+
+{% block content %}
+<div class="tai-header">
+  <div class="tai-header-icon">🎙️</div>
+  <div class="tai-header-kicker">Speech &amp; Meeting Intelligence</div>
+  <h1>TranscriptAI</h1>
+  <div class="tai-header-badges">
+    <span class="tai-hbadge" style="color:#D96080;background:#FDEEF2;border-color:#F2B0C0;">AI-powered</span>
+    <span class="tai-hbadge" style="color:#486858;background:#EDF3EF;border-color:#A8C8B8;">APPI Compliant</span>
+    <span class="tai-hbadge" style="color:#B87830;background:#F5E8D0;border-color:#D9C090;">Multi-language</span>
+    <span class="tai-hbadge" style="color:#7A5040;background:#FEF3EC;border-color:#E5D0C4;">Formality · Indirect Signals · Code-switch</span>
+  </div>
+</div>
+
+<div class="sh">Transcript Input</div>
+
+<div x-data="{
+       uploading: false,
+       fname: '',
+       async handleFile(e) {
+         const file = e.target.files[0];
+         if (!file) return;
+         this.fname = file.name;
+         this.uploading = true;
+         const fd = new FormData();
+         fd.append('file', file);
+         try {
+           const r = await fetch('/transcribe', { method: 'POST', body: fd });
+           const data = await r.json();
+           if (data.success) {
+             transcriptText = data.transcript;
+           } else {
+             alert(data.error || 'Transcription failed');
+           }
+         } catch (err) {
+           alert('Upload failed: ' + err);
+         } finally {
+           this.uploading = false;
+         }
+       }
+     }"
+     style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;">
+
+  <div>
+    <div style="font-size:0.79rem;color:#A8897C;margin-bottom:0.5rem;">Upload file &nbsp;·&nbsp; TXT · VTT · JSON · MP4 · MP3 · WAV</div>
+    <div class="tai-upload">
+      <input type="file" accept=".txt,.vtt,.json,.mp3,.wav,.m4a,.mp4,.webm,.ogg" @change="handleFile($event)">
+      <div style="font-size:1.4rem;" x-text="uploading ? '⏳' : '📁'"></div>
+      <div class="tai-upload-label" x-text="uploading ? 'Transcribing ' + fname + '…' : (fname || 'Click or drop a file')"></div>
+      <div class="tai-upload-hint">Audio is transcribed automatically, then loaded into the box on the right.</div>
+    </div>
+  </div>
+
+  <div>
+    <div style="font-size:0.79rem;color:#A8897C;margin-bottom:0.5rem;">Or paste transcript directly</div>
+    <textarea class="tai-textarea" x-model="transcriptText"
+      placeholder="Paste transcript here…&#10;&#10;Supports Japanese, English, Hindi, and mixed text."></textarea>
+  </div>
+</div>
+
+<div class="tai-sample-row">
+  <button type="button" class="tai-sample-btn" title="Hindi + English + Japanese" @click="transcriptText = SAMPLE_TRILINGUAL">🌐 Trilingual</button>
+  <button type="button" class="tai-sample-btn" title="High-conflict EN+JA" @click="transcriptText = SAMPLE_HIGH_CONFLICT">⚡ Conflict</button>
+  <button type="button" class="tai-sample-btn" title="Pure Hinglish standup" @click="transcriptText = SAMPLE_HINGLISH_STANDUP">🗣️ Hinglish</button>
+  <button type="button" class="tai-clear-btn" @click="transcriptText=''; document.getElementById('results').innerHTML=''; lastResult=null;">Clear</button>
+</div>
+
+<div style="margin-top:0.8rem;">
+  <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
+    <button type="button" class="tai-btn" @click="runAnalyze()"
+            :disabled="transcriptText.trim().length < 20 || analyzing">
+      <span x-text="analyzing ? 'Analyzing…' : 'Analyze Transcript →'"></span>
+    </button>
+    <span class="tai-meta-caption" x-show="transcriptText.trim().length > 0 && !analyzing" x-cloak>
+      <span x-text="transcriptText.trim().split(/\s+/).filter(Boolean).length"></span> words
+    </span>
+  </div>
+
+  <div x-show="analyzing" x-cloak style="margin-top:0.6rem;">
+    <div class="tai-progress-track"><div class="tai-progress-fill"></div></div>
+    <div class="tai-loading-caption">⚡ Analyzing — this takes a few seconds.</div>
+  </div>
+</div>
+
+<div class="results-wrapper" id="results-top"></div>
+<div id="results"></div>
+
+<div style="margin-top:1rem;" x-show="hasResult()" x-cloak>
+  <a href="/export" class="tai-btn-outline" style="text-decoration:none;display:inline-block;">📄  Export Documents — PPT · 議事録 · MD · JSON →</a>
+</div>
+{% endblock %}
