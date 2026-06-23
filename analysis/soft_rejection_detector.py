@@ -1,8 +1,15 @@
-# soft_rejection_detector.py — v2
+# soft_rejection_detector.py — v3
 # Detects indirect rejection and hesitation patterns in Japanese business speech
 #
 # v2 FIX: Added false positive blocklist — past-tense and praise words that
 # superficially resemble soft rejection patterns but are NOT indirect rejections.
+#
+# v3 ADD: "muzukashii desu ne" exact form, and "zehi" used non-committally —
+# zehi (ぜひ, "by all means") is normally enthusiastic, but paired with a
+# deferral verb (検討) or a but-clause it becomes tatemae dressing on a soft
+# no. These are new, uncalibrated heuristics — confidence values are starting
+# points, not validated against the eval set the original 17 patterns went
+# through five rebuilds to reach.
 
 import re
 
@@ -64,6 +71,14 @@ SOFT_REJECTION_PATTERNS = [
         "confidence":  0.95,
         "severity":    "HIGH",
         "explanation": "Formal polite rejection. Very definitive despite polite framing."
+    },
+    {
+        "phrase":      "難しいですね",
+        "reading":     "That's difficult, isn't it",
+        "intent":      "REJECTION",
+        "confidence":  0.78,
+        "severity":    "HIGH",
+        "explanation": "The 'desu ne' softener delivers a hard no as a shared observation rather than a personal refusal — distinct from the flatter '難しい' forms above."
     },
     # MEDIUM — likely deferral or rejection
     {
@@ -129,6 +144,22 @@ SOFT_REJECTION_PATTERNS = [
         "confidence":  0.50,
         "severity":    "MEDIUM",
         "explanation": "Escalation to superior — may be genuine or a delaying tactic."
+    },
+    {
+        "phrase":      "ぜひ検討させていただきます",
+        "reading":     "We will most certainly consider it",
+        "intent":      "LIKELY_REJECTION",
+        "confidence":  0.65,
+        "severity":    "MEDIUM",
+        "explanation": "'Zehi' (by all means) sounds enthusiastic, but stacked onto a deferral verb (検討) it's tatemae warmth wrapped around the same non-commitment as plain '検討します' — often used specifically to soften a no that would otherwise feel too blunt."
+    },
+    {
+        "phrase":      "ぜひそうしたいところですが",
+        "reading":     "I'd love to do that, but...",
+        "intent":      "LIKELY_REJECTION",
+        "confidence":  0.62,
+        "severity":    "MEDIUM",
+        "explanation": "Zehi (eager framing) immediately followed by a 'ga' (but) clause. The enthusiasm is the cushion; the 'but' is the actual content."
     },
     # LOW — mild hesitation
     {

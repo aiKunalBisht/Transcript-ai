@@ -180,6 +180,83 @@ def unify_speakers_in_result(result: dict, transcript: str) -> dict:
     return result
 
 
+# ── ROLE / SENIORITY HINTS — side channel only ────────────────────────────────
+# v3 ADD: the keigo-register-shifting and senior-silence patterns in the
+# culture doc need seniority info, but normalize_speaker_name() above
+# deliberately throws that info away (it's the fix for a hallucination-guard
+# bug — see module docstring). So this is a SEPARATE, read-only pass over the
+# raw labels. It never writes back into name/owner fields. Anything that
+# wants seniority (conversation_dynamics.py) must call this explicitly.
+
+_SENIORITY_RANK_JA = {
+    "社長": 8, "代表": 8,
+    "専務": 7,
+    "常務": 6,
+    "部長": 5,
+    "課長": 4,
+    "係長": 3,
+    "主任": 2,
+}
+
+_SENIORITY_RANK_EN = {
+    "ceo": 8, "president": 8,
+    "coo": 7, "cto": 7,
+    "vp": 6,
+    "director": 5, "head": 5,
+    "manager": 4,
+    "senior": 3,
+    "lead": 2, "pm": 2,
+}
+
+
+def extract_role_hint(raw_label: str) -> dict:
+    """
+    Pulls seniority-relevant role info out of ONE raw speaker label without
+    touching the name. Returns {"role": str, "rank": int}.
+
+    rank 0 means "no title found", not "junior" — absence of a title in a
+    transcript label is not evidence the speaker is low-ranked, so callers
+    should treat rank 0 as unknown, not as the bottom of the scale.
+
+    "Tanaka (Director)" -> {"role": "Director", "rank": 5}
+    "田中部長"           -> {"role": "部長", "rank": 5}
+    "Sato"               -> {"role": "", "rank": 0}
+
+    EN titles use \\b word boundaries — without that, short abbreviations
+    like "cto"/"coo" false-match as substrings inside ordinary words
+    (e.g. "director" contains the letters "cto" in sequence).
+    """
+    raw = raw_label.strip()
+    role = ""
+    rank = 0
+
+    paren = re.search(r"[\(（【]([^\)）】]*)[\)）】]", raw)
+    paren_text = paren.group(1).strip() if paren else ""
+
+    for text, is_paren in ((paren_text, True), (raw, False)):
+        if not text:
+            continue
+        low = text.lower()
+        for word, r in _SENIORITY_RANK_JA.items():
+            if word in text and r > rank:
+                role, rank = (text if is_paren else word), r
+        for word, r in _SENIORITY_RANK_EN.items():
+            if re.search(rf"\b{re.escape(word)}\b", low) and r > rank:
+                role, rank = (text if is_paren else word), r
+
+    return {"role": role, "rank": rank}
+
+
+def extract_role_hints(transcript: str) -> dict:
+    """
+    Returns {normalized_name: {"role": str, "rank": int}} for every speaker
+    found in the transcript. Built on top of extract_all_speakers() so the
+    names line up exactly with the rest of the pipeline.
+    """
+    raw_speakers = extract_all_speakers(transcript)  # {normalized: raw}
+    return {name: extract_role_hint(raw) for name, raw in raw_speakers.items()}
+
+
 if __name__ == "__main__":
     transcript = """
     Kunal (Lead Engineer): Good morning everyone.
@@ -189,6 +266,7 @@ if __name__ == "__main__":
     """
     speakers = extract_all_speakers(transcript)
     print("Extracted speakers:", speakers)
+    print("Role hints:", extract_role_hints(transcript))
 
     result = {
         "sentiment": [

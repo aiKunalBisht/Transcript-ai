@@ -68,26 +68,27 @@ models/
 # ── Node (if any frontend tooling added later) ────────────────────
 node_modules/
 
-# ChromaDB — binary files, not for git
+# ── Databases — ChromaDB, MLflow, generic sqlite ──────────────────
+# *.db catches mlflow.db and cache/mlflow.db automatically (gitignore
+# patterns with no leading slash match at any depth) — no need to list
+# either path separately. WAL-mode sidecar files don't end in ".db"
+# (they end in "-shm"/"-wal"), so they need their own explicit lines.
 chroma_db/
 *.sqlite3
-
-# Screenshots — use URLs in README instead
-screenshots/
-
-# Generated data files
-synthetic_test_data.json
-
-schema_stability_report.json
-*.jsonl
-logs/
-cache/mlflow.db
-mlruns/
+*.db
 mlflow.db-shm
 mlflow.db-wal
-vector_store/results/*
-*.db
-mlflow.db
-*.db
 mlruns/
+vector_store/results/
+
+# ── Screenshots — use URLs in README instead ──────────────────────
+screenshots/
+
+# ── Generated data files (NOT eval recordings — those are real fixtures,
+#    intentionally tracked, renamed for clarity in a separate commit) ──
+synthetic_test_data.json
+schema_stability_report.json
+
+# ── Dev container — local-only by choice; remove this line if you'd
+#    rather share it so future contributors get the same setup ───────
 .devcontainer/

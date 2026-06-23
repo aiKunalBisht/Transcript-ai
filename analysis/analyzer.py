@@ -24,6 +24,7 @@ import os
 import re
 import sys
 import time
+import traceback
 import requests
 
 # LangChain — lazy loaded on first use to avoid cold start penalty
@@ -144,6 +145,7 @@ def build_prompt(text: str, language: str) -> str:
 Return ONLY valid JSON. No markdown, no backticks, no explanation.
 
 {{
+  "meeting_title": "Short, specific 4-8 word title for this meeting (e.g. 'Q3 Budget Review with Finance Team'). Not generic like 'Team Meeting' — name what was actually discussed.",
   "full_summary": "2–4 sentence narrative paragraph. Write like a professional meeting note: what was discussed, what was decided, and what the overall outcome was. Plain prose, no bullet points.",
   "summary": ["bullet 1", "..."],
   "action_items": [{{"task": "...", "owner": "FIRST NAME ONLY — no role titles", "deadline": "..."}}],
@@ -157,6 +159,7 @@ Return ONLY valid JSON. No markdown, no backticks, no explanation.
 }}
 
 Rules:
+- meeting_title: specific to actual content (e.g. "Hinglish Standup — Sprint Bug Status", not "Team Meeting" or "Discussion"). Used as the display name everywhere this analysis is referenced — in history, exports, and 議事録 — so it must describe THIS meeting, not be generic.
 - full_summary: 2–4 sentences of plain narrative prose. No lists. Describe the meeting outcome clearly.
 - {_summary_instruction(text)}
 - tone classification rules (per speaker — analyze ALL their lines combined):
@@ -576,6 +579,10 @@ def _mock_response(text: str, reason: str = "") -> dict:
         )
 
     return {
+        "meeting_title": (
+            " ".join(demo_summary.split()[:8]) + ("…" if len(demo_summary.split()) > 8 else "")
+            if demo_summary else f"Demo Analysis — {n} Speaker{'s' if n > 1 else ''}"
+        ),
         "full_summary": full_summary_text,
         "summary": summary_bullets,
         "action_items": [
@@ -590,6 +597,8 @@ def _mock_response(text: str, reason: str = "") -> dict:
             "nemawashi_signals": [],
             "code_switch_count": 0
         },
+        "conversation_dynamics": {},
+        "role_hints": {},
         "_mock_reason":  reason,
         "_demo_mode":    True,
         "_demo_warning": "API rate limit reached. Demo data shown. Full analysis resumes in 24h.",
@@ -619,6 +628,11 @@ def analyze_transcript(text: str, language: str = "en", bypass_cache: bool = Fal
     except ImportError:
         store_result = None
         vector_cache_available = False
+    except Exception as e:
+        print(f"[TRANSCRIPT_AI] vector_cache read failed, skipping: {e}\n{traceback.format_exc()}",
+              file=sys.stderr, flush=True)
+        store_result = None
+        vector_cache_available = False
 
     # Step 2: MD5 exact cache (skipped when bypass_cache=True)
     try:
@@ -629,6 +643,10 @@ def analyze_transcript(text: str, language: str = "en", bypass_cache: bool = Fal
                 cached["_from_cache"] = True
                 return cached
     except ImportError:
+        get_cached = set_cache = None
+    except Exception as e:
+        print(f"[TRANSCRIPT_AI] MD5 cache read failed, skipping: {e}\n{traceback.format_exc()}",
+              file=sys.stderr, flush=True)
         get_cached = set_cache = None
 
     prompt = build_prompt(text, language)
@@ -678,6 +696,9 @@ def analyze_transcript(text: str, language: str = "en", bypass_cache: bool = Fal
         result = unify_speakers_in_result(result, text)
     except ImportError:
         pass
+    except Exception as e:
+        print(f"[TRANSCRIPT_AI] speaker_normalizer failed, skipping: {e}\n{traceback.format_exc()}",
+              file=sys.stderr, flush=True)
 
     # MeCab keigo
     try:
@@ -687,6 +708,9 @@ def analyze_transcript(text: str, language: str = "en", bypass_cache: bool = Fal
             result["japan_insights"]["keigo_source"] = "mecab"
     except ImportError:
         pass
+    except Exception as e:
+        print(f"[TRANSCRIPT_AI] japanese_tokenizer/MeCab failed, skipping: {e}\n{traceback.format_exc()}",
+              file=sys.stderr, flush=True)
 
     # Rule-based code-switch
     try:
@@ -695,6 +719,9 @@ def analyze_transcript(text: str, language: str = "en", bypass_cache: bool = Fal
         result["japan_insights"]["code_switch_source"] = "rule_based"
     except ImportError:
         pass
+    except Exception as e:
+        print(f"[TRANSCRIPT_AI] count_code_switches failed, skipping: {e}\n{traceback.format_exc()}",
+              file=sys.stderr, flush=True)
 
     # Hallucination guard + semantic rescue
     try:
@@ -706,6 +733,9 @@ def analyze_transcript(text: str, language: str = "en", bypass_cache: bool = Fal
         )
     except ImportError:
         pass
+    except Exception as e:
+        print(f"[TRANSCRIPT_AI] hallucination_guard/semantic_validator failed, skipping: {e}\n{traceback.format_exc()}",
+              file=sys.stderr, flush=True)
 
     # Soft rejection detection
     try:
@@ -713,6 +743,25 @@ def analyze_transcript(text: str, language: str = "en", bypass_cache: bool = Fal
         result["soft_rejections"] = detect_soft_rejections(text)
     except ImportError:
         pass
+    except Exception as e:
+        print(f"[TRANSCRIPT_AI] soft_rejection_detector failed, skipping: {e}\n{traceback.format_exc()}",
+              file=sys.stderr, flush=True)
+
+    # Conversation dynamics — topic stalls/circle-back, senior-silence pivot,
+    # closing-summarizer. Rule-based, runs on the raw transcript independent
+    # of the LLM result. role_hints is also exposed at result["role_hints"]
+    # so gijiroku_formatter can build the ringi-sho-style approval chain
+    # without re-deriving it.
+    try:
+        from analysis.conversation_dynamics import analyze_conversation_dynamics
+        dynamics = analyze_conversation_dynamics(text)
+        result["conversation_dynamics"] = dynamics
+        result["role_hints"] = dynamics["role_hints"]
+    except ImportError:
+        pass
+    except Exception as e:
+        print(f"[TRANSCRIPT_AI] conversation_dynamics failed, skipping: {e}\n{traceback.format_exc()}",
+              file=sys.stderr, flush=True)
 
     duration_ms = (time.time() - start_time) * 1000
     result["_provider"]    = provider_used
@@ -726,6 +775,9 @@ def analyze_transcript(text: str, language: str = "en", bypass_cache: bool = Fal
         log_analysis(len(text), language, provider_used, duration_ms, result, last_error)
     except ImportError:
         pass
+    except Exception as e:
+        print(f"[TRANSCRIPT_AI] log_analysis failed, skipping: {e}\n{traceback.format_exc()}",
+              file=sys.stderr, flush=True)
 
     # Store in caches (only on real analysis)
     if "mock" not in provider_used:
@@ -744,13 +796,41 @@ def analyze_transcript(text: str, language: str = "en", bypass_cache: bool = Fal
     return result
 
 
+def _fallback_meeting_title(data: dict) -> str:
+    """
+    Rule-based title when the LLM doesn't return meeting_title (older prompt
+    cache, weak model, truncated JSON) or in mock mode. Derives a short title
+    from the first summary bullet, falling back to full_summary, falling
+    back to a generic but honest label — never the raw transcript text.
+    """
+    source = ""
+    bullets = data.get("summary")
+    if isinstance(bullets, list) and bullets:
+        source = bullets[0]
+    if not source:
+        source = data.get("full_summary", "")
+    source = re.sub(r"^[📋👥📝⚠️\s]+", "", str(source)).strip()
+    words = source.split()
+    if words:
+        title = " ".join(words[:8])
+        if len(words) > 8:
+            title += "…"
+        return title
+    return "Meeting Analysis"
+
+
 def _validate_and_fill(data: dict) -> dict:
+    data.setdefault("meeting_title", "")
+    if not data["meeting_title"].strip():
+        data["meeting_title"] = _fallback_meeting_title(data)
     data.setdefault("full_summary", "")
     data.setdefault("summary", ["No summary available."])
     data.setdefault("action_items", [])
     data.setdefault("sentiment", [])
     data.setdefault("speakers", [])
     data.setdefault("japan_insights", {})
+    data.setdefault("conversation_dynamics", {})
+    data.setdefault("role_hints", {})
     ji = data["japan_insights"]
     ji.setdefault("keigo_level", "unknown")
     ji.setdefault("nemawashi_signals", [])
