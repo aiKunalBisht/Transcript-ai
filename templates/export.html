@@ -15,7 +15,7 @@
 <div class="card" x-show="!hasResult()" x-cloak style="border-left:4px solid var(--sakura); background:var(--sakura-pale);">
   <strong style="color:var(--sakura-deep); font-size:1.1rem; display:block; margin-bottom:8px;">No analysis loaded</strong>
   <span style="color:var(--ink-mid); font-size:0.9rem;">You need to run an analysis first before generating exports.</span><br><br>
-  <a href="/" style="color:var(--sakura-deep);font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:4px;">
+  <a href="/" target="_self" style="color:var(--sakura-deep);font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:4px;">
     Go to Analysis Page 
     <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
   </a>
@@ -31,6 +31,17 @@
       Midnight Executive layout — automated summaries, action items, speaker breakdowns, and AI risk flags.
     </div>
     <button id="btn-pptx" class="tai-btn" style="width:100%" @click="exportAs('pptx')" :disabled="!hasResult()">Download PPTX</button>
+  </div>
+  {% endif %}
+
+  {% if cultural_insights_available %}
+  <div class="card" x-show="lastResult && (lastResult._detected_language === 'ja' || lastResult._detected_language === 'mixed')" x-cloak style="border-top: 4px solid var(--sakura-deep);">
+    <span class="tai-hbadge" style="color:var(--sakura-deep);background:var(--sakura-pale);border-color:var(--sakura-light);">Japanese Format</span>
+    <div style="font-weight:800;font-size:1.2rem;color:var(--ink);margin:0.8rem 0 0.5rem;">Cultural Insights (日本ビジネス文化)</div>
+    <div style="font-size:0.85rem;color:var(--ink-mid);margin-bottom:1.5rem;line-height:1.6;min-height:45px;">
+      根回し risk, 稟議 approval status, and meeting dynamics — the business-culture layer, not raw NLP metrics.
+    </div>
+    <button class="tai-btn" style="width:100%" @click="exportCulturalInsights()" :disabled="!hasResult()">Download Cultural Insights</button>
   </div>
   {% endif %}
 

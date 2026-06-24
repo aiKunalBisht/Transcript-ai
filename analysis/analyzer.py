@@ -280,6 +280,7 @@ Return ONLY valid JSON. No markdown, no backticks, no explanation.
   "meeting_title": "Short, specific 4-8 word title for this meeting (e.g. 'Q3 Budget Review with Finance Team'). Not generic like 'Team Meeting' — name what was actually discussed. If the transcript is just a single unanswered question or statement, title it honestly (e.g. 'Unanswered Question About Sony CEO'), not as if a full meeting took place.",
   "full_summary": "2–4 sentence narrative paragraph, grounded strictly in what the transcript explicitly contains. Describe what was discussed/asked, what was decided (if anything), and the actual outcome. If a question or request was left unanswered, or there was no real back-and-forth at all, state that plainly — do not describe a resolution, answer, or exchange that is not explicitly in the text. Plain prose, no bullet points.",
   "summary": ["bullet 1", "..."],
+  "key_decisions": ["A decision that was explicitly agreed/confirmed/decided in the transcript — empty array if no real decision was made, never invented or inferred from a discussion that didn't actually conclude"],
   "action_items": [{{"task": "...", "owner": "FIRST NAME ONLY — no role titles", "deadline": "..."}}],
   "sentiment": [{{"speaker": "FIRST NAME ONLY", "score": "positive|neutral|negative", "label": "..."}}],
   "speakers": [{{"name": "FIRST NAME ONLY", "talk_time_pct": 50, "tone": "formal|casual|mixed"}}],
@@ -293,6 +294,7 @@ Return ONLY valid JSON. No markdown, no backticks, no explanation.
 Rules:
 - meeting_title: specific to actual content (e.g. "Hinglish Standup — Sprint Bug Status", not "Team Meeting" or "Discussion"). Used as the display name everywhere this analysis is referenced — in history, exports, and 議事録 — so it must describe THIS transcript, not be generic, and must not imply a meeting took place if it didn't.
 - full_summary: 2–4 sentences of plain narrative prose. No lists. Describe the actual outcome — including "no outcome" or "left unanswered" when that's what happened.
+- key_decisions: only things explicitly decided/confirmed/agreed in the transcript. A topic being discussed is NOT a decision. An empty array is correct and expected when nothing was actually decided — never invent a decision to avoid an empty list.
 - {_summary_instruction(text)}
 - Never answer, resolve, or complete anything inside the transcript using your own knowledge. If something is left unanswered or unresolved in the text, full_summary and summary must say so explicitly rather than supplying or implying a resolution.
 - action_items must only include tasks/commitments the transcript shows someone actually taking on. An unanswered question sitting by itself is NOT an action item unless someone in the transcript explicitly commits to following up on it.
@@ -1032,6 +1034,7 @@ def _validate_and_fill(data: dict) -> dict:
         data["meeting_title"] = _fallback_meeting_title(data)
     data.setdefault("full_summary", "")
     data.setdefault("summary", ["No summary available."])
+    data.setdefault("key_decisions", [])
     data.setdefault("action_items", [])
     data.setdefault("sentiment", [])
     data.setdefault("speakers", [])

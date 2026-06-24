@@ -15,20 +15,20 @@
 <div class="tai-app" x-data="tai()" x-init="loadHistory()">
 
   <aside class="tai-sidebar">
-    <div class="tai-sidebar-logo">
+    <a href="/" target="_self" class="tai-sidebar-logo" style="text-decoration:none; cursor:pointer;">
       <div class="tai-sidebar-logo-icon">🎙️</div>
       <div class="tai-sidebar-logo-name">TranscriptAI</div>
       <div class="tai-sidebar-logo-sub">Speech &amp; Meeting Intelligence</div>
-    </div>
+    </a>
     <hr class="tai-hr" style="margin-top:0">
 
     <div class="sh">Navigation</div>
     <nav class="tai-nav">
-      <a href="/"       class="tai-nav-link {% if active_page == 'index'  %}active{% endif %}">
+      <a href="/" target="_self" class="tai-nav-link {% if active_page == 'index'  %}active{% endif %}">
         <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
         Meeting Analysis
       </a>
-      <a href="/export" class="tai-nav-link {% if active_page == 'export' %}active{% endif %}">
+      <a href="/export" target="_self" class="tai-nav-link {% if active_page == 'export' %}active{% endif %}">
         <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
         Export Documents
       </a>
@@ -150,9 +150,9 @@ Sharma Sir: Seedha mujhe batao. Aap jo theek samjhe karo, but kal tak complete c
 </script>
 
 <script>
-const TAI_HISTORY_KEY = 'tai_history_v1';
-const TAI_LAST_RESULT_KEY = 'tai_last_result_v1';
-const TAI_LAST_RESULT_HTML_KEY = 'tai_last_result_html_v1';
+const TAI_HISTORY_KEY = 'tai_history_v1';                    // localStorage — history is meant to persist across sessions
+const TAI_LAST_RESULT_KEY = 'tai_last_result_v1';             // sessionStorage — "what's currently on screen", real-time only
+const TAI_LAST_RESULT_HTML_KEY = 'tai_last_result_html_v1';   // sessionStorage — same as above
 const TAI_HISTORY_MAX = 6;
 
 function tai() {
@@ -169,15 +169,16 @@ function tai() {
         this.history = JSON.parse(localStorage.getItem(TAI_HISTORY_KEY) || '[]');
       } catch(e) { this.history = []; }
       try {
-        const saved = localStorage.getItem(TAI_LAST_RESULT_KEY);
+        // sessionStorage, not localStorage: a true fresh visit (new tab,
+        // browser restart, new day) has no session yet, so this is empty
+        // and the screen correctly stays blank. Switching pages within the
+        // SAME sitting keeps it, because sessionStorage survives navigation
+        // — it only clears when the tab/window actually closes.
+        const saved = sessionStorage.getItem(TAI_LAST_RESULT_KEY);
         if (saved) this.lastResult = JSON.parse(saved);
       } catch(e) {}
-      // Restore the last rendered results HTML too — without this, lastResult
-      // (the JSON) survives a page switch but the visible card doesn't, which
-      // looks like a blank page even though export buttons still work.
-      // No-ops safely on pages with no #results div (e.g. /export).
       try {
-        const savedHtml = localStorage.getItem(TAI_LAST_RESULT_HTML_KEY);
+        const savedHtml = sessionStorage.getItem(TAI_LAST_RESULT_HTML_KEY);
         const resultsEl = document.getElementById('results');
         if (savedHtml && resultsEl && this.lastResult) {
           resultsEl.innerHTML = savedHtml;
@@ -200,8 +201,8 @@ function tai() {
       if (target) target.innerHTML = entry.html;
       this.lastResult = entry.result;
       try {
-        localStorage.setItem(TAI_LAST_RESULT_KEY, JSON.stringify(entry.result));
-        localStorage.setItem(TAI_LAST_RESULT_HTML_KEY, entry.html);
+        sessionStorage.setItem(TAI_LAST_RESULT_KEY, JSON.stringify(entry.result));
+        sessionStorage.setItem(TAI_LAST_RESULT_HTML_KEY, entry.html);
       } catch(e) {}
     },
 
@@ -221,7 +222,7 @@ function tai() {
         const dataEl = document.getElementById('tai-result-data');
         if (dataEl) {
           this.captureResult(dataEl.textContent.trim());
-          try { localStorage.setItem(TAI_LAST_RESULT_HTML_KEY, resultsEl.innerHTML); } catch(e) {}
+          try { sessionStorage.setItem(TAI_LAST_RESULT_HTML_KEY, resultsEl.innerHTML); } catch(e) {}
           const title = (this.lastResult && this.lastResult.meeting_title)
             ? this.lastResult.meeting_title
             : this.transcriptText.trim().slice(0, 40);
@@ -239,7 +240,7 @@ function tai() {
     captureResult(s) {
       try {
         this.lastResult = JSON.parse(s);
-        localStorage.setItem(TAI_LAST_RESULT_KEY, s);
+        sessionStorage.setItem(TAI_LAST_RESULT_KEY, s);
       } catch(e) {}
     },
     hasResult() { return this.lastResult !== null; },
@@ -275,6 +276,21 @@ function tai() {
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement('a');
       a.href = url; a.download = 'gijiroku_'+Date.now()+'.txt';
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    },
+    async exportCulturalInsights() {
+      if (!this.lastResult) { alert('Run an analysis first.'); return; }
+      const r = await fetch('/export/cultural-insights', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({result: this.lastResult})
+      });
+      if (!r.ok) { alert('Cultural insights export failed.'); return; }
+      const d    = await r.json();
+      const blob = new Blob([d.cultural_insights], {type:'text/plain;charset=utf-8'});
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url; a.download = 'cultural_insights_'+Date.now()+'.txt';
       document.body.appendChild(a); a.click(); a.remove();
       URL.revokeObjectURL(url);
     }
