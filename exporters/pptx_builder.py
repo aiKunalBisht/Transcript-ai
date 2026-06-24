@@ -65,9 +65,29 @@ def _run(tf, text, size, color, font="Calibri", bold=False, italic=False, align=
     return r
 
 
+_PML_NS = "{http://schemas.openxmlformats.org/presentationml/2006/main}"
+
+
+def _strip_theme_style(shape):
+    """
+    Removes the <p:style> element python-pptx leaves on every autoshape.
+    That element carries a theme effectRef (among other refs) which
+    LibreOffice applies as a drop-shadow even when shadow.inherit=False
+    sets an explicit empty effectLst — the two don't fully override each
+    other in practice. Since fill/line are already set explicitly on every
+    shape here, the style block's refs are redundant anyway.
+    """
+    sp = shape._element
+    style = sp.find(_PML_NS + "style")
+    if style is not None:
+        sp.remove(style)
+
+
 def _rect(slide, l, t, w, h, color):
     s = slide.shapes.add_shape(1, Inches(l), Inches(t), Inches(w), Inches(h))
     s.fill.solid(); s.fill.fore_color.rgb = color; s.line.fill.background()
+    s.shadow.inherit = False
+    _strip_theme_style(s)
     return s
 
 
@@ -75,6 +95,8 @@ def _circle(slide, l, t, d, color):
     """Oval (circle when w==h) shape."""
     s = slide.shapes.add_shape(9, Inches(l), Inches(t), Inches(d), Inches(d))
     s.fill.solid(); s.fill.fore_color.rgb = color; s.line.fill.background()
+    s.shadow.inherit = False
+    _strip_theme_style(s)
     return s
 
 
@@ -95,6 +117,27 @@ def _slide_num(slide, n, total, fg=SOFT_TEXT):
     r = tf.paragraphs[0].add_run()
     r.text = f"{n} / {total}"
     r.font.size = Pt(9); r.font.color.rgb = fg; r.font.name = "Calibri"
+
+
+def _row_layout(start_y, band_h, n, ideal_row_h=1.6, min_row_h=0.9):
+    """
+    Returns (start_y, row_h) for n stacked rows within a vertical band.
+
+    A 1-bullet slide dividing the full band by n=1 puts one line of text at
+    the top and leaves the rest of the slide empty — that's what produced
+    the "useless"-looking sparse slides. This caps row height at a sensible
+    maximum and vertically centers the resulting block when content doesn't
+    fill the band, instead of stretching it to fill regardless of count.
+    Falls back to the old behavior (compress to fit) when there are enough
+    bullets that ideal_row_h would overflow the band.
+    """
+    row_h = max(min_row_h, min(ideal_row_h, band_h / max(n, 1)))
+    content_h = row_h * n
+    if content_h < band_h:
+        start_y = start_y + (band_h - content_h) / 2
+    else:
+        row_h = band_h / n
+    return start_y, row_h
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -182,13 +225,14 @@ def _two_col_slide(prs, slide_data, plan, idx):
 
     bullets = (slide_data.bullets or ["Details in transcript"])[:4]
     n = len(bullets)
-    font_sz = {1:18, 2:17, 3:16, 4:15}.get(n, 15)
+    font_sz = {1:22, 2:19, 3:16, 4:15}.get(n, 15)
 
     # LEFT column — numbered bullets (0.4" to 7.6")
+    start_y, row_h = _row_layout(1.4, 5.5, n, ideal_row_h=1.7)
     for b_idx, bullet in enumerate(bullets):
-        y = 1.4 + b_idx * (5.5 / n)
+        y = start_y + b_idx * row_h
         _num_in_circle(slide, b_idx + 1, 0.4, y + 0.05, 0.42, DARK_BG, WHITE)
-        tf_b = _tb(slide, 0.98, y, 6.8, 5.5 / n - 0.1)
+        tf_b = _tb(slide, 0.98, y, 6.8, row_h - 0.1)
         _run(tf_b, bullet, font_sz, NAVY_TEXT)
 
     # RIGHT column — stat callout card (7.8" to 12.8")
@@ -219,23 +263,23 @@ def _icon_row_slide(prs, slide_data, plan):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     _bg(slide, WHITE)
 
-    # Colored band at very top (this is NOT a stripe — it's a section header block)
-    _rect(slide, 0, 0, 13.33, 1.1, DARK_BG)
+    # Inset header card (NOT edge-to-edge — a full-width band reads as
+    # AI-generated filler; this stops short of both side margins instead)
+    _rect(slide, 0.4, 0.3, 12.53, 0.95, DARK_BG)
 
-    # Title in the dark band
-    tf_t = _tb(slide, 0.4, 0.12, 12.0, 0.85)
-    _run(tf_t, slide_data.title, 28, WHITE, font="Cambria", bold=True)
+    # Title inside the card
+    tf_t = _tb(slide, 0.7, 0.52, 11.9, 0.6)
+    _run(tf_t, slide_data.title, 26, WHITE, font="Cambria", bold=True)
 
     bullets = (slide_data.bullets or ["Details in transcript"])[:5]
     n = len(bullets)
-    available_h = 6.15  # from y=1.15 to y=7.3
-    row_h = available_h / n
-    font_sz = {1:18, 2:17, 3:16, 4:15, 5:14}.get(n, 14)
+    font_sz = {1:20, 2:18, 3:16, 4:15, 5:14}.get(n, 14)
 
     ICON_CHARS = ["◆", "▸", "●", "★", "◉"]
 
+    start_y, row_h = _row_layout(1.45, 5.6, n, ideal_row_h=1.6)
     for b_idx, bullet in enumerate(bullets):
-        y = 1.18 + b_idx * row_h
+        y = start_y + b_idx * row_h
         is_even = b_idx % 2 == 0
 
         # Alternating subtle row tint
@@ -279,18 +323,19 @@ def _closing_slide(prs, slide_data, plan):
 
     bullets = (slide_data.bullets or ["Follow up with all stakeholders"])[:5]
     n = len(bullets)
-    font_sz = {1:18, 2:17, 3:15, 4:14, 5:13}.get(n, 13)
+    font_sz = {1:20, 2:18, 3:15, 4:14, 5:13}.get(n, 13)
 
+    start_y, row_h = _row_layout(1.9, 4.8, n, ideal_row_h=1.5, min_row_h=0.85)
     for b_idx, bullet in enumerate(bullets):
-        y = 1.9 + b_idx * (4.8 / n)
+        y = start_y + b_idx * row_h
         # Pill background
-        _rect(slide, 0.5, y, 7.7, (4.8 / n) - 0.12,
+        _rect(slide, 0.5, y, 7.7, row_h - 0.12,
               RGBColor(0x28, 0x33, 0x78))
         # Number
         _num_in_circle(slide, b_idx + 1, 0.6, y + 0.06, 0.42, ICE_BLUE,
                        DARK_BG)
         # Text
-        tf_b = _tb(slide, 1.18, y + 0.06, 6.8, (4.8 / n) - 0.18)
+        tf_b = _tb(slide, 1.18, y + 0.06, 6.8, row_h - 0.18)
         _run(tf_b, bullet, font_sz, WHITE)
 
     # Right panel — brand watermark
@@ -313,14 +358,24 @@ def _closing_slide(prs, slide_data, plan):
 # ══════════════════════════════════════════════════════════════════════════════
 # PUBLIC API
 # ══════════════════════════════════════════════════════════════════════════════
-def build_pptx(plan: PresentationPlan) -> bytes:
+def build_pptx(plan) -> bytes:
     """
     Builds enterprise PPTX from PresentationPlan.
     Sandwich structure: dark cover → light content → dark closing.
     Returns raw bytes for st.download_button.
     Never raises.
+
+    Accepts either a PresentationPlan instance OR a plain dict (e.g. the
+    output of plan.model_dump(), or a dict that's been through a JSON
+    round-trip via caching/storage). Whatever produced the dict upstream
+    is worth tracking down separately, but build_pptx() should not crash
+    just because its input took a detour through serialization —
+    'dict' object has no attribute 'slides' was exactly this.
     """
     try:
+        if isinstance(plan, dict):
+            plan = PresentationPlan(**plan)
+
         prs = Presentation()
         prs.slide_width  = SLIDE_W
         prs.slide_height = SLIDE_H

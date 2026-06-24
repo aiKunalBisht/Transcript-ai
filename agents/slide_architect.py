@@ -53,10 +53,10 @@ class SlideArchitectAgent:
         return json.loads(resp.json()["choices"][0]["message"]["content"])
 
     def plan(self, analysis_result: dict, language: str = "en") -> PresentationPlan:
+        summary_bullets = analysis_result.get("summary", []) or []
         summary      = analysis_result.get("full_summary") or ""
         if not summary:
-            bullets_list = analysis_result.get("summary", [])
-            summary = " ".join(bullets_list) if bullets_list else "Meeting completed."
+            summary = " ".join(summary_bullets) if summary_bullets else "Meeting completed."
 
         action_items = analysis_result.get("action_items", [])
         decisions    = analysis_result.get("key_decisions", [])
@@ -131,10 +131,10 @@ Return ONLY this exact JSON structure, no explanation, no markdown:
 
 SLIDE STRUCTURE RULES:
 - Slide 1: Title/Overview — summarise the meeting purpose and outcome
-- Middle slides: One theme each — discussion points, decisions, risks, team updates
+- Middle slides: One theme each — discussion points, decisions, speaker sentiment/risk, team updates
 - Last slide: Next Steps — every action item as a complete bullet with owner and deadline
-- If soft rejection risk is MEDIUM or HIGH: include an "Unresolved Items" slide
-- 4 to 6 slides total
+- If soft rejection risk is MEDIUM or HIGH: include a dedicated "Unresolved Items" slide
+- MINIMUM 5 slides, up to 7 — 4 slides is NOT enough, do not under-produce
 - Each slide: exactly 3 to 4 bullets
 - speaker_notes: 2-3 full sentences, conversational, presenter-ready"""
 
@@ -147,53 +147,114 @@ SLIDE STRUCTURE RULES:
                     b for b in slide.bullets
                     if b and len(b.split()) >= 4
                 ] or ["See full transcript for complete details"]
+            # Enforce the 5-slide minimum even if the model under-produced —
+            # better to use the real-data fallback than ship a thin deck.
+            if len(plan.slides) < 5:
+                raise ValueError(f"Model returned only {len(plan.slides)} slides, need >= 5")
+            plan.total_slides = len(plan.slides)
             return plan
         except Exception as e:
-            return self._build_fallback(summary, action_items, action_details, language)
+            return self._build_fallback(
+                summary, summary_bullets, action_items, action_details,
+                decisions, sentiment_summary, soft_risk, soft_signals, language
+            )
 
-    def _build_fallback(self, summary: str, action_items: list,
-                        action_details: list, language: str) -> PresentationPlan:
+    def _build_fallback(self, summary: str, summary_bullets: list, action_items: list,
+                        action_details: list, decisions: list, sentiment_summary: list,
+                        soft_risk: str, soft_signals: int, language: str) -> PresentationPlan:
+        """
+        Used when the Groq call fails OR under-produces. Builds 5 real slides
+        from data the pipeline already extracted — no vague filler like
+        "Full details available in the transcript analysis". If a given
+        section genuinely has no data, says so honestly instead of padding.
+        """
+        # Slide 1 — Overview: real summary bullets if we have them
+        overview_bullets = (summary_bullets[:3] if summary_bullets
+                             else [summary[:100]] if summary
+                             else ["Meeting analysis is complete."])
+
+        # Slide 2 — Key Decisions: real decisions, or an honest "none" note
+        decision_bullets = (
+            [f"Decided: {d}" for d in decisions[:4]] if decisions
+            else ["No formal decisions were recorded — discussion remained exploratory."]
+        )
+
+        # Slide 3 — Speaker Sentiment & Communication Signals
+        sentiment_bullets = list(sentiment_summary[:3])
+        if soft_risk in ("MEDIUM", "HIGH") and soft_signals:
+            sentiment_bullets.append(
+                f"Soft rejection risk: {soft_risk} ({soft_signals} signals) — follow up explicitly to confirm status."
+            )
+        if not sentiment_bullets:
+            sentiment_bullets = ["Speaker sentiment data was not available for this transcript."]
+
+        # Slide 4 — Discussion Highlights: remaining summary bullets, or a
+        # second pass over full_summary if there weren't enough bullets
+        remaining = summary_bullets[3:6]
+        discussion_bullets = remaining if remaining else (
+            [summary[100:220]] if summary and len(summary) > 100
+            else ["Full discussion is captured in the transcript analysis."]
+        )
+
+        # Slide 5 — Next Steps & Action Items: real action items, or honest "none"
         action_bullets = action_details[:4] if action_details else [
-            "Review full transcript for action items"
+            "No specific action items were identified for this meeting."
+        ]
+
+        exec_summary = summary.strip()
+        if len(exec_summary) > 150:
+            cutoff = exec_summary.rfind(" ", 0, 150)
+            exec_summary = exec_summary[:cutoff if cutoff > 0 else 150] + "…"
+        if not exec_summary:
+            exec_summary = "Meeting analysis complete."
+
+        slides = [
+            Slide(
+                slide_number=1,
+                title="Meeting Overview",
+                bullets=overview_bullets,
+                speaker_notes="This slide covers what the meeting was about and how it concluded.",
+                language=language,
+                estimated_duration_seconds=45,
+            ),
+            Slide(
+                slide_number=2,
+                title="Key Decisions",
+                bullets=decision_bullets,
+                speaker_notes="These are the decisions that came out of the discussion, or a note that none were formally made.",
+                language=language,
+                estimated_duration_seconds=50,
+            ),
+            Slide(
+                slide_number=3,
+                title="Speaker Sentiment & Communication Signals",
+                bullets=sentiment_bullets,
+                speaker_notes="This covers how each speaker came across, plus any indirect or soft-rejection signals worth following up on.",
+                language=language,
+                estimated_duration_seconds=50,
+            ),
+            Slide(
+                slide_number=4,
+                title="Discussion Highlights",
+                bullets=discussion_bullets,
+                speaker_notes="A closer look at the main points raised during the discussion.",
+                language=language,
+                estimated_duration_seconds=50,
+            ),
+            Slide(
+                slide_number=5,
+                title="Next Steps & Action Items",
+                bullets=action_bullets,
+                speaker_notes="These are the action items identified from the meeting — please follow up accordingly.",
+                language=language,
+                estimated_duration_seconds=45,
+            ),
         ]
 
         return PresentationPlan(
             meeting_title="Meeting Summary",
-            total_slides=3,
+            total_slides=len(slides),
             language=language,
-            executive_summary=summary[:120] if summary else "Meeting analysis complete.",
-            slides=[
-                Slide(
-                    slide_number=1,
-                    title="Meeting Overview",
-                    bullets=[
-                        summary[:80] if len(summary) > 8 else "Meeting analysis is complete",
-                        "Full details available in the transcript analysis",
-                        "Review action items on the final slide",
-                    ],
-                    speaker_notes="This slide provides an overview of the meeting discussed today.",
-                    language=language,
-                    estimated_duration_seconds=45,
-                ),
-                Slide(
-                    slide_number=2,
-                    title="Key Discussion Points",
-                    bullets=[
-                        "Full transcript analysis is available in the JSON export",
-                        "Speaker sentiment and talk time captured in the analysis",
-                        "Communication signals and risk level assessed by pipeline",
-                    ],
-                    speaker_notes="The key discussion points have been captured in the transcript analysis.",
-                    language=language,
-                    estimated_duration_seconds=60,
-                ),
-                Slide(
-                    slide_number=3,
-                    title="Next Steps & Action Items",
-                    bullets=action_bullets,
-                    speaker_notes="These are the action items identified from the meeting. Please follow up accordingly.",
-                    language=language,
-                    estimated_duration_seconds=45,
-                ),
-            ],
+            executive_summary=exec_summary,
+            slides=slides,
         )
