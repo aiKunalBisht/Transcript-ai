@@ -286,7 +286,7 @@ async def export_cultural_insights(request: Request):
     if not CULTURAL_INSIGHTS_AVAILABLE:
         raise HTTPException(503, "Cultural insights formatter not available")
     body = await request.json()
-    text = await asyncio.to_thread(format_cultural_insights, body.get("result", body))
+    text = await asyncio.to_thread(format_cultural_insights, body.get("result", body), True)  # as_markdown=True
     return JSONResponse({"cultural_insights": text})
 
 
@@ -295,7 +295,7 @@ async def export_gijiroku(request: Request):
     if not GIJIROKU_AVAILABLE:
         raise HTTPException(503, "Gijiroku not available")
     body = await request.json()
-    text = await asyncio.to_thread(format_gijiroku, body.get("result", body))
+    text = await asyncio.to_thread(format_gijiroku, body.get("result", body), True)  # as_markdown=True
     return JSONResponse({"gijiroku": text})
 
 

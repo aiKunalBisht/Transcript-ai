@@ -3,6 +3,20 @@
 {% block title %}TranscriptAI · Export Documents{% endblock %}
 
 {% block content %}
+<style>
+.tai-markdown-preview h1 { font-size:1.6rem; font-weight:800; color:var(--ink); margin:0 0 0.8rem; font-family:'Noto Sans JP',sans-serif; }
+.tai-markdown-preview h2 { font-size:1.2rem; font-weight:800; color:var(--sakura-deep); margin:1.6rem 0 0.8rem; padding-bottom:0.4rem; border-bottom:2px solid var(--border); font-family:'Noto Sans JP',sans-serif; }
+.tai-markdown-preview h3 { font-size:1rem; font-weight:700; color:var(--ink); margin:1.2rem 0 0.5rem; }
+.tai-markdown-preview p, .tai-markdown-preview li { font-size:0.92rem; color:var(--ink-mid); line-height:1.7; }
+.tai-markdown-preview ul, .tai-markdown-preview ol { margin:0.4rem 0 0.8rem 1.2rem; }
+.tai-markdown-preview strong { color:var(--ink); font-weight:700; }
+.tai-markdown-preview em { color:var(--sakura-deep); }
+.tai-markdown-preview hr { border:none; border-top:1px solid var(--border); margin:1.5rem 0; }
+.tai-markdown-preview table { width:100%; border-collapse:collapse; margin:0.8rem 0 1.2rem; font-size:0.88rem; }
+.tai-markdown-preview th { background:var(--washi); color:var(--ink-mid); font-weight:800; text-align:left; padding:0.6rem 0.8rem; border-bottom:2px solid var(--border); font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em; }
+.tai-markdown-preview td { padding:0.6rem 0.8rem; border-bottom:1px solid var(--border); color:var(--ink); }
+</style>
+
 <div class="tai-header">
   <div class="tai-header-icon">📄</div>
   <div class="tai-header-kicker">Data Portability</div>
@@ -41,7 +55,10 @@
     <div style="font-size:0.85rem;color:var(--ink-mid);margin-bottom:1.5rem;line-height:1.6;min-height:45px;">
       根回し risk, 稟議 approval status, and meeting dynamics — the business-culture layer, not raw NLP metrics.
     </div>
-    <button class="tai-btn" style="width:100%" @click="exportCulturalInsights()" :disabled="!hasResult()">Download Cultural Insights</button>
+    <div style="display:flex; gap:0.6rem;">
+      <button class="tai-btn-outline" style="flex:1" @click="showPreview('cultural', '/export/cultural-insights', 'cultural_insights')" :disabled="!hasResult()">Preview</button>
+      <button class="tai-btn" style="flex:1" @click="downloadMd('cultural', '/export/cultural-insights', 'cultural_insights', 'cultural_insights')" :disabled="!hasResult()">Download .md</button>
+    </div>
   </div>
   {% endif %}
 
@@ -50,9 +67,12 @@
     <span class="tai-hbadge" style="color:var(--sakura-deep);background:var(--sakura-pale);border-color:var(--sakura-light);">Japanese Format</span>
     <div style="font-weight:800;font-size:1.2rem;color:var(--ink);margin:0.8rem 0 0.5rem;">議事録 (Minutes)</div>
     <div style="font-size:0.85rem;color:var(--ink-mid);margin-bottom:1.5rem;line-height:1.6;min-height:45px;">
-      Structured Japanese business minutes utilizing Fujitsu / NTT DATA enterprise format logic.
+      Structured Japanese business meeting minutes, following standard 議事録 format conventions.
     </div>
-    <button class="tai-btn" style="width:100%" @click="exportGijiroku()" :disabled="!hasResult()">Download 議事録</button>
+    <div style="display:flex; gap:0.6rem;">
+      <button class="tai-btn-outline" style="flex:1" @click="showPreview('gijiroku', '/export/gijiroku', 'gijiroku')" :disabled="!hasResult()">Preview</button>
+      <button class="tai-btn" style="flex:1" @click="downloadMd('gijiroku', '/export/gijiroku', 'gijiroku', 'gijiroku')" :disabled="!hasResult()">Download .md</button>
+    </div>
   </div>
   {% endif %}
 
@@ -83,5 +103,24 @@
     <button id="btn-txt" class="tai-btn-outline" style="width:100%" @click="exportAs('txt')" :disabled="!hasResult()">Download TXT</button>
   </div>
 
+</div>
+
+<div id="export-preview-panel" x-show="activePreview" x-cloak style="margin-top:2rem;">
+  <div class="card" style="border-top: 4px solid var(--sakura-deep); padding:0; overflow:hidden;">
+    <div style="display:flex; align-items:center; justify-content:space-between; padding:1.2rem 1.5rem; border-bottom:1px solid var(--border); background:var(--washi);">
+      <strong x-text="activePreview === 'gijiroku' ? '議事録 Preview' : 'Cultural Insights Preview'" style="color:var(--ink); font-size:1.05rem;"></strong>
+      <div style="display:flex; gap:0.6rem;">
+        <button class="tai-btn" style="padding:0.5rem 1.2rem;"
+                @click="activePreview === 'gijiroku' ? downloadMd('gijiroku','/export/gijiroku','gijiroku','gijiroku') : downloadMd('cultural','/export/cultural-insights','cultural_insights','cultural_insights')">
+          Download .md
+        </button>
+        <button class="tai-clear-btn" @click="closePreview()">Close</button>
+      </div>
+    </div>
+    <div style="padding:1.5rem 2rem; max-height:600px; overflow-y:auto;">
+      <div x-show="previews[activePreview]?.loading" style="color:var(--ink-soft); font-size:0.9rem;">Loading preview…</div>
+      <div x-show="!previews[activePreview]?.loading" x-html="previews[activePreview]?.html" class="tai-markdown-preview"></div>
+    </div>
+  </div>
 </div>
 {% endblock %}

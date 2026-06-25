@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/htmx/1.9.12/htmx.min.js" defer></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/alpinejs/3.14.1/cdn.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/16.3.0/lib/marked.umd.min.js" defer></script>
 </head>
 <body>
 <div class="tai-app" x-data="tai()" x-init="loadHistory()">
@@ -93,8 +94,8 @@
         <div class="tai-footer-title">AI Engineer &middot; LLM Systems &amp; RAG Pipelines &middot; Multilingual NLP</div>
         <div class="tai-footer-bio">
           I build AI to turn real problems into actual solutions &mdash; not proof-of-concepts that never ship.
-          TranscriptAI started because I kept forgetting my meetings &mdash; it became a trilingual intelligence platform
-          rebuilt five times until accuracy went from 22% to 93%.
+          TranscriptAI started because I kept forgetting my meetings &mdash; it became a trilingual intelligence platform,
+          fixed and refined until accuracy went from 22% to 93%.
         </div>
         <div class="tai-footer-links">
           <a class="tai-footer-link-pill tai-footer-link-gh"   href="https://github.com/aiKunalBisht"   target="_blank" rel="noopener">GitHub</a>
@@ -163,6 +164,11 @@ function tai() {
     history: [],
     transcriptText: '',
     analyzing: false,
+    activePreview: null,
+    previews: {
+      gijiroku: { markdown: '', html: '', loading: false },
+      cultural: { markdown: '', html: '', loading: false },
+    },
 
     loadHistory() {
       try {
@@ -264,33 +270,58 @@ function tai() {
         URL.revokeObjectURL(url);
       } finally { if (btn) btn.disabled = false; }
     },
-    async exportGijiroku() {
+    // ── Preview + Download for Japanese-format markdown exports ─────────────
+    // Shared by both the 議事録 and Cultural Insights cards. Fetches once,
+    // caches the markdown, and renders it via marked.js for the inline
+    // preview panel; the raw markdown is what actually gets downloaded.
+    async showPreview(key, endpoint, resultKey) {
       if (!this.lastResult) { alert('Run an analysis first.'); return; }
-      const r = await fetch('/export/gijiroku', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({result: this.lastResult})
-      });
-      if (!r.ok) { alert('Gijiroku export failed.'); return; }
-      const d    = await r.json();
-      const blob = new Blob([d.gijiroku], {type:'text/plain;charset=utf-8'});
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      a.href = url; a.download = 'gijiroku_'+Date.now()+'.txt';
-      document.body.appendChild(a); a.click(); a.remove();
-      URL.revokeObjectURL(url);
+      const state = this.previews[key];
+      this.activePreview = key;
+      if (!state.markdown) {
+        state.loading = true;
+        try {
+          const r = await fetch(endpoint, {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({result: this.lastResult})
+          });
+          const d = await r.json();
+          state.markdown = d[resultKey] || '';
+          state.html = (typeof marked !== 'undefined')
+            ? marked.parse(state.markdown)
+            : state.markdown.replace(/\n/g, '<br>');
+        } catch(e) {
+          state.html = '<p style="color:var(--red)">Preview failed to load.</p>';
+        }
+        state.loading = false;
+      }
+      this.$nextTick(() => document.getElementById('export-preview-panel')
+        ?.scrollIntoView({behavior:'smooth', block:'start'}));
     },
-    async exportCulturalInsights() {
+
+    closePreview() {
+      this.activePreview = null;
+    },
+
+    async downloadMd(key, endpoint, resultKey, filenamePrefix) {
       if (!this.lastResult) { alert('Run an analysis first.'); return; }
-      const r = await fetch('/export/cultural-insights', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({result: this.lastResult})
-      });
-      if (!r.ok) { alert('Cultural insights export failed.'); return; }
-      const d    = await r.json();
-      const blob = new Blob([d.cultural_insights], {type:'text/plain;charset=utf-8'});
+      const state = this.previews[key];
+      let markdown = state.markdown;
+      if (!markdown) {
+        try {
+          const r = await fetch(endpoint, {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({result: this.lastResult})
+          });
+          const d = await r.json();
+          markdown = d[resultKey] || '';
+          state.markdown = markdown;
+        } catch(e) { alert('Download failed.'); return; }
+      }
+      const blob = new Blob([markdown], {type:'text/markdown;charset=utf-8'});
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement('a');
-      a.href = url; a.download = 'cultural_insights_'+Date.now()+'.txt';
+      a.href = url; a.download = filenamePrefix+'_'+Date.now()+'.md';
       document.body.appendChild(a); a.click(); a.remove();
       URL.revokeObjectURL(url);
     }
