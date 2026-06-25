@@ -11,25 +11,8 @@ format_transcript_with_timestamps(segments) -> str. Fixed here.
 Also replicates app.py's actual two-step flow: upload/paste fills the
 transcript box first (/transcribe), then a single "Analyze" button runs
 the NLP pipeline (/analyze-text) — not a combined one-click upload+analyze.
-
-v3.2 fixes:
-  - BUG 1/2: Static files & templates now use absolute paths (Path(__file__).parent)
-              so they resolve correctly regardless of CWD on HF Spaces.
-              StaticFiles mount is guarded so a missing /static dir doesn't crash the app.
-  - BUG 3:   api.api sub-app import is wrapped in try/except so a missing module
-              doesn't prevent the main app from starting.
-  - BUG 4/5: PPTX export validates required keys and wraps build_pptx in try/except
-              so broken exports return a readable JSON error instead of a corrupt file.
-  - BUG 6:   Jinja2Templates uses absolute path (same fix as StaticFiles).
-  - BUG 7:   restore_pii_in_result is now gated on both PII_AVAILABLE and pii_mask.
-  - BUG 8:   Second detect_hindi_patterns import renamed to avoid silent overwrite.
-  - BUG 9:   Gijiroku export validates that format_gijiroku returns a non-None value.
-  - BUG 10:  /transcribe checks GROQ_API_KEY before attempting audio transcription.
-  - BUG 11:  _get_cache_stats logs exceptions instead of swallowing them silently.
-  - BUG 12:  CORS: allow_credentials=True is incompatible with allow_origins=["*"];
-              switched to allow_credentials=False.
 """
-import asyncio, io, json as _json, logging, os
+import asyncio, io, json as _json, os
 from pathlib import Path
 from typing import Optional
 
@@ -42,11 +25,6 @@ from fastapi.templating import Jinja2Templates
 from analysis.analyzer import analyze_transcript
 from utils import detect_language, clean_text, parse_uploaded_file
 from utils.html_renderer import build_results_html
-
-logger = logging.getLogger(__name__)
-
-# ── Absolute base directory (works regardless of CWD on HF Spaces) ───────────
-BASE_DIR = Path(__file__).parent
 
 # ── Optional modules — same guard pattern as app.py ───────────────────────────
 try:
@@ -89,10 +67,16 @@ except ImportError:
     GIJIROKU_AVAILABLE = False
 
 try:
-    from agents.slide_architect import build_slide_structure
+    from agents.slide_architect import SlideArchitectAgent
     SLIDE_ARCHITECT_AVAILABLE = True
 except ImportError:
     SLIDE_ARCHITECT_AVAILABLE = False
+
+try:
+    from agents.cultural_insights_formatter import format_cultural_insights
+    CULTURAL_INSIGHTS_AVAILABLE = True
+except ImportError:
+    CULTURAL_INSIGHTS_AVAILABLE = False
 
 # ── get_features — ported exactly from app.py's import/fallback chain ────────
 try:
@@ -108,9 +92,7 @@ except ImportError:
     ENGLISH_NLP_AVAILABLE = False
 
 try:
-    # BUG 8 FIX: renamed to _detect_hindi_nlp to avoid silently overwriting
-    # the detect_hindi_patterns already imported from utils.language_intelligence above.
-    from analysis.hindi_analyzer import detect_hindi_patterns as _detect_hindi_nlp
+    from analysis.hindi_analyzer import detect_hindi_patterns as detect_hindi_nlp
     HINDI_NLP_AVAILABLE = True
 except ImportError:
     HINDI_NLP_AVAILABLE = False
@@ -137,38 +119,13 @@ TEXT_EXT  = {".txt", ".vtt", ".json"}
 
 # ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(title="TranscriptAI", version="3.0.0", docs_url="/docs")
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
+                   allow_methods=["*"], allow_headers=["*"])
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
 
-# BUG 12 FIX: allow_credentials=True is spec-invalid with allow_origins=["*"].
-# Browsers reject credentialed preflight when origin is a wildcard.
-# Switched to allow_credentials=False.
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# BUG 1 & 2 FIX: use absolute paths so CWD on HF Spaces doesn't matter.
-# Guard the mount so a missing static/ dir doesn't crash the whole app on startup.
-_static_dir = BASE_DIR / "static"
-if _static_dir.exists():
-    app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
-else:
-    logger.warning(
-        "static/ directory not found at %s — CSS/JS will not be served. "
-        "Create the directory or check your repo structure.", _static_dir
-    )
-
-# BUG 6 FIX: absolute path for templates as well.
-templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
-
-# BUG 3 FIX: wrap sub-app import so a missing api/api.py doesn't kill the main app.
-try:
-    from api.api import app as _rest_api
-    app.mount("/api", _rest_api)
-except ImportError as _api_err:
-    logger.warning("api.api sub-app not available (%s) — /api routes will 404.", _api_err)
+from api.api import app as _rest_api
+app.mount("/api", _rest_api)
 
 
 # ── Shared: vector cache stats for the sidebar ────────────────────────────────
@@ -177,9 +134,7 @@ def _get_cache_stats():
         from utils.vector_cache import get_cache_stats
         vc = get_cache_stats()
         return vc if vc.get("available") else None
-    except Exception as exc:
-        # BUG 11 FIX: log instead of silently swallowing — helps surface deeper import failures.
-        logger.warning("vector cache stats unavailable: %s", exc)
+    except Exception:
         return None
 
 
@@ -192,9 +147,10 @@ async def index(request: Request):
 @app.get("/export", response_class=HTMLResponse)
 async def export_page(request: Request):
     return templates.TemplateResponse(request, "export.html", {
-        "pptx_available":     PPTX_AVAILABLE,
-        "gijiroku_available": GIJIROKU_AVAILABLE,
-        "cache_stats":        _get_cache_stats(),
+        "pptx_available":               PPTX_AVAILABLE,
+        "gijiroku_available":           GIJIROKU_AVAILABLE,
+        "cultural_insights_available":  CULTURAL_INSIGHTS_AVAILABLE,
+        "cache_stats":                  _get_cache_stats(),
     })
 
 
@@ -226,15 +182,6 @@ async def transcribe(file: UploadFile = File(...)):
     if ext in AUDIO_EXT:
         if not AUDIO_AVAILABLE:
             return JSONResponse({"success": False, "error": "Audio transcription module unavailable."})
-
-        # BUG 10 FIX: surface a clear message when the API key is missing rather
-        # than letting transcribe_audio raise an opaque AuthenticationError.
-        if not os.getenv("GROQ_API_KEY"):
-            return JSONResponse({
-                "success": False,
-                "error": "GROQ_API_KEY is not set — audio transcription is unavailable on this deployment.",
-            })
-
         size_mb = len(content) / (1024 * 1024)
         if size_mb > MAX_FILE_SIZE_MB:
             return JSONResponse({"success": False, "error": f"File too large ({size_mb:.1f} MB). Max: {MAX_FILE_SIZE_MB} MB"})
@@ -287,11 +234,8 @@ async def analyze_text_route(
 
         result = await asyncio.to_thread(analyze_transcript, text_to_analyze, detected_lang)
 
-        # BUG 7 FIX: gate restore on PII_AVAILABLE *and* pii_mask to avoid
-        # calling an unavailable function if the logic path changes.
-        if PII_AVAILABLE and pii_mask is not None:
+        if pii_mask is not None:
             result = restore_pii_in_result(result, pii_mask)
-
         if SOFT_REJECTION_AVAILABLE:
             result["soft_rejections"] = detect_soft_rejections(cleaned)
 
@@ -310,23 +254,26 @@ async def analyze_text_route(
 # ── Export ────────────────────────────────────────────────────────────────────
 @app.post("/export/pptx")
 async def export_pptx(request: Request):
-    if not PPTX_AVAILABLE:
+    """
+    FIX: this route used to call build_pptx(analysis_result) directly —
+    build_pptx() needs a PresentationPlan (meeting_title/total_slides/
+    executive_summary/slides), not the raw analysis result (full_summary/
+    action_items/speakers/...). Those are different shapes. That mismatch
+    is exactly what produced "'dict' object has no attribute 'slides'" —
+    the missing step was SlideArchitectAgent.plan(), which converts one
+    into the other. Restored here.
+    """
+    if not PPTX_AVAILABLE or not SLIDE_ARCHITECT_AVAILABLE:
         raise HTTPException(503, "PPTX builder not available")
-    body = await request.json()
+    body   = await request.json()
+    result = body.get("result", body)
 
-    # BUG 4 FIX: validate the payload has a "result" key with meaningful content
-    # before passing it to build_pptx.  Return a clear 422 instead of a corrupt file.
-    result_data = body.get("result", body)
-    if not isinstance(result_data, dict) or not result_data:
-        raise HTTPException(422, "Request body must contain a non-empty 'result' object.")
-
-    # BUG 5 FIX: wrap build_pptx so any exception returns a readable JSON error.
-    try:
-        pptx_bytes = await asyncio.to_thread(build_pptx, result_data)
-    except Exception as exc:
-        logger.exception("build_pptx failed")
-        return JSONResponse({"error": f"PPTX generation failed: {exc}"}, status_code=500)
-
+    from analysis.analyzer import _get_groq_key
+    agent = SlideArchitectAgent(groq_api_key=_get_groq_key())
+    plan  = await asyncio.to_thread(
+        agent.plan, result, result.get("_detected_language", "en")
+    )
+    pptx_bytes = await asyncio.to_thread(build_pptx, plan)
     return StreamingResponse(
         io.BytesIO(pptx_bytes),
         media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -334,23 +281,21 @@ async def export_pptx(request: Request):
     )
 
 
+@app.post("/export/cultural-insights")
+async def export_cultural_insights(request: Request):
+    if not CULTURAL_INSIGHTS_AVAILABLE:
+        raise HTTPException(503, "Cultural insights formatter not available")
+    body = await request.json()
+    text = await asyncio.to_thread(format_cultural_insights, body.get("result", body))
+    return JSONResponse({"cultural_insights": text})
+
+
 @app.post("/export/gijiroku")
 async def export_gijiroku(request: Request):
     if not GIJIROKU_AVAILABLE:
         raise HTTPException(503, "Gijiroku not available")
     body = await request.json()
-    result_data = body.get("result", body)
-
-    # BUG 9 FIX: validate format_gijiroku returns a usable value.
-    try:
-        text = await asyncio.to_thread(format_gijiroku, result_data)
-    except Exception as exc:
-        logger.exception("format_gijiroku failed")
-        return JSONResponse({"error": f"Gijiroku formatting failed: {exc}"}, status_code=500)
-
-    if text is None:
-        return JSONResponse({"error": "format_gijiroku returned no output."}, status_code=500)
-
+    text = await asyncio.to_thread(format_gijiroku, body.get("result", body))
     return JSONResponse({"gijiroku": text})
 
 
@@ -386,7 +331,9 @@ async def export_json_route(request: Request):
 
 @app.post("/export/txt")
 async def export_txt_route(request: Request):
-    """Plain-text export — same content as Markdown, no markdown syntax."""
+    """Plain-text export — same content as Markdown, no markdown syntax.
+    Added per request: simplest, most universally-readable format, last
+    in the export lineup."""
     body = await request.json()
     r    = body.get("result", body)
     lines = ["MEETING ANALYSIS", "=" * 40, ""]
@@ -426,7 +373,6 @@ async def health():
         "status": "healthy", "version": "3.0.0", "mode": "fastapi+jinja2+htmx",
         "provider": "groq" if os.getenv("GROQ_API_KEY") else "mock",
         "appi_compliant": PII_AVAILABLE,
-        "static_dir_exists": _static_dir.exists(),
         "modules": {
             "audio":              AUDIO_AVAILABLE,
             "pii_masker":         PII_AVAILABLE,
@@ -434,6 +380,7 @@ async def health():
             "hallucination":      HALLUCINATION_GUARD_AVAILABLE,
             "pptx":               PPTX_AVAILABLE,
             "gijiroku":           GIJIROKU_AVAILABLE,
+            "cultural_insights":  CULTURAL_INSIGHTS_AVAILABLE,
             "slide_architect":    SLIDE_ARCHITECT_AVAILABLE,
             "language_intel":     LANGUAGE_INTEL_AVAILABLE,
         },

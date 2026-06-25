@@ -374,3 +374,18 @@ def render_text(plan: GijirokulPlan) -> str:
     ]
 
     return "\n".join(lines)
+
+
+def format_gijiroku(analysis: dict, as_markdown: bool = False, **kwargs) -> str:
+    """
+    Convenience wrapper — this is what main.py actually imports.
+    GijirokulFormatter/render_text/render_markdown above are the building
+    blocks; main.py expects a single function: dict in, finished string out.
+
+    analysis: the full analyze_transcript() result dict
+    as_markdown: False (default) -> render_text(); True -> render_markdown()
+    kwargs: forwarded to GijirokulFormatter().format() (recorder, basho,
+            jikai_yotei, timestamp) if a caller ever wants to override them
+    """
+    plan = GijirokulFormatter().format(analysis, **kwargs)
+    return render_markdown(plan) if as_markdown else render_text(plan)
