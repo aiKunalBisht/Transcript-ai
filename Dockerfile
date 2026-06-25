@@ -20,4 +20,6 @@ ENV TRANSCRIPT_AI_PROVIDER=auto
 
 CMD ["uvicorn", "main:app", \
     "--host=0.0.0.0", \
-    "--port=7860"]
+    "--port=7860", \
+    "--proxy-headers", \
+    "--forwarded-allow-ips=*"]

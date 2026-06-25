@@ -1,0 +1,10 @@
+[33md3b95f7[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31mhf/main[m[33m, [m[1;31mhf/HEAD[m[33m)[m fix: sync main.py and templates
+[33m991df60[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m Fix:Trying hf UI error to fix default pptx to fix
+[33md00ea16[m Fix: Hugging face live demo faliur fixed
+[33mc363dc2[m Fix: Common Q/A testing error fix
+[33m42f16d0[m Fix:UI and responsiveness fixed
+[33m2b1fca0[m FIX: complete architecture reset and now its on fast api in place of streamlit
+[33m7d01d05[m chore: remove legacy Streamlit entrypoint — fully replaced by main.py + templates/ in v3.0
+[33m6f034cc[m chore: snapshot before removing legacy Streamlit files
+[33m4ebbb28[m fix: Adding new security feature and site will be down and saving the update
+[33m1eae74d[m fix: sidebar top gap — target correct DOM level + pull nav out of flow
