@@ -2,14 +2,14 @@
 
 :root {
     /* Neo-Zen Palette */
-    --washi:        #FAFAFA; /* Ultra-clean light gray/white */
+    --washi:        #FAFAFA;
     --surface:      #FFFFFF;
     --surface-warm: #FFF5F7;
     --border:       #E5E7EB;
     --border-mid:   #D1D5DB;
     
     /* Typography Colors */
-    --ink:          #111827; /* Deep Indigo-Black */
+    --ink:          #111827;
     --ink-mid:      #4B5563;
     --ink-soft:     #6B7280;
     --ink-faint:    #9CA3AF;
@@ -56,7 +56,6 @@ html, body {
     -moz-osx-font-smoothing: grayscale;
     scroll-behavior: smooth;
     background-color: var(--washi);
-    /* Subtle modern dot-grid background */
     background-image: radial-gradient(var(--border) 1px, transparent 1px);
     background-size: 24px 24px;
     min-height: 100vh;
@@ -139,8 +138,76 @@ html, body {
 .tai-cache-pill { font-size: 0.75rem; font-weight: 600; color: var(--green); background: var(--green-bg); border: 1px solid #A7F3D0; border-radius: 8px; padding: 0.5rem 0.8rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 6px; }
 
 .tai-history-empty { font-size: 0.8rem; color: var(--ink-faint); padding: 0.5rem 0; font-style: italic; }
-.tai-history-item { display: block; width: 100%; text-align: left; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 0.6rem 0.8rem; margin-bottom: 0.5rem; font-size: 0.8rem; font-weight: 500; color: var(--ink-mid); cursor: pointer; transition: all 0.2s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tai-history-item:hover { border-color: var(--sakura-light); background: var(--sakura-pale); color: var(--sakura-deep); transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+
+/* ── History list: expand-on-hover ───────────────────────────────
+   Each item is normally collapsed to one line with the label clipped.
+   On hover/focus, that specific item expands to show the full label
+   and elevates slightly; all others remain clipped.
+   ────────────────────────────────────────────────────────────────── */
+.tai-history-list { display: flex; flex-direction: column; gap: 0; }
+
+.tai-history-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.45rem;
+    width: 100%;
+    text-align: left;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.55rem 0.75rem;
+    margin-bottom: 0.4rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--ink-mid);
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s, box-shadow 0.2s, transform 0.2s;
+    /* Default: clipped to one line */
+    overflow: hidden;
+    max-height: 2.4rem;       /* ≈ 1 line + padding */
+}
+
+.tai-history-icon {
+    flex-shrink: 0;
+    font-size: 0.75rem;
+    line-height: 1.6;
+    opacity: 0.6;
+}
+
+/* Label: clipped by default, wraps when expanded */
+.tai-history-label {
+    flex: 1;
+    min-width: 0;
+    line-height: 1.55;
+    /* Clipped state */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: white-space 0.15s;
+}
+
+/* Expanded state: this specific item only */
+.tai-history-item--active {
+    border-color: var(--sakura-light);
+    background: var(--sakura-pale);
+    color: var(--sakura-deep);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-sm);
+    max-height: none;          /* allow full height */
+    overflow: visible;
+    z-index: 1;
+}
+
+.tai-history-item--active .tai-history-label {
+    white-space: normal;       /* wrap to full text */
+    overflow: visible;
+    text-overflow: clip;
+}
+
+.tai-history-item--active .tai-history-icon {
+    opacity: 1;
+    margin-top: 0.05rem;       /* stay top-aligned when label wraps */
+}
 
 .tai-details { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); margin-bottom: 1rem; overflow: hidden; }
 .tai-details summary { font-weight: 600; color: var(--ink); font-size: 0.85rem; padding: 0.8rem 1rem; cursor: pointer; list-style: none; background: var(--washi); }
@@ -255,6 +322,7 @@ html, body {
 .tai-radio-tabs { display: contents; }
 .tai-radio-tabs input[type="radio"] { display: none; }
 .tai-tab-bar { display: flex; gap: 0.5rem; border-bottom: 2px solid var(--border); margin-bottom: 0; overflow-x: auto; scrollbar-width: none; }
+.tai-tab-bar::-webkit-scrollbar { display: none; }
 .tai-tab-label {
     padding: 1rem 1.5rem; font-size: 0.9rem; font-weight: 600; color: var(--ink-soft);
     cursor: pointer; white-space: nowrap; transition: all 0.2s; margin-bottom: -2px;
@@ -339,18 +407,291 @@ html, body {
 .tai-footer-stack { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
 .tai-footer-chip { font-size: 0.75rem; padding: 4px 12px; border-radius: 6px; background: var(--washi); color: var(--ink-mid); border: 1px solid var(--border); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
 
-/* ── Mobile Responsiveness ────────────────────────────────────── */
-@media (max-width: 900px) {
-    .tai-app { flex-direction: column; }
-    .tai-sidebar { width: 100%; height: auto; position: relative; border-right: none; border-bottom: 1px solid var(--border); padding: 1.5rem; }
-    .tai-main { padding: 1.5rem 1rem 3rem; }
-    .tai-upload, .tai-textarea { padding: 1.5rem 1rem; }
-    .tai-header h1 { font-size: 2rem; }
-    .tai-tab-label { padding: 0.8rem 1rem; font-size: 0.85rem; }
-    .tai-panel { padding: 1.2rem; }
+/* ═══════════════════════════════════════════════════════════════
+   MOBILE HAMBURGER MENU
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Hamburger button — hidden on desktop */
+.tai-hamburger {
+    display: none;
+    position: fixed;
+    top: 1rem;
+    left: 1rem;
+    z-index: 200;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.5rem 0.65rem;
+    cursor: pointer;
+    box-shadow: var(--shadow-md);
+    flex-direction: column;
+    gap: 5px;
+    align-items: center;
+    justify-content: center;
 }
-@media (max-width: 480px) {
-    .tai-header h1 { font-size: 1.75rem; }
-    .tai-tiles { grid-template-columns: 1fr; }
-    .tai-footer-card { padding: 1.5rem; }
+.tai-hamburger span {
+    display: block;
+    width: 20px;
+    height: 2px;
+    background: var(--ink);
+    border-radius: 2px;
+    transition: all 0.3s;
+}
+.tai-hamburger.open span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+.tai-hamburger.open span:nth-child(2) { opacity: 0; }
+.tai-hamburger.open span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+
+/* Sidebar overlay backdrop — mobile only */
+.tai-sidebar-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    z-index: 99;
+    backdrop-filter: blur(2px);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   RESPONSIVE BREAKPOINTS
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Tablet & small laptop (≤ 1024px) ───────────────────────── */
+@media (max-width: 1024px) {
+    :root { --sidebar-w: 260px; }
+    .tai-main { padding: 2rem 2rem 4rem; }
+}
+
+/* ── Tablet (≤ 900px) — sidebar collapses to off-canvas ──────── */
+@media (max-width: 900px) {
+    .tai-hamburger { display: flex; }
+
+    .tai-app { flex-direction: column; }
+
+    /* Sidebar becomes a fixed off-canvas drawer */
+    .tai-sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 280px;
+        max-width: 85vw;
+        height: 100vh;
+        z-index: 100;
+        transform: translateX(-100%);
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        border-right: 1px solid var(--border);
+        box-shadow: 4px 0 32px rgba(0,0,0,0.12);
+        overflow-y: auto;
+    }
+    .tai-sidebar.open {
+        transform: translateX(0);
+    }
+    .tai-sidebar-overlay {
+        display: block;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.3s;
+    }
+    .tai-sidebar-overlay.open {
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    /* Main takes full width, add top padding for hamburger */
+    .tai-main {
+        padding: 4.5rem 1.2rem 3rem;
+        width: 100%;
+        max-width: 100%;
+    }
+
+    /* Transcript input: stack upload + textarea vertically */
+    [x-data*="uploading"] {
+        grid-template-columns: 1fr !important;
+    }
+
+    /* Header adjustments */
+    .tai-header { padding: 1rem 0 1.5rem; }
+    .tai-header h1 { font-size: 1.9rem; }
+    .tai-header-icon { font-size: 3.5rem; }
+    .tai-header-badges { gap: 0.4rem; }
+    .tai-hbadge { font-size: 0.65rem; padding: 0.25rem 0.6rem; }
+
+    /* Tile grid: 2 cols */
+    .tai-tiles { grid-template-columns: repeat(2, 1fr); gap: 0.75rem; margin-bottom: 1.5rem; }
+    .tai-tile { padding: 1.1rem 0.75rem; }
+    .tai-tile-val { font-size: 1.6rem; }
+
+    /* Tab bar: smaller padding, horizontal scroll */
+    .tai-tab-label { padding: 0.75rem 0.9rem; font-size: 0.82rem; }
+    .tai-panel { padding: 1.2rem; }
+
+    /* Sample buttons wrap nicely */
+    .tai-sample-row { gap: 0.4rem; }
+    .tai-sample-btn { font-size: 0.75rem; padding: 0.45rem 0.85rem; }
+
+    /* Export cards: single column */
+    .tai-export-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    /* Upload area: reduce padding */
+    .tai-upload { padding: 1.8rem 1rem; }
+    .tai-textarea { min-height: 160px; padding: 1rem; }
+
+    /* Footer */
+    .tai-footer { margin-top: 2.5rem; padding: 2rem 0; }
+    .tai-footer-card { padding: 1.5rem 1rem; border-radius: 16px; }
+    .tai-footer-name { font-size: 1.2rem; }
+    .tai-footer-bio { font-size: 0.88rem; }
+    .tai-footer-link-pill { padding: 0.5rem 0.9rem; font-size: 0.8rem; }
+
+    /* Modal adjustments */
+    .tai-md-modal { border-radius: 12px; }
+    .tai-md-modal-body { padding: 1rem 1.2rem 1.5rem; }
+    .tai-md-modal-header { padding: 0.9rem 1.1rem; }
+}
+
+/* ── Mobile (≤ 600px) — tighten further ─────────────────────── */
+@media (max-width: 600px) {
+    .tai-main { padding: 4rem 0.9rem 3rem; }
+
+    .tai-header h1 { font-size: 1.6rem; }
+    .tai-header-kicker { font-size: 0.65rem; }
+
+    /* Tiles: 2 cols still works, just tighter */
+    .tai-tiles { gap: 0.6rem; }
+    .tai-tile { padding: 0.9rem 0.5rem; border-radius: 12px; }
+    .tai-tile-icon { font-size: 1.4rem; }
+    .tai-tile-val { font-size: 1.4rem; }
+    .tai-tile-lbl { font-size: 0.62rem; }
+
+    /* Tab labels: even tighter */
+    .tai-tab-label { padding: 0.65rem 0.7rem; font-size: 0.78rem; }
+    .tai-panel { padding: 1rem 0.9rem; }
+
+    /* Analyze button: full width */
+    .tai-btn[\\@click="runAnalyze()"],
+    button[\\@click="runAnalyze()"] { width: 100%; justify-content: center; }
+
+    /* Progress bar full width */
+    .tai-progress-track { max-width: 100%; }
+
+    /* Export button full width on mobile */
+    .tai-btn-outline[style*="width:100%"] { font-size: 0.88rem; padding: 0.7rem 1rem; }
+
+    /* Action cards: reduce gap */
+    .tai-action-card { padding: 1rem; gap: 0.75rem; }
+    .tai-bullet-card { padding: 0.9rem 1rem; gap: 0.75rem; }
+    .tai-sent-row { padding: 0.9rem 1rem; }
+
+    /* Footer stack */
+    .tai-footer-links { gap: 8px; }
+    .tai-footer-chip { font-size: 0.7rem; padding: 3px 9px; }
+
+    /* Modal: full screen on mobile */
+    .tai-md-modal-overlay { padding: 0; align-items: flex-end; }
+    .tai-md-modal {
+        border-radius: 16px 16px 0 0;
+        max-height: 92vh;
+        width: 100%;
+        max-width: 100%;
+    }
+    .tai-md-modal-actions { gap: 0.3rem; }
+    .tai-md-view-toggle button { padding: 0.3rem 0.6rem; font-size: 0.72rem; }
+    .tai-md-modal-header-title { font-size: 0.9rem; }
+}
+
+/* ── Very small phones (≤ 380px) ────────────────────────────── */
+@media (max-width: 380px) {
+    .tai-main { padding: 3.8rem 0.75rem 2.5rem; }
+    .tai-header h1 { font-size: 1.4rem; }
+    .tai-tiles { grid-template-columns: repeat(2, 1fr); }
+    .tai-tab-label { padding: 0.6rem 0.55rem; font-size: 0.72rem; }
+    .tai-hbadge { display: none; }
+    .tai-header-badges .tai-hbadge:first-child,
+    .tai-header-badges .tai-hbadge:nth-child(2) { display: inline-block; }
+}
+
+/* ── Health widget responsive ────────────────────────────────── */
+.tai-health {
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 1.5rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    box-shadow: var(--shadow-sm);
+    align-items: center;
+}
+.tai-health-title {
+    font-size: 0.7rem; font-weight: 800; color: var(--ink-faint);
+    letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 0.8rem;
+}
+@media (max-width: 600px) {
+    .tai-health {
+        grid-template-columns: 1fr;
+        text-align: center;
+        gap: 1rem;
+        padding: 1.2rem;
+    }
+    .tai-health-left { display: flex; justify-content: center; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TOAST NOTIFICATION (no-analysis blocker)
+   ═══════════════════════════════════════════════════════════════ */
+@keyframes tai-toast-in {
+    from { opacity: 0; transform: translateX(-50%) translateY(12px); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   EXPORT CARDS GRID — responsive 3-zone layout
+   Desktop  (≥900px):  2 × N  two equal columns
+   Tablet  (600-900):  2 × N  same, slightly tighter gap
+   Mobile   (<600px):  1 col  full-width stacked
+   ═══════════════════════════════════════════════════════════════ */
+.tai-export-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.25rem;
+    margin-top: 2rem;
+    align-items: start;
+}
+
+/* Featured card (PPTX) spans full width — anchors the grid */
+.tai-export-grid > .tai-export-card-featured {
+    grid-column: 1 / -1;
+}
+
+@media (max-width: 900px) {
+    .tai-export-grid {
+        gap: 1rem;
+        margin-top: 1.5rem;
+    }
+}
+
+@media (max-width: 600px) {
+    .tai-export-grid {
+        grid-template-columns: 1fr;
+        gap: 0.9rem;
+        margin-top: 1.2rem;
+    }
+    .tai-export-grid > .tai-export-card-featured {
+        grid-column: auto;
+    }
+    /* Stack dual-button rows on Japanese-format cards */
+    .tai-export-card-btns {
+        flex-direction: column !important;
+    }
+    .tai-export-card-btns .tai-btn,
+    .tai-export-card-btns .tai-btn-outline {
+        width: 100%;
+    }
+}
+
+/* Dim cards visually when no analysis is loaded */
+.tai-export-grid .card:has(button:disabled) {
+    opacity: 0.72;
 }

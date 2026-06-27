@@ -17,12 +17,49 @@ Fields mapped from analysis_result:
 
 Output: plain dict ready for both .txt and .md rendering.
 Caller decides the format — this class only structures the data.
+
+FIX (v2): analysis.get(key, default) only falls back to `default` when the
+key is MISSING — not when it's present with an explicit null. The analyzer's
+LLM step occasionally returns null instead of [] for an empty list field
+(more likely on harder/garbled transcripts), and _validate_and_fill()'s
+setdefault() doesn't catch that either, since the key already exists. That
+previously left raw_decisions/raw_speakers/raw_actions/bullets as None,
+which either skipped an assignment entirely (NameError on kettei_jiko) or
+tried to iterate None directly (TypeError). Every extraction below now uses
+the same `analysis.get(key, default) or default` guard that soft_rejections/
+conversation_dynamics/role_hints already used further down in this file.
+
+FIX (v3): the 日時 (nichiji) line used to build its value with
+datetime.now().strftime("%Y年%m月%d日 %H:%M") — i.e. literal Japanese
+characters embedded directly inside the strftime format string. On Windows,
+CPython's strftime hands that format string to the CRT, which has to
+round-trip it through the process's active locale codepage before calling
+the underlying C function. On any machine whose active locale isn't a
+Japanese codepage, that round-trip can't encode 年/月/日 and raises:
+    UnicodeEncodeError: 'locale' codec can't encode character '\u5e74'
+    in position 2: encoding error
+(position 2 is exactly where 年 sits in "%Y年%m月%d日 %H:%M" — confirmed
+against the real error text, not guessed). This is a known, widely
+reported Windows-only CRT quirk; Linux's glibc doesn't round-trip through
+a codepage this way, so it won't reproduce in most container deployments —
+which is exactly why it can stay hidden until someone runs the app locally
+on a non-Japanese-locale Windows machine. The fix below never lets a CJK
+literal anywhere near strftime: only the numeric %Y/%m/%d/%H/%M-equivalent
+fields (pure ASCII, always safe) are produced via formatting; the
+年/月/日 literals are spliced in afterward with a plain f-string.
 """
 
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Optional
 from datetime import datetime
+
+
+def _get(d: dict, key: str, default):
+    """dict.get() that also coalesces an explicit None to `default` — the
+    one-line fix for the whole class of bug this file hit."""
+    v = d.get(key, default)
+    return v if v is not None else default
 
 
 @dataclass
@@ -72,6 +109,8 @@ class GijirokulPlan:
 
     def __post_init__(self):
         if not self.generated_at:
+            # ASCII-only format string ("-", ":", " ") — never touches the
+            # locale codepage, so this one was never at risk. Left as-is.
             self.generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
 
 
@@ -98,29 +137,39 @@ class GijirokulFormatter:
         )
 
         # ── 日時 ────────────────────────────────────────────────
+        # FIX (v3): do NOT pass 年/月/日 as literal characters inside a
+        # strftime format string — see module docstring for why. Only the
+        # numeric fields go through Python's own :02d zero-padding (pure
+        # Python, not the CRT); the CJK literals are spliced in afterward.
         if timestamp:
             nichiji = timestamp
         else:
-            nichiji = datetime.now().strftime("%Y年%m月%d日 %H:%M")
+            now = datetime.now()
+            nichiji = (
+                f"{now.year}年{now.month:02d}月{now.day:02d}日 "
+                f"{now.hour:02d}:{now.minute:02d}"
+            )
 
         # ── 出席者 ──────────────────────────────────────────────
         # analysis.speakers can be:
         #   list of str: ["Kenji", "Client"]
         #   list of dict: [{"name": "Kenji", "role": "Engineer"}]
-        raw_speakers = analysis.get("speakers", [])
+        # FIX: guard against an explicit `null` from the LLM, not just a
+        # missing key — `.get(key, [])` alone does NOT catch that case.
+        raw_speakers = _get(analysis, "speakers", [])
         shussekisha = []
         for s in raw_speakers:
             if isinstance(s, dict):
-                name = s.get("name", "不明")
-                role = s.get("role", "")
-                talk = s.get("talk_time_pct", "")
+                name = s.get("name") or "不明"
+                role = s.get("role") or ""
+                talk = s.get("talk_time_pct")
                 entry = name
                 if role:
                     entry += f"（{role}）"
                 if talk:
                     entry += f" — 発言比率 {talk}%"
                 shussekisha.append(entry)
-            elif isinstance(s, str):
+            elif isinstance(s, str) and s:
                 shussekisha.append(s)
 
         if not shussekisha:
@@ -129,9 +178,9 @@ class GijirokulFormatter:
         # ── 議題 ────────────────────────────────────────────────
         # Use key_decisions as starting point, fall back to summary bullets
         gidai = []
-        bullets = analysis.get("summary", [])
+        bullets = _get(analysis, "summary", [])
         if isinstance(bullets, list):
-            gidai = [b for b in bullets if b and len(b.strip()) > 4]
+            gidai = [b for b in bullets if isinstance(b, str) and len(b.strip()) > 4]
         elif isinstance(bullets, str) and bullets.strip():
             # summary is a single string — split at sentence boundaries
             import re
@@ -140,14 +189,18 @@ class GijirokulFormatter:
 
         # fallback: use full_summary first sentence
         if not gidai:
-            full = analysis.get("full_summary", "")
+            full = analysis.get("full_summary") or ""
             if full:
                 gidai = [full[:120] + ("..." if len(full) > 120 else "")]
             else:
                 gidai = ["議題情報なし / Agenda not extracted"]
 
         # ── 決定事項 ────────────────────────────────────────────
-        raw_decisions = analysis.get("key_decisions", [])
+        # FIX: this is the exact spot that crashed — if raw_decisions was
+        # None, neither branch below fired and kettei_jiko was referenced
+        # before assignment (NameError). `_get(...)` makes that impossible.
+        raw_decisions = _get(analysis, "key_decisions", [])
+        kettei_jiko: List[str] = []
         if isinstance(raw_decisions, list):
             kettei_jiko = [str(d) for d in raw_decisions if d]
         elif isinstance(raw_decisions, str):
@@ -157,13 +210,15 @@ class GijirokulFormatter:
             kettei_jiko = ["明示的な決定事項なし / No explicit decisions recorded"]
 
         # ── アクションアイテム ──────────────────────────────────
-        raw_actions = analysis.get("action_items", [])
+        # FIX: same guard — `for item in raw_actions` would raise TypeError
+        # if action_items came back as an explicit null.
+        raw_actions = _get(analysis, "action_items", [])
         action_items = []
         for item in raw_actions:
             if isinstance(item, dict):
-                task     = item.get("task", "")
-                owner    = item.get("owner", "TBD")
-                deadline = item.get("deadline", "未定")
+                task     = item.get("task") or ""
+                owner    = item.get("owner") or "TBD"
+                deadline = item.get("deadline") or "未定"
                 flag     = bool(item.get("hallucination_flag", False))
                 if task:
                     action_items.append(ActionItem(
@@ -184,9 +239,9 @@ class GijirokulFormatter:
         # ── 特記事項 (soft rejection risk + conversation dynamics) ──
         tokki_jiko_parts = []
         soft = analysis.get("soft_rejections", {}) or {}
-        risk = soft.get("risk_level", "NONE")
-        signals = soft.get("total_signals", 0)
-        note = soft.get("cultural_note", "")
+        risk = soft.get("risk_level") or "NONE"
+        signals = soft.get("total_signals") or 0
+        note = soft.get("cultural_note") or ""
 
         if risk in ("MEDIUM", "HIGH") and signals > 0:
             part = (
@@ -201,12 +256,12 @@ class GijirokulFormatter:
         closing = dynamics.get("closing_summarizer", {}) or {}
         if closing.get("detected"):
             tokki_jiko_parts.append(
-                f"【発言順序の注記】{closing.get('explanation', '')}"
+                f"【発言順序の注記】{closing.get('explanation') or ''}"
             )
-        for stall in dynamics.get("topic_stalls", []):
-            tokki_jiko_parts.append(f"【議題の保留と再提起】{stall.get('explanation', '')}")
-        for pivot in dynamics.get("senior_silence_pivots", []):
-            tokki_jiko_parts.append(f"【発言パターンの注記】{pivot.get('explanation', '')}")
+        for stall in (dynamics.get("topic_stalls") or []):
+            tokki_jiko_parts.append(f"【議題の保留と再提起】{stall.get('explanation') or ''}")
+        for pivot in (dynamics.get("senior_silence_pivots") or []):
+            tokki_jiko_parts.append(f"【発言パターンの注記】{pivot.get('explanation') or ''}")
 
         tokki_jiko = "\n\n".join(tokki_jiko_parts) if tokki_jiko_parts else None
 
@@ -215,7 +270,11 @@ class GijirokulFormatter:
         # .extract_role_hints) — never guessed when no roles are detected.
         role_hints = analysis.get("role_hints") or dynamics.get("role_hints") or {}
         ranked = sorted(
-            ((name, h.get("role", ""), h.get("rank", 0)) for name, h in role_hints.items()),
+            (
+                (name, (h.get("role") or "") if isinstance(h, dict) else "",
+                 (h.get("rank") or 0) if isinstance(h, dict) else 0)
+                for name, h in role_hints.items()
+            ),
             key=lambda x: -x[2],
         )
         approval_chain = [
@@ -238,7 +297,7 @@ class GijirokulFormatter:
             jikai_yotei=jikai_yotei,
             kirokusha=recorder,
             tokki_jiko=tokki_jiko,
-            language=analysis.get("language", "ja"),
+            language=analysis.get("language") or "ja",
             approval_chain=approval_chain,
         )
 
@@ -325,6 +384,13 @@ def render_text(plan: GijirokulPlan) -> str:
     """Renders GijirokulPlan as plain-text 議事録 (email/Slack safe)."""
     lines = []
 
+    # FIX: format-spec width (e.g. "{x:<15}") raises TypeError on None —
+    # plain f-string interpolation ({x}) does not, since it implicitly
+    # calls str(). Coalescing here makes render_text() safe even if some
+    # upstream field slips through as None.
+    def _s(v):
+        return v if v is not None else ""
+
     lines += [
         "議　事　録",
         "=" * 50,
@@ -352,7 +418,7 @@ def render_text(plan: GijirokulPlan) -> str:
     lines.append(f"  {'─'*14} {'─'*11} {'─'*30}")
     for a in plan.action_items:
         flag = " [要確認]" if a.flag else ""
-        lines.append(f"  {a.owner:<15} {a.deadline:<12} {a.task}{flag}")
+        lines.append(f"  {_s(a.owner):<15} {_s(a.deadline):<12} {_s(a.task)}{flag}")
 
     lines += [_DIVIDER_TXT, "【次回予定】", f"  {plan.jikai_yotei}"]
 
@@ -363,7 +429,7 @@ def render_text(plan: GijirokulPlan) -> str:
     lines.append(f"  {'承認者':<15} {'役職':<12} 状態")
     lines.append(f"  {'─'*14} {'─'*11} {'─'*10}")
     for step in plan.approval_chain:
-        lines.append(f"  {step.approver:<15} {(step.role or '—'):<12} {step.status}")
+        lines.append(f"  {_s(step.approver):<15} {_s(step.role or '—'):<12} {step.status}")
     lines.append("")
     lines.append("  ※ この議事録は確定版ではなく、関係者の確認・承認を経て最終版となります。")
     lines.append("  ※ Not final — circulates for review and approval before being confirmed.")

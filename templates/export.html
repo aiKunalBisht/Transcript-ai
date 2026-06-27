@@ -4,6 +4,7 @@
 
 {% block content %}
 <style>
+/* ── Markdown preview ── */
 .tai-markdown-preview h1 { font-size:1.6rem; font-weight:800; color:var(--ink); margin:0 0 0.8rem; font-family:'Noto Sans JP',sans-serif; }
 .tai-markdown-preview h2 { font-size:1.2rem; font-weight:800; color:var(--sakura-deep); margin:1.6rem 0 0.8rem; padding-bottom:0.4rem; border-bottom:2px solid var(--border); font-family:'Noto Sans JP',sans-serif; }
 .tai-markdown-preview h3 { font-size:1rem; font-weight:700; color:var(--ink); margin:1.2rem 0 0.5rem; }
@@ -15,6 +16,68 @@
 .tai-markdown-preview table { width:100%; border-collapse:collapse; margin:0.8rem 0 1.2rem; font-size:0.88rem; }
 .tai-markdown-preview th { background:var(--washi); color:var(--ink-mid); font-weight:800; text-align:left; padding:0.6rem 0.8rem; border-bottom:2px solid var(--border); font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em; }
 .tai-markdown-preview td { padding:0.6rem 0.8rem; border-bottom:1px solid var(--border); color:var(--ink); }
+.tai-markdown-preview code { background:var(--washi); border:1px solid var(--border); border-radius:4px; padding:0.1em 0.4em; font-size:0.85em; color:var(--sakura-deep); }
+.tai-markdown-preview pre { background:var(--washi); border:1px solid var(--border); border-radius:8px; padding:1rem; overflow-x:auto; margin:0.8rem 0; }
+.tai-markdown-preview pre code { background:none; border:none; padding:0; color:var(--ink); }
+.tai-markdown-preview blockquote { border-left:3px solid var(--sakura); margin:0.8rem 0; padding:0.5rem 1rem; background:var(--sakura-pale); border-radius:0 8px 8px 0; }
+
+/* ── Full-screen markdown viewer modal ── */
+.tai-md-modal-overlay {
+  position:fixed; inset:0;
+  background:rgba(0,0,0,0.55);
+  backdrop-filter:blur(4px);
+  z-index:1000;
+  display:flex; align-items:flex-start; justify-content:center;
+  padding:2rem 1rem;
+  overflow-y:auto;
+}
+.tai-md-modal {
+  background:var(--surface,#fff);
+  border-radius:16px;
+  width:100%; max-width:820px;
+  box-shadow:0 24px 60px rgba(0,0,0,0.25);
+  display:flex; flex-direction:column;
+  max-height:90vh;
+  overflow:hidden;
+}
+.tai-md-modal-header {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:1.1rem 1.5rem;
+  border-bottom:1px solid var(--border);
+  background:var(--washi);
+  position:sticky; top:0; z-index:1;
+  border-radius:16px 16px 0 0;
+  flex-shrink:0;
+  flex-wrap:wrap; gap:0.5rem;
+}
+.tai-md-modal-header-title {
+  font-weight:800; font-size:1.05rem; color:var(--ink);
+  font-family:'Noto Sans JP',sans-serif;
+  display:flex; align-items:center; gap:0.5rem;
+}
+.tai-md-modal-actions { display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap; }
+.tai-md-modal-body { flex:1; overflow-y:auto; padding:1.5rem 2rem 2rem; }
+.tai-md-modal-loading { text-align:center; padding:3rem; color:var(--ink-soft); font-size:0.9rem; }
+.tai-md-modal-loading-spinner {
+  display:inline-block; width:28px; height:28px;
+  border:3px solid var(--border); border-top-color:var(--sakura-deep);
+  border-radius:50%; animation:spin 0.8s linear infinite; margin-bottom:0.8rem;
+}
+@keyframes spin { to { transform:rotate(360deg); } }
+.tai-md-view-toggle { display:flex; gap:0; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+.tai-md-view-toggle button { padding:0.35rem 0.8rem; font-size:0.78rem; font-weight:600; background:transparent; border:none; cursor:pointer; color:var(--ink-soft); transition:background 0.15s; }
+.tai-md-view-toggle button.active { background:var(--sakura-pale); color:var(--sakura-deep); }
+.tai-md-view-toggle button:hover:not(.active) { background:var(--washi); }
+
+/* Mobile modal → bottom sheet */
+@media (max-width:640px) {
+  .tai-md-modal-overlay { padding:0; align-items:flex-end; }
+  .tai-md-modal { border-radius:16px 16px 0 0; max-height:92vh; max-width:100%; }
+  .tai-md-modal-body { padding:1rem 1rem 1.5rem; }
+  .tai-md-modal-header { padding:0.9rem 1rem; }
+  .tai-md-modal-header-title { font-size:0.9rem; }
+  .tai-md-view-toggle button { padding:0.3rem 0.6rem; font-size:0.72rem; }
+}
 </style>
 
 <div class="tai-header">
@@ -26,101 +89,272 @@
   </div>
 </div>
 
-<div class="card" x-show="!hasResult()" x-cloak style="border-left:4px solid var(--sakura); background:var(--sakura-pale);">
-  <strong style="color:var(--sakura-deep); font-size:1.1rem; display:block; margin-bottom:8px;">No analysis loaded</strong>
-  <span style="color:var(--ink-mid); font-size:0.9rem;">You need to run an analysis first before generating exports.</span><br><br>
-  <a href="/" target="_self" style="color:var(--sakura-deep);font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:4px;">
-    Go to Analysis Page 
-    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+<!-- No-analysis banner (always visible when no result) -->
+<div class="card" x-show="!hasResult()" x-cloak
+     style="border-left:4px solid var(--sakura); background:var(--sakura-pale); margin-top:1rem;">
+  <strong style="color:var(--sakura-deep); font-size:1.05rem; display:block; margin-bottom:6px;">
+    No analysis loaded
+  </strong>
+  <span style="color:var(--ink-mid); font-size:0.88rem; line-height:1.6;">
+    Run an analysis on the main page first — the export buttons will unlock automatically once results are ready.
+  </span>
+  <br><br>
+  <a href="/" target="_self"
+     style="color:var(--sakura-deep);font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:5px;font-size:0.9rem;">
+    Go to Analysis Page
+    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
   </a>
 </div>
 
-<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));gap:1.5rem;margin-top:2rem;">
+<!-- ── Export cards grid ─────────────────────────────────────────── -->
+<div class="tai-export-grid">
 
+  <!-- PPTX — featured full-width card on desktop -->
   {% if pptx_available %}
-  <div class="card" style="border-top: 4px solid var(--sakura-deep);">
-    <span class="tai-hbadge" style="color:var(--sakura-deep);background:var(--sakura-pale);border-color:var(--sakura-light);">Primary Format</span>
-    <div style="font-weight:800;font-size:1.2rem;color:var(--ink);margin:0.8rem 0 0.5rem;">Slide Deck (.pptx)</div>
-    <div style="font-size:0.85rem;color:var(--ink-mid);margin-bottom:1.5rem;line-height:1.6;min-height:45px;">
-      Midnight Executive layout — automated summaries, action items, speaker breakdowns, and AI risk flags.
-    </div>
-    <button id="btn-pptx" class="tai-btn" style="width:100%" @click="exportAs('pptx')" :disabled="!hasResult()">Download PPTX</button>
-  </div>
-  {% endif %}
-
-  {% if cultural_insights_available %}
-  <div class="card" x-show="lastResult && (lastResult._detected_language === 'ja' || lastResult._detected_language === 'mixed')" x-cloak style="border-top: 4px solid var(--sakura-deep);">
-    <span class="tai-hbadge" style="color:var(--sakura-deep);background:var(--sakura-pale);border-color:var(--sakura-light);">Japanese Format</span>
-    <div style="font-weight:800;font-size:1.2rem;color:var(--ink);margin:0.8rem 0 0.5rem;">Cultural Insights (日本ビジネス文化)</div>
-    <div style="font-size:0.85rem;color:var(--ink-mid);margin-bottom:1.5rem;line-height:1.6;min-height:45px;">
-      根回し risk, 稟議 approval status, and meeting dynamics — the business-culture layer, not raw NLP metrics.
-    </div>
-    <div style="display:flex; gap:0.6rem;">
-      <button class="tai-btn-outline" style="flex:1" @click="showPreview('cultural', '/export/cultural-insights', 'cultural_insights')" :disabled="!hasResult()">Preview</button>
-      <button class="tai-btn" style="flex:1" @click="downloadMd('cultural', '/export/cultural-insights', 'cultural_insights', 'cultural_insights')" :disabled="!hasResult()">Download .md</button>
-    </div>
-  </div>
-  {% endif %}
-
-  {% if gijiroku_available %}
-  <div class="card" x-show="lastResult && (lastResult._detected_language === 'ja' || lastResult._detected_language === 'mixed')" x-cloak style="border-top: 4px solid var(--sakura-deep);">
-    <span class="tai-hbadge" style="color:var(--sakura-deep);background:var(--sakura-pale);border-color:var(--sakura-light);">Japanese Format</span>
-    <div style="font-weight:800;font-size:1.2rem;color:var(--ink);margin:0.8rem 0 0.5rem;">議事録 (Minutes)</div>
-    <div style="font-size:0.85rem;color:var(--ink-mid);margin-bottom:1.5rem;line-height:1.6;min-height:45px;">
-      Structured Japanese business meeting minutes, following standard 議事録 format conventions.
-    </div>
-    <div style="display:flex; gap:0.6rem;">
-      <button class="tai-btn-outline" style="flex:1" @click="showPreview('gijiroku', '/export/gijiroku', 'gijiroku')" :disabled="!hasResult()">Preview</button>
-      <button class="tai-btn" style="flex:1" @click="downloadMd('gijiroku', '/export/gijiroku', 'gijiroku', 'gijiroku')" :disabled="!hasResult()">Download .md</button>
-    </div>
-  </div>
-  {% endif %}
-
-  <div class="card">
-    <span class="tai-hbadge" style="color:var(--green);background:var(--green-bg);border-color:#A7F3D0;">Standard</span>
-    <div style="font-weight:800;font-size:1.2rem;color:var(--ink);margin:0.8rem 0 0.5rem;">Markdown Notes (.md)</div>
-    <div style="font-size:0.85rem;color:var(--ink-mid);margin-bottom:1.5rem;line-height:1.6;min-height:45px;">
-      Action items, sentiments, and speakers perfectly formatted for Notion, Obsidian, or GitHub.
-    </div>
-    <button id="btn-markdown" class="tai-btn-outline" style="width:100%" @click="exportAs('markdown')" :disabled="!hasResult()">Download Markdown</button>
-  </div>
-
-  <div class="card">
-    <span class="tai-hbadge" style="color:var(--ink-mid);background:var(--washi);border-color:var(--border-mid);">Developer</span>
-    <div style="font-weight:800;font-size:1.2rem;color:var(--ink);margin:0.8rem 0 0.5rem;">Raw Analysis (.json)</div>
-    <div style="font-size:0.85rem;color:var(--ink-mid);margin-bottom:1.5rem;line-height:1.6;min-height:45px;">
-      Full structured output for pipelines — confidence scores, soft rejections, PII report, and logic flags.
-    </div>
-    <button id="btn-json" class="tai-btn-outline" style="width:100%" @click="exportAs('json')" :disabled="!hasResult()">Download JSON</button>
-  </div>
-
-  <div class="card">
-    <span class="tai-hbadge" style="color:var(--ink-mid);background:var(--washi);border-color:var(--border-mid);">Universal</span>
-    <div style="font-weight:800;font-size:1.2rem;color:var(--ink);margin:0.8rem 0 0.5rem;">Plain Text (.txt)</div>
-    <div style="font-size:0.85rem;color:var(--ink-mid);margin-bottom:1.5rem;line-height:1.6;min-height:45px;">
-      Syntax-free content for emails, Slack dropping, or older legacy systems that require raw text.
-    </div>
-    <button id="btn-txt" class="tai-btn-outline" style="width:100%" @click="exportAs('txt')" :disabled="!hasResult()">Download TXT</button>
-  </div>
-
-</div>
-
-<div id="export-preview-panel" x-show="activePreview" x-cloak style="margin-top:2rem;">
-  <div class="card" style="border-top: 4px solid var(--sakura-deep); padding:0; overflow:hidden;">
-    <div style="display:flex; align-items:center; justify-content:space-between; padding:1.2rem 1.5rem; border-bottom:1px solid var(--border); background:var(--washi);">
-      <strong x-text="activePreview === 'gijiroku' ? '議事録 Preview' : 'Cultural Insights Preview'" style="color:var(--ink); font-size:1.05rem;"></strong>
-      <div style="display:flex; gap:0.6rem;">
-        <button class="tai-btn" style="padding:0.5rem 1.2rem;"
-                @click="activePreview === 'gijiroku' ? downloadMd('gijiroku','/export/gijiroku','gijiroku','gijiroku') : downloadMd('cultural','/export/cultural-insights','cultural_insights','cultural_insights')">
-          Download .md
+  <div class="card tai-export-card-featured" style="border-top:4px solid var(--sakura-deep);">
+    <div style="display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; gap:1rem;">
+      <div style="flex:1; min-width:200px;">
+        <span class="tai-hbadge" style="color:var(--sakura-deep);background:var(--sakura-pale);border-color:var(--sakura-light);">⭐ Primary Format</span>
+        <div style="font-weight:800;font-size:1.25rem;color:var(--ink);margin:0.8rem 0 0.4rem;">Slide Deck (.pptx)</div>
+        <div style="font-size:0.85rem;color:var(--ink-mid);line-height:1.6;">
+          Midnight Executive layout — automated summaries, action items, speaker breakdowns, and AI risk flags. Ready to present.
+        </div>
+      </div>
+      <div style="display:flex; align-items:center; flex-shrink:0;">
+        <button id="btn-pptx" class="tai-btn"
+                style="min-width:160px;"
+                @click="hasResult() ? exportAs('pptx') : taiShowNoAnalysisToast()"
+                :style="!hasResult() ? 'opacity:0.55;cursor:not-allowed;' : ''">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+          Download PPTX
         </button>
-        <button class="tai-clear-btn" @click="closePreview()">Close</button>
       </div>
     </div>
-    <div style="padding:1.5rem 2rem; max-height:600px; overflow-y:auto;">
-      <div x-show="previews[activePreview]?.loading" style="color:var(--ink-soft); font-size:0.9rem;">Loading preview…</div>
-      <div x-show="!previews[activePreview]?.loading" x-html="previews[activePreview]?.html" class="tai-markdown-preview"></div>
+  </div>
+  {% endif %}
+
+  <!-- Cultural Insights (Japanese only) -->
+  {% if cultural_insights_available %}
+  <div class="card"
+       x-show="lastResult && (lastResult._detected_language === 'ja' || lastResult._detected_language === 'mixed')"
+       x-cloak
+       style="border-top:4px solid var(--sakura-deep);">
+    <span class="tai-hbadge" style="color:var(--sakura-deep);background:var(--sakura-pale);border-color:var(--sakura-light);">🗾 Japanese Format</span>
+    <div style="font-weight:800;font-size:1.15rem;color:var(--ink);margin:0.8rem 0 0.4rem;">Cultural Insights<br><span style="font-size:0.9rem;font-weight:600;color:var(--sakura-deep);">日本ビジネス文化</span></div>
+    <div style="font-size:0.85rem;color:var(--ink-mid);margin-bottom:1.4rem;line-height:1.6;">
+      根回し risk, 稟議 approval status, and meeting dynamics — the business-culture layer, not raw NLP metrics.
+    </div>
+    <div class="tai-export-card-btns" style="display:flex; gap:0.6rem;">
+      <button class="tai-btn-outline" style="flex:1;"
+              @click="hasResult() ? openMdModal('cultural','/export/cultural-insights','cultural_insights','cultural_insights','文化的洞察 — Cultural Insights') : taiShowNoAnalysisToast()"
+              :style="!hasResult() ? 'opacity:0.55;cursor:not-allowed;' : ''">
+        Preview
+      </button>
+      <button class="tai-btn" style="flex:1;"
+              @click="hasResult() ? downloadMd('cultural','/export/cultural-insights','cultural_insights','cultural_insights') : taiShowNoAnalysisToast()"
+              :style="!hasResult() ? 'opacity:0.55;cursor:not-allowed;filter:grayscale(40%);' : ''">
+        Download .md
+      </button>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- 議事録 (Japanese only) -->
+  {% if gijiroku_available %}
+  <div class="card"
+       x-show="lastResult && (lastResult._detected_language === 'ja' || lastResult._detected_language === 'mixed')"
+       x-cloak
+       style="border-top:4px solid var(--sakura-deep);">
+    <span class="tai-hbadge" style="color:var(--sakura-deep);background:var(--sakura-pale);border-color:var(--sakura-light);">🗾 Japanese Format</span>
+    <div style="font-weight:800;font-size:1.15rem;color:var(--ink);margin:0.8rem 0 0.4rem;">議事録<br><span style="font-size:0.9rem;font-weight:600;color:var(--sakura-deep);">Meeting Minutes</span></div>
+    <div style="font-size:0.85rem;color:var(--ink-mid);margin-bottom:1.4rem;line-height:1.6;">
+      Structured Japanese business meeting minutes, following standard 議事録 format conventions.
+    </div>
+    <div class="tai-export-card-btns" style="display:flex; gap:0.6rem;">
+      <button class="tai-btn-outline" style="flex:1;"
+              @click="hasResult() ? openMdModal('gijiroku','/export/gijiroku','gijiroku','gijiroku','議事録 — Meeting Minutes') : taiShowNoAnalysisToast()"
+              :style="!hasResult() ? 'opacity:0.55;cursor:not-allowed;' : ''">
+        Preview
+      </button>
+      <button class="tai-btn" style="flex:1;"
+              @click="hasResult() ? downloadMd('gijiroku','/export/gijiroku','gijiroku','gijiroku') : taiShowNoAnalysisToast()"
+              :style="!hasResult() ? 'opacity:0.55;cursor:not-allowed;filter:grayscale(40%);' : ''">
+        Download .md
+      </button>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Markdown Notes -->
+  <div class="card">
+    <span class="tai-hbadge" style="color:var(--green);background:var(--green-bg);border-color:#A7F3D0;">Standard</span>
+    <div style="font-weight:800;font-size:1.15rem;color:var(--ink);margin:0.8rem 0 0.4rem;">Markdown Notes (.md)</div>
+    <div style="font-size:0.85rem;color:var(--ink-mid);margin-bottom:1.4rem;line-height:1.6;">
+      Action items, sentiments, and speakers formatted for Notion, Obsidian, or GitHub.
+    </div>
+    <button id="btn-markdown" class="tai-btn-outline" style="width:100%;"
+            @click="hasResult() ? exportAs('markdown') : taiShowNoAnalysisToast()"
+            :style="!hasResult() ? 'opacity:0.55;cursor:not-allowed;' : ''">
+      Download Markdown
+    </button>
+  </div>
+
+  <!-- Raw JSON -->
+  <div class="card">
+    <span class="tai-hbadge" style="color:var(--ink-mid);background:var(--washi);border-color:var(--border-mid);">Developer</span>
+    <div style="font-weight:800;font-size:1.15rem;color:var(--ink);margin:0.8rem 0 0.4rem;">Raw Analysis (.json)</div>
+    <div style="font-size:0.85rem;color:var(--ink-mid);margin-bottom:1.4rem;line-height:1.6;">
+      Full structured output — confidence scores, soft rejections, PII report, and logic flags.
+    </div>
+    <button id="btn-json" class="tai-btn-outline" style="width:100%;"
+            @click="hasResult() ? exportAs('json') : taiShowNoAnalysisToast()"
+            :style="!hasResult() ? 'opacity:0.55;cursor:not-allowed;' : ''">
+      Download JSON
+    </button>
+  </div>
+
+  <!-- Plain Text -->
+  <div class="card">
+    <span class="tai-hbadge" style="color:var(--ink-mid);background:var(--washi);border-color:var(--border-mid);">Universal</span>
+    <div style="font-weight:800;font-size:1.15rem;color:var(--ink);margin:0.8rem 0 0.4rem;">Plain Text (.txt)</div>
+    <div style="font-size:0.85rem;color:var(--ink-mid);margin-bottom:1.4rem;line-height:1.6;">
+      Syntax-free content for emails, Slack, or legacy systems that require raw text.
+    </div>
+    <button id="btn-txt" class="tai-btn-outline" style="width:100%;"
+            @click="hasResult() ? exportAs('txt') : taiShowNoAnalysisToast()"
+            :style="!hasResult() ? 'opacity:0.55;cursor:not-allowed;' : ''">
+      Download TXT
+    </button>
+  </div>
+
+</div><!-- /.tai-export-grid -->
+
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     Markdown Viewer Modal
+     ═══════════════════════════════════════════════════════════════════ -->
+<div class="tai-md-modal-overlay"
+     x-show="mdModal.open"
+     x-cloak
+     @click.self="closeMdModal()"
+     @keydown.escape.window="closeMdModal()">
+
+  <div class="tai-md-modal" @click.stop>
+
+    <div class="tai-md-modal-header">
+      <div class="tai-md-modal-header-title">
+        <span>📄</span>
+        <span x-text="mdModal.title"></span>
+      </div>
+      <div class="tai-md-modal-actions">
+        <div class="tai-md-view-toggle" x-show="!mdModal.loading">
+          <button :class="mdModal.view==='rendered'?'active':''" @click="mdModal.view='rendered'">Preview</button>
+          <button :class="mdModal.view==='raw'?'active':''"      @click="mdModal.view='raw'">Raw .md</button>
+        </div>
+        <button class="tai-btn" style="padding:0.4rem 1rem;font-size:0.85rem;"
+                x-show="!mdModal.loading"
+                @click="downloadMd(mdModal.cacheKey,mdModal.endpoint,mdModal.resultKey,mdModal.filenamePrefix)">
+          ⬇ Download .md
+        </button>
+        <button class="tai-clear-btn" @click="closeMdModal()" title="Close">
+          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+            <path d="M18 6L6 18M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="tai-md-modal-body">
+      <div class="tai-md-modal-loading" x-show="mdModal.loading">
+        <div class="tai-md-modal-loading-spinner"></div>
+        <div>Loading document…</div>
+      </div>
+      <div x-show="!mdModal.loading && mdModal.error"
+           style="color:var(--red);padding:1.5rem;text-align:center;font-size:0.9rem;">
+        <span x-text="mdModal.error"></span>
+      </div>
+      <div x-show="!mdModal.loading && !mdModal.error && mdModal.view==='rendered'"
+           x-html="mdModal.html"
+           class="tai-markdown-preview">
+      </div>
+      <pre x-show="!mdModal.loading && !mdModal.error && mdModal.view==='raw'"
+           style="white-space:pre-wrap;font-size:0.82rem;font-family:'Courier New',monospace;
+                  color:var(--ink-mid);line-height:1.7;background:var(--washi);
+                  border:1px solid var(--border);border-radius:8px;padding:1.2rem;
+                  overflow-x:auto;margin:0;"
+           x-text="mdModal.markdown"></pre>
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+document.addEventListener('alpine:init', () => {
+  const _originalTai = window.tai;
+  window.tai = function() {
+    const base = _originalTai();
+    return Object.assign(base, {
+
+      mdModal: {
+        open: false, loading: false, error: null,
+        title: '', html: '', markdown: '',
+        view: 'rendered',
+        cacheKey: '', endpoint: '', resultKey: '', filenamePrefix: '',
+      },
+
+      async openMdModal(cacheKey, endpoint, resultKey, filenamePrefix, title) {
+        if (!this.lastResult) { taiShowNoAnalysisToast(); return; }
+        this.mdModal.open          = true;
+        this.mdModal.title         = title;
+        this.mdModal.cacheKey      = cacheKey;
+        this.mdModal.endpoint      = endpoint;
+        this.mdModal.resultKey     = resultKey;
+        this.mdModal.filenamePrefix = filenamePrefix;
+        this.mdModal.view          = 'rendered';
+        this.mdModal.error         = null;
+
+        const cached = this.previews[cacheKey];
+        if (cached && cached.markdown) {
+          this.mdModal.markdown = cached.markdown;
+          this.mdModal.html     = cached.html;
+          this.mdModal.loading  = false;
+          return;
+        }
+
+        this.mdModal.loading  = true;
+        this.mdModal.markdown = '';
+        this.mdModal.html     = '';
+        try {
+          const r = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ result: this.lastResult }),
+          });
+          if (!r.ok) {
+            let detail = `Server returned ${r.status}`;
+            try { const eb = await r.json(); if (eb && eb.error) detail = eb.error; } catch(_) {}
+            throw new Error(detail);
+          }
+          const d  = await r.json();
+          const md = d[resultKey] || '';
+          const html = (typeof marked !== 'undefined') ? marked.parse(md) : md.replace(/\n/g,'<br>');
+          this.mdModal.markdown = md;
+          this.mdModal.html     = html;
+          if (this.previews[cacheKey]) {
+            this.previews[cacheKey].markdown = md;
+            this.previews[cacheKey].html     = html;
+          }
+        } catch(e) {
+          this.mdModal.error = `Failed to load document: ${e.message}`;
+        } finally {
+          this.mdModal.loading = false;
+        }
+      },
+
+      closeMdModal() { this.mdModal.open = false; },
+    });
+  };
+});
+</script>
 {% endblock %}
