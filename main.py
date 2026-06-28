@@ -141,8 +141,24 @@ def _has_speaker_labels(text: str) -> bool:
     )
     return hits >= 2
 
+def _strip_markdown_bold(text: str) -> str:
+    # Remove markdown bold markers from speaker labels before analysis.
+    # '**Japanese Director:** text' becomes 'Japanese Director: text'
+    cleaned = []
+    for line in text.split('\n'):
+        stripped = line
+        # Handle **Name:** and **Name：** at start of line
+        if stripped.startswith('**'):
+            stripped = stripped[2:]
+        # Remove any remaining ** pairs
+        stripped = stripped.replace('**', '')
+        cleaned.append(stripped)
+    return '\n'.join(cleaned)
+
 def _ensure_speaker_labels(text: str):
     """Return (processed_text, was_unlabeled)."""
+    # Always strip markdown bold first — **Name:** → Name:
+    text = _strip_markdown_bold(text)
     if _has_speaker_labels(text):
         return text, False
     paragraphs = [p.strip() for p in _re.split(r"\n{2,}", text) if p.strip()]

@@ -82,6 +82,7 @@ JP_TERMINATION_PHRASES = [
 # ════════════════════════════════════════════════════════════════════════════════
 
 EN_HIGH_PHRASES = [
+    # Performance failure — precede termination
     ("results have not met our expectations",        "Results did not meet expectations"),
     ("not met our expectations",                     "Expectations unmet"),
     ("did not meet our expectations",                "Past tense — expectations not met"),
@@ -90,9 +91,20 @@ EN_HIGH_PHRASES = [
     ("did not observe sufficient improvement",       "No improvement observed"),
     ("multiple opportunities to improve",            "Multiple chances given — precedes termination"),
     ("despite multiple opportunities",               "Despite opportunities given"),
+    # はい / Yes trap — acknowledgement mistaken for approval
+    ("i did not say the proposal was approved",      "Explicit correction — yes did NOT mean approval"),
+    ("does not mean i agree",                        "Clarification that yes = understanding not agreement"),
+    ("yes often means that i understand",            "Cultural clarification of はい meaning"),
+    ("need to review the proposal internally",       "Internal review still pending — no decision made"),
+    ("still need to review",                         "Decision explicitly deferred"),
+    ("before making any decision",                   "No decision made yet — pending"),
+    ("will contact you after the internal review",   "Deferred — awaiting internal ringi process"),
+    ("internal review is complete",                  "Approval gated on internal review"),
+    ("after the internal review",                    "Decision deferred to after review"),
 ]
 
 JP_HIGH_PHRASES = [
+    # Performance failure
     ("期待に達していませんでした",               "Did not meet expectations (past)"),
     ("期待に達していません",                     "Has not met expectations"),
     ("十分な改善は見られませんでした",            "Insufficient improvement observed"),
@@ -101,6 +113,14 @@ JP_HIGH_PHRASES = [
     ("改善は見られませんでした",                  "No improvement was observed"),
     ("結果は私たちの期待に達していません",         "Results did not meet our expectations"),
     ("何度も機会を提供しました",                  "Multiple opportunities were provided"),
+    # はい / Yes trap patterns
+    ("承認されたとは申し上げておりません",        "I did not say it was approved — はい ≠ 承認"),
+    ("社内で提案内容を検討する必要があります",    "Internal review still needed — no decision yet"),
+    ("社内での検討が終わり次第",                  "Will contact after internal review — decision deferred"),
+    ("決定を下す前に",                            "Before making any decision — explicitly unresolved"),
+    ("はい」は相手の話を理解したという意味",      "Explicit cultural clarification: はい = understanding not approval"),
+    ("必ずしも賛成や承認を意味するわけではありません", "Yes does not necessarily mean agreement or approval"),
+    ("ご提案の内容は理解しました",                "I understand the proposal — NOT approval (classic はい trap)"),
 ]
 
 
@@ -182,6 +202,40 @@ SOFT_PATTERNS = [
         "explanation": "Deliberation request — deferral signal.",
     },
     # Add your remaining existing patterns here
+    # ── はい / Yes Trap patterns ──────────────────────────────────────────────
+    {
+        "phrase": "承知しました",
+        "reading": "Shōchi shimashita",
+        "english": "I understand / Noted",
+        "confidence": 0.78,
+        "explanation": (
+            "承知しました = 'I have understood' — commonly mistaken for agreement or approval "
+            "by non-Japanese speakers. In this context it means the content was received, "
+            "NOT that the proposal, request, or decision has been accepted."
+        ),
+    },
+    {
+        "phrase": "はい、承知しました",
+        "reading": "Hai, shōchi shimashita",
+        "english": "Yes, I understand (not: Yes, I approve)",
+        "confidence": 0.85,
+        "explanation": (
+            "The combination of はい + 承知しました is the most common はい trap. "
+            "Both words signal understanding and active listening, not approval. "
+            "Indian and Western counterparts frequently interpret this as a yes to their proposal."
+        ),
+    },
+    {
+        "phrase": "ご提案の内容は理解しました",
+        "reading": "Go-teian no naiyō wa rikai shimashita",
+        "english": "I understand the content of your proposal (not: I approve it)",
+        "confidence": 0.90,
+        "explanation": (
+            "理解しました = 'I have understood'. This is specifically used to close off the "
+            "Indian rep's assumption that approval was given. High confidence signal that "
+            "no decision has been made."
+        ),
+    },
 ]
 
 
