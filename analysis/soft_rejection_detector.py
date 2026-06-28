@@ -120,7 +120,6 @@ JP_HIGH_PHRASES = [
     ("決定を下す前に",                            "Before making any decision — explicitly unresolved"),
     ("はい」は相手の話を理解したという意味",      "Explicit cultural clarification: はい = understanding not approval"),
     ("必ずしも賛成や承認を意味するわけではありません", "Yes does not necessarily mean agreement or approval"),
-    ("ご提案の内容は理解しました",                "I understand the proposal — NOT approval (classic はい trap)"),
 ]
 
 
@@ -201,8 +200,78 @@ SOFT_PATTERNS = [
         "confidence": 0.65,
         "explanation": "Deliberation request — deferral signal.",
     },
-    # Add your remaining existing patterns here
-    # ── はい / Yes Trap patterns ──────────────────────────────────────────────
+# ── Restored from the pre-v3.2 pattern set (were dropped in the rewrite) ──
+    {
+        "phrase": "難しいかもしれません",
+        "reading": "Muzukashii kamoshiremasen",
+        "english": "It may be difficult",
+        "confidence": 0.90,
+        "explanation": "Classic soft rejection — direct 'no' is culturally avoided.",
+    },
+    {
+        "phrase": "対応しかねます",
+        "reading": "Taiō shikanemasu",
+        "english": "We are unable to accommodate",
+        "confidence": 0.95,
+        "explanation": "One of the most direct soft rejections — formal and definitive.",
+    },
+    {
+        "phrase": "いたしかねます",
+        "reading": "Itashikanemasu",
+        "english": "We are unable to do that",
+        "confidence": 0.95,
+        "explanation": "Formal polite rejection — very definitive despite soft delivery.",
+    },
+    {
+        "phrase": "善処します",
+        "reading": "Zensho shimasu",
+        "english": "I will handle it appropriately",
+        "confidence": 0.68,
+        "explanation": "Vague commitment with no concrete action.",
+    },
+    {
+        "phrase": "確認してみます",
+        "reading": "Kakunin shite mimasu",
+        "english": "I will try to confirm",
+        "confidence": 0.50,
+        "explanation": "Genuine uncertainty or deferral, may need superior's approval.",
+    },
+    {
+        "phrase": "社内で確認",
+        "reading": "Shanai de kakunin",
+        "english": "Will confirm internally",
+        "confidence": 0.48,
+        "explanation": "Internal confirmation pending — decision not yet made.",
+    },
+    {
+        "phrase": "上司に相談",
+        "reading": "Jōshi ni sōdan",
+        "english": "Will consult with my superior",
+        "confidence": 0.50,
+        "explanation": "Escalation to a superior — may be genuine or a delaying tactic.",
+    },
+    {
+        "phrase": "少し懸念",
+        "reading": "Sukoshi kenen",
+        "english": "A little concerned",
+        "confidence": 0.40,
+        "explanation": "Signals discomfort or disagreement expressed indirectly.",
+    },
+    {
+        "phrase": "懸念がございます",
+        "reading": "Kenen ga gozaimasu",
+        "english": "There are concerns",
+        "confidence": 0.45,
+        "explanation": "Formal expression of concern, speaker disagrees indirectly.",
+    },
+    {
+        "phrase": "そうですね",
+        "reading": "Sō desu ne",
+        "english": "That's right / I see",
+        "confidence": 0.25,
+        "explanation": "Ambiguous — genuine agreement OR filler to avoid disagreement.",
+    },
+        # ── はい / Yes Trap patterns ──────────────────────────────────────────────
     {
         "phrase": "承知しました",
         "reading": "Shōchi shimashita",
@@ -420,5 +489,12 @@ def detect_soft_rejections(transcript: str) -> dict:
         "low_signals":          low_signals,
         "termination_detected": termination_detected,
         "termination_signals":  termination_signals,
-        "cultural_note":        cultural_note,
+"cultural_note":        cultural_note,
+        "detected": (
+            [{**s, "severity": "HIGH"}   for s in termination_signals] +
+            [{**s, "severity": "HIGH"}   for s in high_signals] +
+            [{**s, "severity": "MEDIUM"} for s in medium_signals] +
+            [{**s, "severity": "LOW"}    for s in low_signals]
+        ),
+        "risk_summary": cultural_note,
     }
