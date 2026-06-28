@@ -590,7 +590,7 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
     else:
         ins_html = "<div style='color:#A87868;font-size:0.85rem;padding:1rem 0;line-height:1.7'>Cultural intelligence features apply to Japanese and Hindi transcripts.</div>"
 
-    insight_label = features.get('insight_tab_label', '🌐 Insights') or "インサイト"
+    insight_label = features.get('insight_tab_label', '🌐 Insights') or "Insights"
 
     # 議事録 format banner
     gijiroku_format_banner = ""
