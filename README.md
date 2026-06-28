@@ -15,7 +15,7 @@
 
 </div>
 
----
+*Turns any meeting transcript into structured business intelligence in ~3 seconds.*
 
 ## The Problem No Generic AI Tool Solves
 
@@ -55,7 +55,11 @@ Output: Structured business intelligence in ~3 seconds
 - **Vector cache** — ChromaDB semantic similarity for instant return on similar transcripts
 - **2-key Groq rotation** — auto-failover on 429 rate limits
 
----
+| What was said | Generic AI | TranscriptAI |
+|---|---|---|
+| 検討いたします | "Action: We will consider it" | ⚠ Soft rejection — 72% confidence |
+| 難しいかもしれません | "It may be difficult" — neutral | 🚨 HIGH rejection signal — deal at risk |
+| パートナーシップは継続しないことを決定しました | "Decision made" | ⛔ CRITICAL — Explicit contract termination |
 
 ## Accuracy History
 
@@ -122,8 +126,6 @@ Input transcript
 git clone https://github.com/aiKunalBisht/Transcript-ai.git
 cd Transcript-ai
 pip install -r requirements.txt
-
-# Set your free Groq key (get one at console.groq.com)
 export GROQ_API_KEY=your_key_here
 
 # FastAPI (docs at localhost:7860/docs)
@@ -138,7 +140,7 @@ ollama pull qwen3:8b
 
 ---
 
-## Project Structure
+## Accuracy
 
 ```
 main.py                           FastAPI server + route handlers
