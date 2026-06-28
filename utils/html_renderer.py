@@ -1,15 +1,13 @@
 """
-utils/html_renderer.py
-Ported directly from app.py v7.6's local build_results_html() and helpers.
-
-This file previously held a stale, older version of these functions.
-app.py never imported from here — it defined its own copy inline.
-This replacement makes utils/html_renderer.py match what app.py v7.6
-actually renders, so main.py (which already imports from here) produces
-the real output instead of the outdated one.
-
-Nothing in this file's LOGIC has been changed from app.py v7.6 — only
-moved into its own module so main.py can import it.
+utils/html_renderer.py  — TranscriptAI v3.1
+============================================
+v3.1 fixes:
+  - Health score caps at 22 for explicit contract termination meetings
+  - CRITICAL risk level added to all color maps
+  - Termination detected banner in Insights tab (purple, distinct from soft-rejection)
+  - Unlabeled transcript warning banner
+  - Sentiment scoring concept updated: communicative register, not emotional valence
+    (affects the label strings shown in the Sentiment tab subtitle)
 """
 from utils.utils import language_display_name
 
@@ -41,6 +39,9 @@ def _health_ring(score: int, color: str) -> str:
     circ = 2 * 3.14159 * r
     dash = circ * score / 100
     label = ("Excellent" if score >= 80 else "Good" if score >= 60 else "Fair" if score >= 40 else "At Risk")
+    # Override label for very low scores (termination)
+    if score <= 22:
+        label = "Terminated"
     return (
         f"<div style='text-align:center'>"
         f"<svg width='{size}' height='{size}' viewBox='0 0 {size} {size}'>"
@@ -83,15 +84,15 @@ def _build_gijiroku_preview(R: dict, language: str) -> str:
         action_rows = "".join(
             f"<tr><td style='padding:5px 10px;font-size:0.75rem;color:#7A5040;border-bottom:1px solid #EFE2D8;'>{a.owner}</td>"
             f"<td style='padding:5px 10px;font-size:0.75rem;color:#3C2416;border-bottom:1px solid #EFE2D8;'>{a.task}"
-            ("" if not a.flag else "<span style='color:#963030'> ⚠</span>") + "</td>"
+            + ("" if not a.flag else "<span style='color:#963030'> ⚠</span>") + "</td>"
             f"<td style='padding:5px 10px;font-size:0.75rem;color:#A87868;border-bottom:1px solid #EFE2D8;'>{a.deadline}</td></tr>"
             for a in plan.action_items[:4]
         )
 
         soft = R.get("soft_rejections", {}) or {}
         risk = soft.get("risk_level", "NONE")
-        risk_colors = {"HIGH":"#963030","MEDIUM":"#986820","LOW":"#BE4060","MINIMAL":"#A87868","NONE":"#2D7A55"}
-        risk_bgs    = {"HIGH":"#FAF0F0","MEDIUM":"#FAF0E0","LOW":"#FEF6F8","MINIMAL":"#FDF0EA","NONE":"#EDF3EF"}
+        risk_colors = {"CRITICAL":"#7C3AED","HIGH":"#963030","MEDIUM":"#986820","LOW":"#BE4060","MINIMAL":"#A87868","NONE":"#2D7A55"}
+        risk_bgs    = {"CRITICAL":"#F5F3FF","HIGH":"#FAF0F0","MEDIUM":"#FAF0E0","LOW":"#FEF6F8","MINIMAL":"#FDF0EA","NONE":"#EDF3EF"}
         risk_clr = risk_colors.get(risk, "#2D7A55")
         risk_bg  = risk_bgs.get(risk, "#EDF3EF")
 
@@ -136,18 +137,16 @@ def _build_gijiroku_preview(R: dict, language: str) -> str:
       <table style='width:100%;border-collapse:collapse;'>
         <thead>
           <tr style='background:#F5EEF8;'>
-            <th style='padding:6px 10px;font-size:0.6rem;font-weight:700;color:#7D4E8A;text-align:left;letter-spacing:0.08em;text-transform:uppercase;'>担当者 <span style="font-weight:500;color:#A87868;text-transform:none;letter-spacing:0;">Owner</span></th>
-            <th style='padding:6px 10px;font-size:0.6rem;font-weight:700;color:#7D4E8A;text-align:left;letter-spacing:0.08em;text-transform:uppercase;'>タスク <span style="font-weight:500;color:#A87868;text-transform:none;letter-spacing:0;">Task</span></th>
-            <th style='padding:6px 10px;font-size:0.6rem;font-weight:700;color:#7D4E8A;text-align:left;letter-spacing:0.08em;text-transform:uppercase;'>期限 <span style="font-weight:500;color:#A87868;text-transform:none;letter-spacing:0;">Deadline</span></th>
+            <th style='padding:6px 10px;font-size:0.6rem;font-weight:700;color:#7D4E8A;text-align:left;'>担当者 Owner</th>
+            <th style='padding:6px 10px;font-size:0.6rem;font-weight:700;color:#7D4E8A;text-align:left;'>タスク Task</th>
+            <th style='padding:6px 10px;font-size:0.6rem;font-weight:700;color:#7D4E8A;text-align:left;'>期限 Deadline</th>
           </tr>
         </thead>
         <tbody>{action_rows}</tbody>
       </table>
     </div>
     {tokki}
-    <div style='margin-top:12px;display:flex;justify-content:space-between;align-items:center;'>
-      <div style='font-size:0.68rem;color:#A87868;'>次回予定 · Next Meeting: {plan.jikai_yotei}</div>
-    </div>
+    <div style='margin-top:12px;font-size:0.68rem;color:#A87868;'>次回予定 · Next Meeting: {plan.jikai_yotei}</div>
   </div>
 </div>"""
     except Exception:
@@ -160,14 +159,22 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
 
     ji       = R.get("japan_insights", {})
     speakers = sorted(R.get("speakers", []), key=lambda s: s.get("talk_time_pct", 0), reverse=True)
+    soft     = R.get("soft_rejections", {}) or {}
+
+    # ── Termination detection ─────────────────────────────────────────────────
+    termination_detected = (
+        soft.get("termination_detected", False) or
+        R.get("meeting_type") == "contract_termination"
+    )
 
     def _health():
-        soft    = R.get("soft_rejections", {})
         risk    = soft.get("risk_level", "NONE")
-        risk_pts= {"NONE":25,"MINIMAL":20,"LOW":15,"MEDIUM":8,"HIGH":0}
+        risk_pts= {"NONE":25,"MINIMAL":20,"LOW":15,"MEDIUM":8,"HIGH":0,"CRITICAL":0}
+
         sents   = R.get("sentiment", [])
         w       = {"positive":1.0,"neutral":0.6,"negative":0.1}
         s_pts   = round((sum(w.get(s.get("score","neutral").lower(),0.5) for s in sents)/len(sents)*30) if sents else 15)
+
         items   = R.get("action_items", [])
         if not items:
             a_pts = 10
@@ -176,13 +183,25 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
             wo  = sum(1 for i in ver if i.get("owner","TBD") not in ("TBD","Unknown",""))
             wd  = sum(1 for i in ver if i.get("deadline","TBD") not in ("TBD","N/A",""))
             a_pts = round((wo+wd)/(2*len(items))*25)
+
         r_pts   = risk_pts.get(risk, 25)
         ver2    = R.get("verification", {})
         h_pts   = round((1 - ver2.get("overall_hallucination_risk", 0)) * 20)
         score   = min(s_pts + a_pts + r_pts + h_pts, 100)
-        color   = ("#2D9E6B" if score >= 80 else "#B87830" if score >= 60 else "#D96080" if score >= 40 else "#C84040")
-        bd      = [("Sentiment",s_pts,30),("Action Clarity",a_pts,25),("Comm Risk",r_pts,25),("AI Confidence",h_pts,20)]
-        bars    = "".join(
+
+        # Termination cap — never show "good" for a contract termination
+        if termination_detected:
+            score = min(score, 22)
+            color = "#7C3AED"
+            label = "Contract Terminated"
+            bd = [("Sentiment",s_pts,30),("Clarity",a_pts,25),("Comm Risk",0,25),("AI Confidence",h_pts,20)]
+        else:
+            color = ("#2D9E6B" if score >= 80 else "#B87830" if score >= 60 else "#D96080" if score >= 40 else "#C84040")
+            label = ("Productive Meeting" if score >= 80 else "Mostly Aligned" if score >= 60
+                     else "Needs Follow-up" if score >= 40 else "High Risk")
+            bd = [("Sentiment",s_pts,30),("Action Clarity",a_pts,25),("Comm Risk",r_pts,25),("AI Confidence",h_pts,20)]
+
+        bars = "".join(
             f"<div style='margin-bottom:8px'>"
             f"<div style='display:flex;justify-content:space-between;margin-bottom:3px'>"
             f"<span style='font-size:0.68rem;color:#7A5040'>{lb}</span>"
@@ -217,12 +236,26 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
         _tile(keigo_val, keigo_lbl, "🏯")
     )
 
+    # ── PII banner ────────────────────────────────────────────────────────────
     pii_html = ""
     if pii_rep and pii_rep.get("total_pii_found", 0) > 0:
         n = pii_rep["total_pii_found"]
         pii_html = (
             f"<div class='tai-pii-pill'>🔒 APPI — "
             f"{n} item{'s' if n!=1 else ''} anonymized before analysis</div>"
+        )
+
+    # ── Unlabeled transcript warning ──────────────────────────────────────────
+    unlabeled_html = ""
+    if R.get("_unlabeled_transcript"):
+        unlabeled_html = (
+            "<div style='background:#FFFBEB;border-left:4px solid #D97706;"
+            "border-radius:0 10px 10px 0;padding:0.9rem 1.2rem;margin-bottom:1rem;"
+            "font-size:0.82rem;color:#78350F;line-height:1.6;'>"
+            "⚠ <strong>No speaker labels detected</strong> — each paragraph was assigned to a generic speaker. "
+            "For best results, prefix each line with the speaker's name: "
+            "<code style='background:#FEF3C7;border-radius:4px;padding:1px 5px;'>Name: their words here</code>"
+            "</div>"
         )
 
     # ── Tab 1: Summary ────────────────────────────────────────────────────────
@@ -316,6 +349,17 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
 
     # ── Tab 3: Sentiment ──────────────────────────────────────────────────────
     sent_html = "<div class='tai-section-label'>Speaker Sentiment</div>"
+    # Add note about sentiment scoring model when termination detected
+    if termination_detected:
+        sent_html += (
+            "<div style='background:#F5F3FF;border-left:3px solid #7C3AED;"
+            "border-radius:0 8px 8px 0;padding:0.7rem 1rem;margin-bottom:1rem;"
+            "font-size:0.78rem;color:#4C1D95;line-height:1.6;'>"
+            "Sentiment scored on <strong>communicative register</strong> — "
+            "cooperative/deferential/gracious = neutral, not negative. "
+            "Professional acceptance of a termination is not hostility."
+            "</div>"
+        )
     sent_html += "".join(
         (
             "<div class='tai-sent-row'>"
@@ -359,10 +403,39 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
         k_src   = ji.get("keigo_source","llm")
         kc      = {"high":"#BE4060","medium":"#986820","low":"#A87868"}.get(keigo,"#7A5040")
         sigs    = ji.get("nemawashi_signals",[])
-        soft    = R.get("soft_rejections",{})
         risk    = soft.get("risk_level","NONE") if soft else "NONE"
-        rclr    = {"HIGH":"#963030","MEDIUM":"#986820","LOW":"#BE4060","MINIMAL":"#A87868","NONE":"#2D7A55"}.get(risk,"#2D7A55")
+        risk_colors = {"CRITICAL":"#7C3AED","HIGH":"#963030","MEDIUM":"#986820","LOW":"#BE4060","MINIMAL":"#A87868","NONE":"#2D7A55"}
+        rclr    = risk_colors.get(risk, "#2D7A55")
         cs_cnt  = ji.get("code_switch_count",0)
+
+        # ── Termination detected banner ───────────────────────────────────────
+        if termination_detected:
+            term_sigs = soft.get("termination_signals", [])
+            term_phrases = "".join(
+                f"<div style='margin-bottom:8px;'>"
+                f"<div style='font-size:0.82rem;font-weight:700;color:#5B21B6;"
+                f"font-family:Noto Sans JP,sans-serif;'>⛔ {s['phrase']}</div>"
+                f"<div style='font-size:0.72rem;color:#6B7280;margin-top:2px;'>"
+                f"{s.get('english','')} · Speaker: {s.get('speaker','Unknown')}</div>"
+                f"</div>"
+                for s in term_sigs
+            ) if term_sigs else (
+                "<div style='font-size:0.82rem;color:#5B21B6;'>"
+                "Contract termination language detected in transcript.</div>"
+            )
+            ins_html += (
+                f"<div style='background:#F5F3FF;border:2px solid #7C3AED;"
+                f"border-radius:12px;padding:1.2rem 1.4rem;margin-bottom:1.5rem;'>"
+                f"<div style='font-size:0.7rem;font-weight:800;color:#7C3AED;"
+                f"letter-spacing:0.12em;text-transform:uppercase;margin-bottom:0.8rem;'>"
+                f"⛔ Explicit Contract Termination Detected</div>"
+                f"{term_phrases}"
+                f"<div style='font-size:0.78rem;color:#4C1D95;line-height:1.65;"
+                f"border-top:1px solid #DDD6FE;padding-top:0.8rem;margin-top:0.6rem;'>"
+                f"{soft.get('cultural_note', 'This is an explicit, irrevocable termination — not a soft refusal. The polite keigo delivery is cultural courtesy, not ambiguity.')}"
+                f"</div>"
+                f"</div>"
+            )
 
         ins_html += (
             "<div style='display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px'>"
@@ -406,21 +479,14 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
                     f"<div style='font-size:0.75rem;color:#3C2416;margin-top:6px;line-height:1.5'>{sig['explanation']}</div>"
                     f"</div>"
                 )
-            ins_html += f"<div style='font-size:0.73rem;color:#A87868;font-style:italic;margin-top:8px'>{soft.get('cultural_note','')}</div>"
+            if not termination_detected:
+                ins_html += f"<div style='font-size:0.73rem;color:#A87868;font-style:italic;margin-top:8px'>{soft.get('cultural_note','')}</div>"
     else:
         ins_html = "<div style='color:#A87868;font-size:0.85rem;padding:1rem 0;line-height:1.7'>Cultural intelligence features apply to Japanese and Hindi transcripts.</div>"
 
-    insight_label = features.get('insight_tab_label', '🌐 Insights')
-    if not insight_label:
-        insight_label = "インサイト" if language == "ja" else "Insights"
+    insight_label = features.get('insight_tab_label', '🌐 Insights') or "インサイト"
 
-    # 議事録 format banner — only relevant for Japanese/mixed transcripts.
-    # FIX: this used to be the first child INSIDE .tai-health, which is a
-    # CSS grid hard-coded to exactly 2 columns (240px 1fr). A 3rd child
-    # broke the grid: it took column 1, pushed the health ring into
-    # column 2, and wrapped the breakdown bars into a second row stuck
-    # in the narrow 240px column — the overlap you saw. It's now a
-    # separate element entirely, before .tai-health, not inside it.
+    # 議事録 format banner
     gijiroku_format_banner = ""
     if features.get("show_japan_insights"):
         gijiroku_format_banner = (
@@ -435,8 +501,6 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
             + '</div>'
         )
 
-    # Persistent "analysis complete" banner appended after the tab panels
-    # (unrelated to the gijiroku banner above — this one always shows)
     export_banner = """
     <div style='margin-top:20px; padding:18px; background:linear-gradient(135deg, rgba(125,78,138,0.04), rgba(160,108,181,0.06)); border:1px solid #D0B0C8; border-radius:12px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;'>
         <div>
@@ -449,6 +513,7 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
     return (
         '<div class="tai-results">'
         + pii_html
+        + unlabeled_html
         + '<div class="tai-tiles">' + tiles + '</div>'
         + gijiroku_format_banner
         + '<div class="tai-health">'
@@ -465,11 +530,12 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
         +   '<input type="radio" name="tai-tabs" id="tai-radio-spk">'
         +   '<input type="radio" name="tai-tabs" id="tai-radio-ins">'
         +   '<div class="tai-tab-bar">'
-        +     '<label class="tai-tab-label" for="tai-radio-sum">\U0001f4dd Summary</label>'
-        +     '<label class="tai-tab-label" for="tai-radio-act">\u2705 Actions</label>'
-        +     '<label class="tai-tab-label" for="tai-radio-sent">\U0001f338 Sentiment</label>'
-        +     '<label class="tai-tab-label" for="tai-radio-spk">\U0001f3a4 Speakers</label>'
-        +     '<label class="tai-tab-label" for="tai-radio-ins">' + (insight_label or "Insights") + '</label>'        +   '</div>'
+        +     '<label class="tai-tab-label" for="tai-radio-sum">📝 Summary</label>'
+        +     '<label class="tai-tab-label" for="tai-radio-act">✅ Actions</label>'
+        +     '<label class="tai-tab-label" for="tai-radio-sent">🌸 Sentiment</label>'
+        +     '<label class="tai-tab-label" for="tai-radio-spk">🎤 Speakers</label>'
+        +     '<label class="tai-tab-label" for="tai-radio-ins">' + insight_label + '</label>'
+        +   '</div>'
         +   '<div class="tai-panel">'
         +     '<div id="tai-sum"  class="tai-tab-content">' + sum_html  + '</div>'
         +     '<div id="tai-act"  class="tai-tab-content">' + act_html  + '</div>'
@@ -526,8 +592,7 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
       lbl.addEventListener('click', function(e) {
         e.preventDefault();
         e.stopPropagation();
-        var targetId = lbl.getAttribute('for');
-        activateTab(targetId);
+        activateTab(lbl.getAttribute('for'));
       });
     });
     ids.forEach(function(id) {
@@ -548,6 +613,12 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
 
 
 def compute_health_score(R: dict) -> dict:
+    soft  = R.get("soft_rejections", {}) or {}
+    termination_detected = (
+        soft.get("termination_detected", False) or
+        R.get("meeting_type") == "contract_termination"
+    )
+
     sentiment = R.get("sentiment", [])
     if sentiment:
         weights = {"positive": 1.0, "neutral": 0.6, "negative": 0.1}
@@ -555,6 +626,7 @@ def compute_health_score(R: dict) -> dict:
         s_pts = round(avg * 30)
     else:
         s_pts = 15
+
     items = R.get("action_items", [])
     if not items:
         a_pts = 10
@@ -564,11 +636,17 @@ def compute_health_score(R: dict) -> dict:
         with_deadline = sum(1 for i in verified if i.get("deadline","TBD") not in ("TBD","N/A",""))
         clarity = (with_owner + with_deadline) / (2 * len(items))
         a_pts = round(clarity * 25)
-    soft  = R.get("soft_rejections", {})
+
     risk  = soft.get("risk_level", "NONE")
-    r_pts = {"NONE":25,"MINIMAL":20,"LOW":15,"MEDIUM":8,"HIGH":0}.get(risk, 25)
+    r_pts = {"NONE":25,"MINIMAL":20,"LOW":15,"MEDIUM":8,"HIGH":0,"CRITICAL":0}.get(risk, 25)
     h_pts = round((1 - R.get("verification",{}).get("overall_hallucination_risk", 0)) * 20)
     score = min(s_pts + a_pts + r_pts + h_pts, 100)
+
+    if termination_detected:
+        score = min(score, 22)
+        return {"score": score, "label": "Contract Terminated",
+                "color": "#7C3AED", "bg": "#F5F3FF", "border": "#C4B5FD"}
+
     if score >= 80:   label, color, bg, border = "Productive Meeting", "#486858", "#EDF3EF", "#A8C8B8"
     elif score >= 60: label, color, bg, border = "Mostly Aligned",    "#986820", "#FAF0E0", "#D9C090"
     elif score >= 40: label, color, bg, border = "Needs Follow-up",   "#C87030", "#FDF0EA", "#E8C090"

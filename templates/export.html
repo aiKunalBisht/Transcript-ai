@@ -106,6 +106,161 @@
   </a>
 </div>
 
+<!-- ═══════════════════════════════════════════════════════════════════
+     Japanese Intelligence Panel
+     Shown when the loaded result is Japanese/mixed.
+     All data comes from lastResult (Alpine) — no extra server call.
+     ═══════════════════════════════════════════════════════════════════ -->
+<div x-show="lastResult && (lastResult._detected_language === 'ja' || lastResult._detected_language === 'mixed')"
+     x-cloak
+     style="margin-top:1.5rem;">
+
+  <!-- ⛔ Termination Banner — only when CRITICAL risk detected -->
+  <template x-if="lastResult && lastResult.soft_rejections && lastResult.soft_rejections.termination_detected">
+    <div style="background:#F5F3FF;border:2px solid #7C3AED;border-radius:14px;
+                padding:1.3rem 1.5rem;margin-bottom:1.2rem;">
+      <div style="font-size:0.7rem;font-weight:800;color:#7C3AED;letter-spacing:0.12em;
+                  text-transform:uppercase;margin-bottom:1rem;">
+        ⛔ Explicit Contract Termination Detected
+      </div>
+      <!-- Termination signal list -->
+      <template x-for="sig in (lastResult.soft_rejections.termination_signals || [])" :key="sig.phrase">
+        <div style="margin-bottom:0.7rem;">
+          <div style="font-size:0.85rem;font-weight:700;color:#5B21B6;
+                      font-family:'Noto Sans JP',sans-serif;" x-text="'⛔ ' + sig.phrase"></div>
+          <div style="font-size:0.72rem;color:#6B7280;margin-top:2px;">
+            <span x-text="sig.english || sig.phrase"></span>
+            · Speaker: <span x-text="sig.speaker || 'Unknown'"></span>
+          </div>
+        </div>
+      </template>
+      <!-- Cultural note -->
+      <div style="font-size:0.78rem;color:#4C1D95;line-height:1.65;
+                  border-top:1px solid #DDD6FE;padding-top:0.9rem;margin-top:0.5rem;"
+           x-text="lastResult.soft_rejections.cultural_note || 'This is an explicit, irrevocable termination — not a soft refusal. The polite keigo delivery is cultural courtesy, not ambiguity.'">
+      </div>
+    </div>
+  </template>
+
+  <!-- 議事録 Preview Card -->
+  <div style="border:1px solid #D0B0C8;border-radius:14px;overflow:hidden;
+              background:#FDFAFF;margin-bottom:1.5rem;">
+
+    <!-- Purple header bar -->
+    <div style="background:linear-gradient(135deg,#7D4E8A 0%,#A06CB5 100%);
+                padding:14px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+      <div>
+        <div style="font-size:0.6rem;color:rgba(255,255,255,0.75);letter-spacing:0.15em;
+                    text-transform:uppercase;margin-bottom:3px;">
+          議事録 · Japanese Formal Business Minutes
+        </div>
+        <div style="font-size:1rem;font-weight:700;color:#fff;font-family:'Noto Sans JP',sans-serif;"
+             x-text="(lastResult && lastResult.meeting_title) || 'Meeting Summary'"></div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:0.7rem;color:rgba(255,255,255,0.8);"
+             x-text="new Date().toLocaleDateString('ja-JP', {year:'numeric',month:'2-digit',day:'2-digit'}).replace(/\//g,'年').replace(/\//,'月') + '日'"></div>
+        <div style="font-size:0.65rem;color:rgba(255,255,255,0.6);margin-top:2px;">
+          オンライン会議 / Online
+        </div>
+      </div>
+    </div>
+
+    <div style="padding:16px 18px;">
+
+      <!-- Attendees -->
+      <div style="font-size:0.6rem;font-weight:700;color:#7D4E8A;letter-spacing:0.15em;
+                  text-transform:uppercase;margin-bottom:7px;">出席者 · Attendees</div>
+      <div style="margin-bottom:14px;display:flex;flex-wrap:wrap;gap:4px;">
+        <template x-for="spk in (lastResult && lastResult.speakers ? lastResult.speakers : [])" :key="spk.name">
+          <span style="display:inline-block;background:rgba(125,78,138,0.10);border:1px solid #D0B0C8;
+                       border-radius:999px;padding:3px 12px;font-size:0.72rem;color:#7D4E8A;"
+                x-text="spk.name + ' — 発言比率 ' + spk.talk_time_pct + '%'"></span>
+        </template>
+      </div>
+
+      <!-- Agenda + Risk side by side -->
+      <div style="display:grid;grid-template-columns:1fr auto;gap:16px;margin-bottom:14px;align-items:start;">
+        <div>
+          <div style="font-size:0.6rem;font-weight:700;color:#7D4E8A;letter-spacing:0.15em;
+                      text-transform:uppercase;margin-bottom:8px;">議題 · Agenda</div>
+          <template x-for="(pt, idx) in (lastResult && lastResult.summary ? lastResult.summary.slice(0,3) : [])" :key="idx">
+            <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;">
+              <span style="background:#7D4E8A;color:#fff;border-radius:5px;padding:1px 7px;
+                           font-size:0.6rem;font-weight:700;flex-shrink:0;margin-top:2px;"
+                    x-text="String(idx+1).padStart(2,'0')"></span>
+              <span style="font-size:0.82rem;color:#3C2416;line-height:1.5;" x-text="typeof pt === 'string' ? pt : JSON.stringify(pt)"></span>
+            </div>
+          </template>
+        </div>
+
+        <!-- Risk chip -->
+        <div style="min-width:100px;text-align:center;">
+          <div style="font-size:0.6rem;font-weight:700;color:#7D4E8A;letter-spacing:0.15em;
+                      text-transform:uppercase;margin-bottom:7px;">リスク · Risk Level</div>
+          <template x-if="lastResult && lastResult.soft_rejections">
+            <div :style="'background:' + ({CRITICAL:'#F5F3FF',HIGH:'#FAF0F0',MEDIUM:'#FAF0E0',LOW:'#FEF6F8',MINIMAL:'#FDF0EA',NONE:'#EDF3EF'}[lastResult.soft_rejections.risk_level] || '#EDF3EF') + ';border:1px solid ' + ({CRITICAL:'#7C3AED',HIGH:'#963030',MEDIUM:'#986820',LOW:'#BE4060',MINIMAL:'#A87868',NONE:'#2D7A55'}[lastResult.soft_rejections.risk_level] || '#2D7A55') + '33;border-radius:8px;padding:8px 12px;'">
+              <div style="font-size:1rem;font-weight:800;"
+                   :style="'color:' + ({CRITICAL:'#7C3AED',HIGH:'#963030',MEDIUM:'#986820',LOW:'#BE4060',MINIMAL:'#A87868',NONE:'#2D7A55'}[lastResult.soft_rejections.risk_level] || '#2D7A55')"
+                   x-text="lastResult.soft_rejections.risk_level || 'NONE'"></div>
+              <div style="font-size:0.6rem;color:#A87868;margin-top:2px;"
+                   x-text="(lastResult.soft_rejections.total_signals || 0) + ' signals'"></div>
+            </div>
+          </template>
+          <template x-if="!lastResult || !lastResult.soft_rejections">
+            <div style="background:#EDF3EF;border:1px solid #2D7A5533;border-radius:8px;padding:8px 12px;">
+              <div style="font-size:1rem;font-weight:800;color:#2D7A55;">NONE</div>
+              <div style="font-size:0.6rem;color:#A87868;margin-top:2px;">0 signals</div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Action items table -->
+      <div style="font-size:0.6rem;font-weight:700;color:#7D4E8A;letter-spacing:0.15em;
+                  text-transform:uppercase;margin-bottom:8px;">アクションアイテム · Action Items</div>
+      <div style="border:1px solid #EFE2D8;border-radius:8px;overflow:hidden;">
+        <table style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr style="background:#F5EEF8;">
+              <th style="padding:6px 10px;font-size:0.6rem;font-weight:700;color:#7D4E8A;text-align:left;">担当者 Owner</th>
+              <th style="padding:6px 10px;font-size:0.6rem;font-weight:700;color:#7D4E8A;text-align:left;">タスク Task</th>
+              <th style="padding:6px 10px;font-size:0.6rem;font-weight:700;color:#7D4E8A;text-align:left;">期限 Deadline</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="item in (lastResult && lastResult.action_items ? lastResult.action_items.slice(0,5) : [])" :key="item.task">
+              <tr>
+                <td style="padding:5px 10px;font-size:0.75rem;color:#7A5040;border-bottom:1px solid #EFE2D8;"
+                    x-text="item.owner || 'TBD'"></td>
+                <td style="padding:5px 10px;font-size:0.75rem;color:#3C2416;border-bottom:1px solid #EFE2D8;">
+                  <span x-text="item.task || ''"></span>
+                  <span x-show="item.hallucination_flag" style="color:#963030;"> ⚠</span>
+                </td>
+                <td style="padding:5px 10px;font-size:0.75rem;color:#A87868;border-bottom:1px solid #EFE2D8;"
+                    x-text="item.deadline || 'TBD'"></td>
+              </tr>
+            </template>
+            <template x-if="!lastResult || !lastResult.action_items || lastResult.action_items.length === 0">
+              <tr>
+                <td colspan="3" style="padding:10px;font-size:0.78rem;color:#A87868;text-align:center;font-style:italic;">
+                  No action items extracted
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Next meeting -->
+      <div style="margin-top:12px;font-size:0.68rem;color:#A87868;">
+        次回予定 · Next Meeting: 未定 / TBD
+      </div>
+    </div>
+  </div><!-- /.gijiroku preview card -->
+
+</div><!-- /.japanese intelligence panel -->
+
 <!-- ── Export cards grid ─────────────────────────────────────────── -->
 <div class="tai-export-grid">
 

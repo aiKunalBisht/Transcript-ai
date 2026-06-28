@@ -279,16 +279,29 @@ function tai() {
         this.history = JSON.parse(localStorage.getItem(TAI_HISTORY_KEY) || '[]');
       } catch(e) { this.history = []; }
 
-      // ── Restore lastResult JSON from sessionStorage ───────────────────────
-      // Always restore the result *object* so the export page knows an analysis
-      // exists and unlocks its buttons (hasResult() returns true cross-page).
-      // We do NOT inject HTML into #results — the main page starts blank.
-      // Only restoreHistory() or a new runAnalyze() populates #results visually.
-      // sessionStorage is tab-scoped: a brand-new tab always starts fresh.
+      // ── Restore session state from sessionStorage ─────────────────────────
+      // sessionStorage is SCOPED TO THIS TAB. So:
+      //   • Navigating main ↔ export within the same tab → sessionStorage has
+      //     data → results are restored visually. Feels seamless.
+      //   • Opening a brand new tab or window → sessionStorage is empty →
+      //     page starts blank. Correct fresh-start behaviour.
+      //   • Different browser (Edge vs Chrome) → separate sessionStorage →
+      //     always starts fresh. Correct per-browser isolation.
       try {
-        const saved = sessionStorage.getItem(TAI_LAST_RESULT_KEY);
-        if (saved) {
-          this.lastResult = JSON.parse(saved);
+        const savedResult = sessionStorage.getItem(TAI_LAST_RESULT_KEY);
+        const savedHtml   = sessionStorage.getItem(TAI_LAST_RESULT_HTML_KEY);
+        if (savedResult) {
+          this.lastResult = JSON.parse(savedResult);
+        }
+        // Restore the rendered HTML back into #results if we're on the main page
+        // and there's saved output from this session.
+        if (savedHtml && this.lastResult) {
+          this.$nextTick(() => {
+            const el = document.getElementById('results');
+            if (el && !el.innerHTML.trim()) {
+              el.innerHTML = savedHtml;
+            }
+          });
         }
       } catch(e) { this.lastResult = null; }
     },
