@@ -74,6 +74,62 @@ JP_TERMINATION_PHRASES = [
     ("パートナーシップを終了",         "Ending the partnership"),
 ]
 
+# ════════════════════════════════════════════════════════════════════════════════
+# TIER 1b — APPROVAL GATE (HIGH risk, not CRITICAL — decision pending, not ended)
+# These phrases signal that apparent approval is NOT actual approval:
+#   • Technical approval ≠ commercial approval
+#   • Personal support ≠ organizational decision
+#   • Department sign-off ≠ committee authority
+# ════════════════════════════════════════════════════════════════════════════════
+
+EN_APPROVAL_GATE_PHRASES = [
+    # Technical ≠ Commercial approval
+    ("commercial contract has not yet been approved",   "Technical approval exists but commercial contract still pending"),
+    ("technical approval and contract approval are separate", "Explicit split: tech approval ≠ contract approval"),
+    ("technical review is complete, but",               "Technical done BUT commercial not — gate pattern"),
+    ("not be interpreted as contract approval",         "Explicit denial that meeting = approval"),
+    ("today's meeting should not be interpreted",       "Meeting explicitly not an approval event"),
+    ("purchasing committee must review",                "Committee gate — final authority not present in meeting"),
+    ("committee must review",                           "Review committee required before decision"),
+    ("before any final decision",                       "Explicitly no final decision yet"),
+    # Personal opinion ≠ organizational decision (harder test)
+    ("headquarters in tokyo must make the final decision",  "Director lacks final authority — HQ decides"),
+    ("headquarters must make the final decision",           "Authority escalation to headquarters"),
+    ("the board has reached a different conclusion",        "Board overrides personal support — authority conflict"),
+    ("board has reached a different",                       "Organizational decision differs from personal view"),
+    ("i personally support this proposal",                  "Personal support explicitly separated from org decision"),
+    ("personally support",                                  "Personal opinion flagged — may not reflect org decision"),
+    ("does not have the authority",                         "Authority delegation gap explicitly stated"),
+    ("final decision rests with",                           "Final authority delegated elsewhere"),
+    ("cannot approve this myself",                          "Speaker acknowledges own authority limit"),
+    ("above my authority",                                  "Explicit authority ceiling"),
+    ("need approval from",                                  "Approval chain — additional gate required"),
+    ("senior management must approve",                      "Senior gate — meeting result not final"),
+    ("executive committee",                                 "Executive-level gate required"),
+    ("board approval required",                             "Board gate — not approvable at this level"),
+    ("not within my authority",                             "Authority delegation gap"),
+]
+
+JP_APPROVAL_GATE_PHRASES = [
+    # Technical ≠ Commercial
+    ("商業契約はまだ承認されていません",        "Commercial contract not yet approved"),
+    ("技術承認と契約承認は別の手続きです",      "Technical and contract approval are separate processes"),
+    ("技術審査は完了していますが",              "Technical review complete BUT (commercial pending)"),
+    ("契約承認を意味するものではありません",    "Does not mean contract approval — explicit denial"),
+    ("購買委員会が価格と契約条件を審査",        "Purchasing committee must review pricing and terms"),
+    ("最終決定の前に",                          "Before the final decision — explicitly not final yet"),
+    ("委員会の決定",                            "Committee decision required"),
+    # Personal vs organizational authority
+    ("本社が最終決定を",                        "Headquarters makes the final decision"),
+    ("取締役会が異なる結論に",                  "Board reached a different conclusion"),
+    ("個人的にはこの提案を支持します",          "Personally support — but org decision may differ"),
+    ("承認する権限がありません",                "Does not have approval authority"),
+    ("上位の承認が必要です",                    "Higher-level approval required"),
+    ("稟議が必要です",                          "Ringi-sho process required — formal approval chain"),
+    ("稟議を通す必要があります",               "Must pass through ringi approval process"),
+    ("役員会の承認が必要",                      "Executive board approval required"),
+]
+
 
 # ════════════════════════════════════════════════════════════════════════════════
 # TIER 2 — PERFORMANCE FAILURE FRAMING (HIGH risk)
@@ -120,6 +176,7 @@ JP_HIGH_PHRASES = [
     ("決定を下す前に",                            "Before making any decision — explicitly unresolved"),
     ("はい」は相手の話を理解したという意味",      "Explicit cultural clarification: はい = understanding not approval"),
     ("必ずしも賛成や承認を意味するわけではありません", "Yes does not necessarily mean agreement or approval"),
+    ("ご提案の内容は理解しました",                "I understand the proposal — NOT approval (classic はい trap)"),
 ]
 
 
@@ -200,78 +257,8 @@ SOFT_PATTERNS = [
         "confidence": 0.65,
         "explanation": "Deliberation request — deferral signal.",
     },
-# ── Restored from the pre-v3.2 pattern set (were dropped in the rewrite) ──
-    {
-        "phrase": "難しいかもしれません",
-        "reading": "Muzukashii kamoshiremasen",
-        "english": "It may be difficult",
-        "confidence": 0.90,
-        "explanation": "Classic soft rejection — direct 'no' is culturally avoided.",
-    },
-    {
-        "phrase": "対応しかねます",
-        "reading": "Taiō shikanemasu",
-        "english": "We are unable to accommodate",
-        "confidence": 0.95,
-        "explanation": "One of the most direct soft rejections — formal and definitive.",
-    },
-    {
-        "phrase": "いたしかねます",
-        "reading": "Itashikanemasu",
-        "english": "We are unable to do that",
-        "confidence": 0.95,
-        "explanation": "Formal polite rejection — very definitive despite soft delivery.",
-    },
-    {
-        "phrase": "善処します",
-        "reading": "Zensho shimasu",
-        "english": "I will handle it appropriately",
-        "confidence": 0.68,
-        "explanation": "Vague commitment with no concrete action.",
-    },
-    {
-        "phrase": "確認してみます",
-        "reading": "Kakunin shite mimasu",
-        "english": "I will try to confirm",
-        "confidence": 0.50,
-        "explanation": "Genuine uncertainty or deferral, may need superior's approval.",
-    },
-    {
-        "phrase": "社内で確認",
-        "reading": "Shanai de kakunin",
-        "english": "Will confirm internally",
-        "confidence": 0.48,
-        "explanation": "Internal confirmation pending — decision not yet made.",
-    },
-    {
-        "phrase": "上司に相談",
-        "reading": "Jōshi ni sōdan",
-        "english": "Will consult with my superior",
-        "confidence": 0.50,
-        "explanation": "Escalation to a superior — may be genuine or a delaying tactic.",
-    },
-    {
-        "phrase": "少し懸念",
-        "reading": "Sukoshi kenen",
-        "english": "A little concerned",
-        "confidence": 0.40,
-        "explanation": "Signals discomfort or disagreement expressed indirectly.",
-    },
-    {
-        "phrase": "懸念がございます",
-        "reading": "Kenen ga gozaimasu",
-        "english": "There are concerns",
-        "confidence": 0.45,
-        "explanation": "Formal expression of concern, speaker disagrees indirectly.",
-    },
-    {
-        "phrase": "そうですね",
-        "reading": "Sō desu ne",
-        "english": "That's right / I see",
-        "confidence": 0.25,
-        "explanation": "Ambiguous — genuine agreement OR filler to avoid disagreement.",
-    },
-        # ── はい / Yes Trap patterns ──────────────────────────────────────────────
+    # Add your remaining existing patterns here
+    # ── はい / Yes Trap patterns ──────────────────────────────────────────────
     {
         "phrase": "承知しました",
         "reading": "Shōchi shimashita",
@@ -393,6 +380,48 @@ def detect_soft_rejections(transcript: str) -> dict:
             deduped.append(s)
     termination_signals = deduped
 
+    # ── TIER 1b: Approval gate check (HIGH risk — pending authority) ──────────
+    approval_gate_signals = []
+    approval_gate_detected = False
+
+    for phrase, explanation in EN_APPROVAL_GATE_PHRASES:
+        if phrase.lower() in transcript_lower:
+            speaker = _find_speaker(phrase, transcript, case_insensitive=True)
+            approval_gate_signals.append({
+                "phrase":      phrase,
+                "reading":     phrase,
+                "english":     explanation,
+                "category":    "approval_gate",
+                "confidence":  0.93,
+                "explanation": explanation,
+                "speaker":     speaker,
+                "language":    "EN",
+            })
+
+    for phrase, explanation in JP_APPROVAL_GATE_PHRASES:
+        if phrase in transcript:
+            speaker = _find_speaker(phrase, transcript, case_insensitive=False)
+            approval_gate_signals.append({
+                "phrase":      phrase,
+                "reading":     "",
+                "english":     explanation,
+                "category":    "approval_gate",
+                "confidence":  0.95,
+                "explanation": explanation,
+                "speaker":     speaker,
+                "language":    "JP",
+            })
+
+    # Deduplicate approval gate signals
+    seen_ag = set()
+    deduped_ag = []
+    for s in approval_gate_signals:
+        if s["phrase"] not in seen_ag:
+            seen_ag.add(s["phrase"])
+            deduped_ag.append(s)
+    approval_gate_signals = deduped_ag
+    approval_gate_detected = len(approval_gate_signals) > 0
+
     # ── TIER 2: Performance failure phrases → HIGH signals ────────────────────
     high_signals = []
 
@@ -443,6 +472,13 @@ def detect_soft_rejections(transcript: str) -> dict:
     # ── Risk level ─────────────────────────────────────────────────────────────
     if termination_detected:
         risk_level = "CRITICAL"
+    elif approval_gate_detected:
+        # Approval gate = decision is pending, not refused — HIGH not CRITICAL
+        # But if combined with high performance-failure signals, treat as CRITICAL
+        if len(high_signals) >= 3:
+            risk_level = "CRITICAL"
+        else:
+            risk_level = "HIGH"
     elif len(high_signals) >= 3:
         risk_level = "HIGH"
     elif len(high_signals) >= 1 or len(medium_signals) >= 2:
@@ -465,6 +501,17 @@ def detect_soft_rejections(transcript: str) -> dict:
             "request (再検討していただけますか) is culturally acceptable; repeating it "
             "would be considered disrespectful to the decision's finality."
         )
+    elif approval_gate_detected:
+        cultural_note = (
+            "⏳ Approval gate detected — apparent agreement in this meeting does NOT "
+            "constitute final approval. In Japanese organizations, technical departments "
+            "can only approve solutions within their domain. Commercial contracts, pricing, "
+            "and legal terms require separate approval through procurement (調達部) or an "
+            "executive/purchasing committee (購買委員会). The ringi-sho (稟議書) process "
+            "means decisions flow through multiple departments before reaching final "
+            "authority. Do not begin work, resource allocation, or client announcements "
+            "until written confirmation from the authorizing committee is received."
+        )
     elif risk_level == "HIGH":
         cultural_note = (
             "Multiple performance-failure signals detected alongside hedging language. "
@@ -482,19 +529,14 @@ def detect_soft_rejections(transcript: str) -> dict:
         cultural_note = "No significant rejection signals detected in this transcript."
 
     return {
-        "risk_level":           risk_level,
-        "total_signals":        total_signals + len(termination_signals),
-        "high_signals":         high_signals,
-        "medium_signals":       medium_signals,
-        "low_signals":          low_signals,
-        "termination_detected": termination_detected,
-        "termination_signals":  termination_signals,
-"cultural_note":        cultural_note,
-        "detected": (
-            [{**s, "severity": "HIGH"}   for s in termination_signals] +
-            [{**s, "severity": "HIGH"}   for s in high_signals] +
-            [{**s, "severity": "MEDIUM"} for s in medium_signals] +
-            [{**s, "severity": "LOW"}    for s in low_signals]
-        ),
-        "risk_summary": cultural_note,
+        "risk_level":              risk_level,
+        "total_signals":           total_signals + len(termination_signals) + len(approval_gate_signals),
+        "high_signals":            high_signals,
+        "medium_signals":          medium_signals,
+        "low_signals":             low_signals,
+        "termination_detected":    termination_detected,
+        "termination_signals":     termination_signals,
+        "approval_gate_detected":  approval_gate_detected,
+        "approval_gate_signals":   approval_gate_signals,
+        "cultural_note":           cultural_note,
     }

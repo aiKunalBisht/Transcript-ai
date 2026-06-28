@@ -166,6 +166,7 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
         soft.get("termination_detected", False) or
         R.get("meeting_type") == "contract_termination"
     )
+    approval_gate_detected = soft.get("approval_gate_detected", False)
 
     def _health():
         risk    = soft.get("risk_level", "NONE")
@@ -189,12 +190,20 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
         h_pts   = round((1 - ver2.get("overall_hallucination_risk", 0)) * 20)
         score   = min(s_pts + a_pts + r_pts + h_pts, 100)
 
+        # Approval gate — pending decision, cap at 55
+        approval_gate_detected_health = soft.get('approval_gate_detected', False)
+
         # Termination cap — never show "good" for a contract termination
         if termination_detected:
             score = min(score, 22)
             color = "#7C3AED"
             label = "Contract Terminated"
             bd = [("Sentiment",s_pts,30),("Clarity",a_pts,25),("Comm Risk",0,25),("AI Confidence",h_pts,20)]
+        elif approval_gate_detected_health:
+            score = min(score, 55)
+            color = "#D97706"
+            label = "Approval Pending"
+            bd = [("Sentiment",s_pts,30),("Action Clarity",a_pts,25),("Comm Risk",r_pts,25),("AI Confidence",h_pts,20)]
         else:
             color = ("#2D9E6B" if score >= 80 else "#B87830" if score >= 60 else "#D96080" if score >= 40 else "#C84040")
             label = ("Productive Meeting" if score >= 80 else "Mostly Aligned" if score >= 60
@@ -407,6 +416,103 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
         risk_colors = {"CRITICAL":"#7C3AED","HIGH":"#963030","MEDIUM":"#986820","LOW":"#BE4060","MINIMAL":"#A87868","NONE":"#2D7A55"}
         rclr    = risk_colors.get(risk, "#2D7A55")
         cs_cnt  = ji.get("code_switch_count",0)
+
+        # ── Approval Gate banner ─────────────────────────────────────────────
+        if approval_gate_detected and not termination_detected:
+            ag_sigs = soft.get("approval_gate_signals", [])
+            # Determine decision status from signals
+            has_tech_commercial = any("technical" in s.get("phrase","").lower() or
+                                      "技術" in s.get("phrase","") for s in ag_sigs)
+            has_personal_vs_org = any("personally" in s.get("phrase","").lower() or
+                                      "board" in s.get("phrase","").lower() or
+                                      "headquarters" in s.get("phrase","").lower() for s in ag_sigs)
+            has_committee = any("committee" in s.get("phrase","").lower() or
+                                "委員会" in s.get("phrase","") or
+                                "稟議" in s.get("phrase","") for s in ag_sigs)
+
+            # Decision status chips
+            status_chips = ""
+            if has_tech_commercial:
+                status_chips += (
+                    "<div style='display:inline-flex;align-items:center;gap:6px;"
+                    "background:#ECFDF5;border:1px solid #6EE7B7;border-radius:8px;"
+                    "padding:5px 12px;margin:3px 6px 3px 0;font-size:0.78rem;font-weight:700;color:#065F46;'>"
+                    "✅ Technical Review Approved</div>"
+                    "<div style='display:inline-flex;align-items:center;gap:6px;"
+                    "background:#FFFBEB;border:1px solid #FCD34D;border-radius:8px;"
+                    "padding:5px 12px;margin:3px 6px 3px 0;font-size:0.78rem;font-weight:700;color:#92400E;'>"
+                    "⏳ Commercial Approval Pending</div>"
+                )
+            if has_personal_vs_org:
+                status_chips += (
+                    "<div style='display:inline-flex;align-items:center;gap:6px;"
+                    "background:#EFF6FF;border:1px solid #93C5FD;border-radius:8px;"
+                    "padding:5px 12px;margin:3px 6px 3px 0;font-size:0.78rem;font-weight:700;color:#1E40AF;'>"
+                    "👤 Personal Support Only</div>"
+                    "<div style='display:inline-flex;align-items:center;gap:6px;"
+                    "background:#FFF7ED;border:1px solid #FDBA74;border-radius:8px;"
+                    "padding:5px 12px;margin:3px 6px 3px 0;font-size:0.78rem;font-weight:700;color:#9A3412;'>"
+                    "⏳ Organizational Decision Pending</div>"
+                )
+            if has_committee:
+                status_chips += (
+                    "<div style='display:inline-flex;align-items:center;gap:6px;"
+                    "background:#F5F3FF;border:1px solid #C4B5FD;border-radius:8px;"
+                    "padding:5px 12px;margin:3px 6px 3px 0;font-size:0.78rem;font-weight:700;color:#5B21B6;'>"
+                    "🏛 Committee Review Required</div>"
+                )
+
+            # Authority hierarchy (only for technical/commercial split)
+            hierarchy_html = ""
+            if has_tech_commercial:
+                hierarchy_html = (
+                    "<div style='margin:1rem 0 0.5rem;font-size:0.6rem;font-weight:800;"
+                    "color:#D97706;letter-spacing:0.12em;text-transform:uppercase;'>Decision Authority Hierarchy</div>"
+                    "<div style='background:#FFFBEB;border:1px solid #FCD34D;border-radius:10px;"
+                    "padding:12px 14px;font-size:0.78rem;color:#78350F;line-height:2.1;'>"
+                    "<span style='font-weight:700'>Engineering Department</span>"
+                    "<span style='color:#D97706;margin:0 6px;'>→</span>"
+                    "Technical Recommendation Only"
+                    "<br>"
+                    "<span style='font-weight:700'>Procurement / 調達部</span>"
+                    "<span style='color:#D97706;margin:0 6px;'>→</span>"
+                    "Commercial &amp; Contract Review"
+                    "<br>"
+                    "<span style='font-weight:700'>Purchasing Committee / 購買委員会</span>"
+                    "<span style='color:#D97706;margin:0 6px;'>→</span>"
+                    "<span style='color:#D97706;font-weight:800;'>Final Decision Authority ✦</span>"
+                    "</div>"
+                )
+            elif has_personal_vs_org:
+                hierarchy_html = (
+                    "<div style='margin:1rem 0 0.5rem;font-size:0.6rem;font-weight:800;"
+                    "color:#D97706;letter-spacing:0.12em;text-transform:uppercase;'>Authority Clarification</div>"
+                    "<div style='background:#FFFBEB;border:1px solid #FCD34D;border-radius:10px;"
+                    "padding:12px 14px;font-size:0.78rem;color:#78350F;line-height:2.1;'>"
+                    "<span style='font-weight:700'>Meeting Participant</span>"
+                    "<span style='color:#D97706;margin:0 6px;'>→</span>"
+                    "Personal support expressed"
+                    "<br>"
+                    "<span style='font-weight:700'>Board / HQ / Executive Committee</span>"
+                    "<span style='color:#D97706;margin:0 6px;'>→</span>"
+                    "<span style='color:#D97706;font-weight:800;'>Actual Decision Authority ✦</span>"
+                    "</div>"
+                )
+
+            ins_html += (
+                f"<div style='background:#FFFBEB;border:2px solid #D97706;"
+                f"border-radius:12px;padding:1.2rem 1.4rem;margin-bottom:1.5rem;'>"
+                f"<div style='font-size:0.7rem;font-weight:800;color:#D97706;"
+                f"letter-spacing:0.12em;text-transform:uppercase;margin-bottom:0.9rem;'>"
+                f"⏳ Approval Gate Detected — Decision Not Final</div>"
+                f"<div style='margin-bottom:0.8rem;'>{status_chips}</div>"
+                f"{hierarchy_html}"
+                f"<div style='font-size:0.78rem;color:#78350F;line-height:1.65;"
+                f"border-top:1px solid #FDE68A;padding-top:0.9rem;margin-top:0.8rem;'>"
+                f"{soft.get('cultural_note','In Japanese organizations, technical and commercial approval are separate processes.')}"
+                f"</div>"
+                f"</div>"
+            )
 
         # ── Termination detected banner ───────────────────────────────────────
         if termination_detected:
