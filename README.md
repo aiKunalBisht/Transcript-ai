@@ -1,3 +1,13 @@
+---
+title: TranscriptAI
+emoji: 🧠
+colorFrom: pink
+colorTo: red
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 <div align="center">
 
 <img src="https://img.shields.io/badge/🧠-TranscriptAI-D96080?style=for-the-badge&labelColor=1a0a0f" alt="TranscriptAI"/>
@@ -11,24 +21,24 @@
 [![Accuracy](https://img.shields.io/badge/Accuracy-93.8%25-D96080?style=flat-square)](https://huggingface.co/spaces/KunalTheBeast/TranscriptAI)
 [![License](https://img.shields.io/badge/License-MIT-22C55E?style=flat-square)](LICENSE)
 
-*Turns any meeting transcript into structured business intelligence in ~3 seconds.*
+_Turns any meeting transcript into structured business intelligence in ~3 seconds._
 
 </div>
 
-*Turns any meeting transcript into structured business intelligence in ~3 seconds.*
+_Turns any meeting transcript into structured business intelligence in ~3 seconds._
 
 ## The Problem No Generic AI Tool Solves
 
 Generic meeting summarisers extract what was **said**. They miss what was **meant**.
 
-| What was said | Generic AI | TranscriptAI |
-|---|---|---|
-| 検討いたします | "Action: We will consider it" | ⚠ Soft rejection — 72% confidence. Follow up explicitly. |
-| 難しいかもしれません | "It may be difficult" — neutral | 🚨 HIGH rejection signal — 90% confidence. Deal at risk. |
-| 前向きに検討 | "Positive consideration" | ⚠ Uncertain — outcome not guaranteed (55%) |
-| 承知いたしました | "Acknowledged" | 🏯 High keigo register — senior speaker or formal context |
-| 善処します | "Action: We will handle it" | 🚨 Classic nemawashi dodge — no real commitment made |
-| パートナーシップは継続しないことを決定しました | "Decision made" | ⛔ CRITICAL — Explicit contract termination. Irrevocable. |
+| What was said                                  | Generic AI                      | TranscriptAI                                              |
+| ---------------------------------------------- | ------------------------------- | --------------------------------------------------------- |
+| 検討いたします                                 | "Action: We will consider it"   | ⚠ Soft rejection — 72% confidence. Follow up explicitly.  |
+| 難しいかもしれません                           | "It may be difficult" — neutral | 🚨 HIGH rejection signal — 90% confidence. Deal at risk.  |
+| 前向きに検討                                   | "Positive consideration"        | ⚠ Uncertain — outcome not guaranteed (55%)                |
+| 承知いたしました                               | "Acknowledged"                  | 🏯 High keigo register — senior speaker or formal context |
+| 善処します                                     | "Action: We will handle it"     | 🚨 Classic nemawashi dodge — no real commitment made      |
+| パートナーシップは継続しないことを決定しました | "Decision made"                 | ⛔ CRITICAL — Explicit contract termination. Irrevocable. |
 
 Japanese enterprise also mandates APPI compliance — raw meeting data cannot be sent to foreign cloud LLMs. Most tools fail this requirement by design. TranscriptAI masks PII locally before any LLM call.
 
@@ -55,20 +65,20 @@ Output: Structured business intelligence in ~3 seconds
 - **Vector cache** — ChromaDB semantic similarity for instant return on similar transcripts
 - **2-key Groq rotation** — auto-failover on 429 rate limits
 
-| What was said | Generic AI | TranscriptAI |
-|---|---|---|
-| 検討いたします | "Action: We will consider it" | ⚠ Soft rejection — 72% confidence |
-| 難しいかもしれません | "It may be difficult" — neutral | 🚨 HIGH rejection signal — deal at risk |
-| パートナーシップは継続しないことを決定しました | "Decision made" | ⛔ CRITICAL — Explicit contract termination |
+| What was said                                  | Generic AI                      | TranscriptAI                                |
+| ---------------------------------------------- | ------------------------------- | ------------------------------------------- |
+| 検討いたします                                 | "Action: We will consider it"   | ⚠ Soft rejection — 72% confidence           |
+| 難しいかもしれません                           | "It may be difficult" — neutral | 🚨 HIGH rejection signal — deal at risk     |
+| パートナーシップは継続しないことを決定しました | "Decision made"                 | ⛔ CRITICAL — Explicit contract termination |
 
 ## Accuracy History
 
-| Version | Key change | Accuracy |
-|---|---|---|
-| v1 | Hard exact matching, English-only | 22–30% |
-| v2 | Fuzzy speaker names, TF-IDF similarity | ~45% |
-| v3 | MeCab keigo override, bilingual ground truth | ~60% |
-| v4 | Hallucination guard, nemawashi patterns, APPI masking | 75–85% |
+| Version       | Key change                                                  | Accuracy  |
+| ------------- | ----------------------------------------------------------- | --------- |
+| v1            | Hard exact matching, English-only                           | 22–30%    |
+| v2            | Fuzzy speaker names, TF-IDF similarity                      | ~45%      |
+| v3            | MeCab keigo override, bilingual ground truth                | ~60%      |
+| v4            | Hallucination guard, nemawashi patterns, APPI masking       | 75–85%    |
 | **v5 (live)** | 2-key rotation, vector cache, MLflow, bypass_cache eval fix | **93.8%** |
 
 Every rebuild was driven by evaluation metric failures traced through the pipeline — not intuition. When action F1 was 0.4 at v2, tracing showed the owner field extracted role titles ("Director") instead of first names. One prompt instruction fixed it.
@@ -77,11 +87,11 @@ Every rebuild was driven by evaluation metric failures traced through the pipeli
 
 ## Evaluation Metrics · v5 Live
 
-| Test case | Overall | ROUGE-1 | Action F1 | Sentiment |
-|---|---|---|---|---|
-| Sales call · JA/EN mixed | **94.5%** | 0.694 | 1.0 | 1.0 |
-| Internal meeting · Japanese | **93.8%** | 0.703 | 1.0 | 1.0 |
-| Client conflict · EN/JA | **93.8%** | 0.703 | 1.0 | 1.0 |
+| Test case                   | Overall   | ROUGE-1 | Action F1 | Sentiment |
+| --------------------------- | --------- | ------- | --------- | --------- |
+| Sales call · JA/EN mixed    | **94.5%** | 0.694   | 1.0       | 1.0       |
+| Internal meeting · Japanese | **93.8%** | 0.703   | 1.0       | 1.0       |
+| Client conflict · EN/JA     | **93.8%** | 0.703   | 1.0       | 1.0       |
 
 ---
 
@@ -110,13 +120,13 @@ Input transcript
 
 ## Technology Decisions
 
-| Decision | Chosen | Over | Reason |
-|---|---|---|---|
-| Vector DB | **ChromaDB** | Pinecone, Weaviate | Free, local, HF Spaces compatible, APPI compliant |
-| LLM inference | **Groq** | OpenAI, Anthropic | 10–20× faster (LPU vs GPU). Free tier. JSON mode. |
-| Japanese NLP | **MeCab + IPADIC** | spaCy ja, Fugashi | Morpheme-level auxiliary verb detection — keigo is invisible to word-level tokenizers |
-| Web framework | **FastAPI** | Flask, Django | Native async with `asyncio.to_thread()`. Auto Swagger. |
-| Eval tracking | **MLflow** | W&B, Neptune | Free, local SQLite, APPI compliant |
+| Decision      | Chosen             | Over               | Reason                                                                                |
+| ------------- | ------------------ | ------------------ | ------------------------------------------------------------------------------------- |
+| Vector DB     | **ChromaDB**       | Pinecone, Weaviate | Free, local, HF Spaces compatible, APPI compliant                                     |
+| LLM inference | **Groq**           | OpenAI, Anthropic  | 10–20× faster (LPU vs GPU). Free tier. JSON mode.                                     |
+| Japanese NLP  | **MeCab + IPADIC** | spaCy ja, Fugashi  | Morpheme-level auxiliary verb detection — keigo is invisible to word-level tokenizers |
+| Web framework | **FastAPI**        | Flask, Django      | Native async with `asyncio.to_thread()`. Auto Swagger.                                |
+| Eval tracking | **MLflow**         | W&B, Neptune       | Free, local SQLite, APPI compliant                                                    |
 
 ---
 
@@ -133,6 +143,7 @@ uvicorn main:app --reload --port 7860
 ```
 
 **Local inference (zero cost, full APPI data residency):**
+
 ```bash
 ollama pull qwen3:8b
 # App auto-detects Ollama — no config needed
@@ -201,12 +212,12 @@ GET /health
 
 ## Performance
 
-| Metric | Score |
-|---|---|
-| Lighthouse Performance | 94 |
-| Lighthouse Accessibility | 100 |
-| CLS (Cumulative Layout Shift) | 0 |
-| Speed Index | 1.2s |
+| Metric                        | Score |
+| ----------------------------- | ----- |
+| Lighthouse Performance        | 94    |
+| Lighthouse Accessibility      | 100   |
+| CLS (Cumulative Layout Shift) | 0     |
+| Speed Index                   | 1.2s  |
 
 ---
 
