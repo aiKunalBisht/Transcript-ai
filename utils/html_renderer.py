@@ -615,9 +615,29 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
         </div>
     </div>
     """
-
+    deal_outcome = R.get("deal_outcome", {}) or {}
+    outcome_banner = ""
+    try:
+        from analysis.deal_outcome_detector import compute_meeting_outcome
+        outcome = compute_meeting_outcome(soft, deal_outcome)
+        outcome_banner = (
+            '<div style="margin-bottom:16px;border:1px solid ' + outcome["color"] + '33;'
+            'border-radius:12px;padding:14px 18px;display:flex;align-items:center;gap:14px;'
+            'background:' + outcome["color"] + '0D;">'
+            + '<div style="font-size:1.8rem;line-height:1;">' + outcome["emoji"] + '</div>'
+            + '<div style="flex:1;min-width:0;">'
+            + '<div style="font-size:0.62rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;'
+              'color:' + outcome["color"] + ';margin-bottom:2px;">Meeting Outcome</div>'
+            + '<div style="font-size:1.05rem;font-weight:800;color:#3C2416;">' + outcome["label"] + '</div>'
+            + '<div style="font-size:0.76rem;color:#7A5040;margin-top:3px;line-height:1.4;">' + outcome["meaning"] + '</div>'
+            + '</div></div>'
+        )
+    except Exception:
+        pass
+    
     return (
         '<div class="tai-results">'
+        + outcome_banner
         + pii_html
         + unlabeled_html
         + '<div class="tai-tiles">' + tiles + '</div>'

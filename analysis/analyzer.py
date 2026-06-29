@@ -955,6 +955,18 @@ def analyze_transcript(text: str, language: str = "en", bypass_cache: bool = Fal
     except Exception as e:
         print(f"[TRANSCRIPT_AI] soft_rejection_detector failed, skipping: {e}\n{traceback.format_exc()}",
               file=sys.stderr, flush=True)
+    # Deal/acceptance outcome detection — the positive-and-adjacent-state
+    # counterpart to soft_rejections above (approved / conditional /
+    # deferred / pending / informational / at-risk / rejected / unclear).
+    try:
+        from analysis.deal_outcome_detector import detect_deal_outcome
+        result["deal_outcome"] = detect_deal_outcome(text)
+    except ImportError:
+        pass
+    except Exception as e:
+        print(f"[TRANSCRIPT_AI] deal_outcome_detector failed, skipping: {e}\n{traceback.format_exc()}",
+              file=sys.stderr, flush=True)
+
 
     # Conversation dynamics — topic stalls/circle-back, senior-silence pivot,
     # closing-summarizer. Rule-based, runs on the raw transcript independent
