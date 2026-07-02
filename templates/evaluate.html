@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% set active_page = "evaluate" %}
+{% block title %}TranscriptAI · Evaluation{% endblock %}
+
+{% block content %}
+<style>
+.tai-eval-spinner {
+  display:inline-block; width:28px; height:28px;
+  border:3px solid var(--border); border-top-color:var(--sakura-deep);
+  border-radius:50%; animation:tai-eval-spin 0.8s linear infinite;
+}
+@keyframes tai-eval-spin { to { transform:rotate(360deg); } }
+</style>
+
+<div class="tai-header">
+  <div class="tai-header-icon">🧪</div>
+  <div class="tai-header-kicker">MLOps · Quality Assurance</div>
+  <h1>Evaluation</h1>
+  <div style="font-size:0.95rem;color:var(--ink-soft);max-width:600px;line-height:1.6;">
+    Runs the pipeline against {{ test_case_count }} ground-truth test case{{ 's' if test_case_count != 1 else '' }}
+    and scores it on summary accuracy, action-item F1, sentiment, and (for Japanese transcripts)
+    keigo register and nemawashi detection. Nothing is shown below until you run it.
+  </div>
+</div>
+
+<div x-data="{ running:false, hasRun:false, resultHtml:'', errorMsg:'' }">
+
+  {% if not eval_available %}
+  <div class="card" style="border-left:4px solid var(--red,#C84040); background:rgba(200,64,64,0.06);">
+    <strong style="color:#C84040; font-size:1.05rem; display:block; margin-bottom:6px;">
+      Evaluation module unavailable
+    </strong>
+    <span style="color:var(--ink-mid); font-size:0.88rem; line-height:1.6;">
+      Couldn't import <code>utils/evaluator.py</code> or <code>tests/test_data.py</code>.
+      Check the server logs for the import error.
+    </span>
+  </div>
+  {% else %}
+
+  <div class="card" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;">
+    <div>
+      <div style="font-weight:800;font-size:1.05rem;color:var(--ink);margin-bottom:4px;">
+        Ground-Truth Suite
+      </div>
+      <div style="font-size:0.82rem;color:var(--ink-mid);">
+        {{ test_case_count }} test case{{ 's' if test_case_count != 1 else '' }} · bypasses cache, calls the live provider each run
+        {% if mlflow_available %} · results auto-log to MLflow{% endif %}
+      </div>
+    </div>
+    <button class="tai-btn" style="white-space:nowrap;" :disabled="running" @click="
+      running = true; errorMsg = '';
+      fetch('/evaluate/run', { method: 'POST' })
+        .then(r => { if (!r.ok) throw new Error('Server returned ' + r.status); return r.text(); })
+        .then(html => { resultHtml = html; hasRun = true; })
+        .catch(e => { errorMsg = 'Evaluation run failed: ' + e.message; })
+        .finally(() => { running = false; });
+    ">
+      <span x-show="!running">▶ Run Evaluation Suite</span>
+      <span x-show="running" style="display:flex;align-items:center;gap:8px;">
+        <span class="tai-eval-spinner" style="width:16px;height:16px;border-width:2px;"></span>
+        Running…
+      </span>
+    </button>
+  </div>
+
+  <!-- Idle state — nothing has been run yet -->
+  <div class="card" x-show="!hasRun && !running && !errorMsg" x-cloak
+       style="text-align:center; padding:2.5rem 1rem; color:var(--ink-soft);">
+    <div style="font-size:2rem;margin-bottom:0.6rem;opacity:0.4;">🧪</div>
+    <div style="font-size:0.9rem;">No evaluation has been run yet.</div>
+    <div style="font-size:0.78rem;margin-top:4px;">Click "Run Evaluation Suite" above to score the pipeline against ground truth.</div>
+  </div>
+
+  <!-- Running state — full-width spinner while the suite executes -->
+  <div class="card" x-show="running" x-cloak
+       style="text-align:center; padding:2.5rem 1rem;">
+    <div class="tai-eval-spinner" style="margin-bottom:1rem;"></div>
+    <div style="font-size:0.88rem;color:var(--ink-mid);">
+      Running {{ test_case_count }} test case{{ 's' if test_case_count != 1 else '' }} against the live provider — this can take 10–30 seconds.
+    </div>
+  </div>
+
+  <!-- Error state -->
+  <div class="card" x-show="errorMsg" x-cloak
+       style="border-left:4px solid var(--red,#C84040); background:rgba(200,64,64,0.06);">
+    <span style="color:#C84040; font-size:0.88rem;" x-text="errorMsg"></span>
+  </div>
+
+  <!-- Results — only ever populated by a real run, via fetch() above -->
+  <div x-show="hasRun && !running" x-cloak style="margin-top:1.2rem;" x-html="resultHtml"></div>
+
+  {% endif %}
+</div>
+{% endblock %}

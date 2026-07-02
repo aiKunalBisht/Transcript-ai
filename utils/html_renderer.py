@@ -778,3 +778,109 @@ def compute_health_score(R: dict) -> dict:
     elif score >= 40: label, color, bg, border = "Needs Follow-up",   "#C87030", "#FDF0EA", "#E8C090"
     else:             label, color, bg, border = "High Risk",         "#B04040", "#FAF0F0", "#E8A0A0"
     return {"score":score,"label":label,"color":color,"bg":bg,"border":border}
+
+# ════════════════════════════════════════════════════════════════════════════════
+# EVALUATION PAGE — renders results from utils/evaluator.py's evaluate() against
+# ════════════════════════════════════════════════════════════════════════════════
+
+def _eval_grade_color(grade: str) -> str:
+    return {
+        "A": "#2D9E6B", "B": "#86A340", "C": "#B87830", "D": "#D96080", "F": "#C84040",
+    }.get((grade or "").upper(), "#7A5040")
+
+
+def build_evaluation_html(reports: list, mlflow_logged: bool) -> str:
+    """
+    reports: list of {"tc_id", "tc_name", "provider", "duration_ms", "report": <evaluate() output>}
+    mlflow_logged: whether MLFLOW_AVAILABLE was True for this run (evaluator.py
+                   logs to http://127.0.0.1:5000 automatically when so).
+    """
+    if not reports:
+        return (
+            "<div style='text-align:center;padding:2.5rem 1rem;color:#A87868;font-size:0.9rem;'>"
+            "No evaluation results — the run may have failed before producing any report."
+            "</div>"
+        )
+
+    n = len(reports)
+    avg_overall = round(sum(r["report"]["overall_score"] for r in reports) / n, 1)
+    avg_color = ("#2D9E6B" if avg_overall >= 80 else "#B87830" if avg_overall >= 60
+                 else "#D96080" if avg_overall >= 40 else "#C84040")
+
+    summary_html = (
+        "<div style='display:flex;align-items:center;gap:18px;flex-wrap:wrap;"
+        "border:1px solid " + avg_color + "33;border-radius:14px;padding:18px 22px;"
+        "background:" + avg_color + "0D;margin-bottom:20px;'>"
+        "<div style='font-size:2.2rem;font-weight:800;color:" + avg_color + ";line-height:1;'>"
+        f"{avg_overall}%</div>"
+        "<div style='flex:1;min-width:200px;'>"
+        "<div style='font-size:0.62rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;"
+        "color:" + avg_color + ";margin-bottom:3px;'>Average Overall Score · " + str(n) + " test case" + ("s" if n != 1 else "") + "</div>"
+        "<div style='font-size:0.8rem;color:#7A5040;'>"
+        + (
+            "✅ Logged to MLflow — <a href='http://127.0.0.1:5000' target='_blank' "
+            "style='color:" + avg_color + ";font-weight:700;'>view run history →</a>"
+            if mlflow_logged else
+            "⚠ MLflow not detected on this run — results shown here only, not persisted."
+        )
+        + "</div></div></div>"
+    )
+
+    cards_html = ""
+    for r in reports:
+        rep = r["report"]
+        grade = rep.get("overall_grade", "—")
+        gcolor = _eval_grade_color(grade)
+        score = rep.get("overall_score", 0)
+
+        metrics = [
+            ("Semantic", f"{rep['summary'].get('semantic_score', 0):.0%}" if isinstance(rep['summary'].get('semantic_score'), float) else rep['summary'].get('semantic_score', '—')),
+            ("Actions F1", f"{rep['action_items'].get('f1', 0):.0%}" if isinstance(rep['action_items'].get('f1'), float) else rep['action_items'].get('f1', '—')),
+            ("Sentiment", f"{rep['sentiment'].get('soft_accuracy', 0):.0%}" if isinstance(rep['sentiment'].get('soft_accuracy'), float) else rep['sentiment'].get('soft_accuracy', '—')),
+        ]
+        if "japan_insights" in rep:
+            ji = rep["japan_insights"]
+            metrics.append(("Keigo", ji.get("keigo", {}).get("grade", "—")))
+            nm = ji.get("nemawashi", {})
+            metrics.append(("Nemawashi P/R", f"{nm.get('precision', 0):.0%}/{nm.get('recall', 0):.0%}"
+                             if isinstance(nm.get("precision"), float) else "—"))
+
+        metric_chips = "".join(
+            "<div style='flex:1;min-width:90px;text-align:center;padding:8px 6px;"
+            "background:#FDFAFF;border:1px solid #EFE2D8;border-radius:8px;'>"
+            "<div style='font-size:0.58rem;color:#A87868;letter-spacing:0.08em;"
+            "text-transform:uppercase;margin-bottom:3px;'>" + lbl + "</div>"
+            "<div style='font-size:0.92rem;font-weight:800;color:#3C2416;'>" + str(val) + "</div>"
+            "</div>"
+            for lbl, val in metrics
+        )
+
+        hallu = ""
+        if "hallucination_bonus" in rep:
+            hallu = (
+                "<div style='font-size:0.7rem;color:#A87868;margin-top:8px;'>"
+                "Hallucination risk: <strong style='color:#7A5040;'>"
+                + str(rep.get("hallucination_risk", "UNKNOWN")) + "</strong>"
+                " · bonus +" + f"{rep.get('hallucination_bonus', 0):.0%}" + "</div>"
+            )
+
+        cards_html += (
+            "<div style='border:1px solid #EFE2D8;border-radius:12px;padding:16px 18px;margin-bottom:12px;'>"
+            "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;'>"
+            "<div>"
+            "<div style='font-weight:700;color:#3C2416;font-size:0.95rem;'>" + str(r.get("tc_name", r.get("tc_id", "Test case"))) + "</div>"
+            "<div style='font-size:0.68rem;color:#A87868;margin-top:2px;'>"
+            + str(r.get("tc_id", "")) + " · provider: " + str(r.get("provider", "unknown"))
+            + " · " + f"{r.get('duration_ms', 0):.0f}ms"
+            + "</div></div>"
+            "<div style='display:flex;align-items:center;gap:10px;'>"
+            "<div style='font-size:1.4rem;font-weight:800;color:" + gcolor + ";'>" + str(score) + "%</div>"
+            "<div style='font-size:0.8rem;font-weight:800;color:#fff;background:" + gcolor + ";"
+            "border-radius:8px;padding:3px 10px;'>" + str(grade) + "</div>"
+            "</div></div>"
+            "<div style='display:flex;gap:8px;flex-wrap:wrap;'>" + metric_chips + "</div>"
+            + hallu +
+            "</div>"
+        )
+
+    return summary_html + cards_html

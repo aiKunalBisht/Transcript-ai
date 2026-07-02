@@ -110,6 +110,17 @@ except ImportError:
             "insight_tab_enabled": True,
         }
 
+# ── Evaluation module (optional — needs utils/evaluator.py + tests/test_data.py) ──
+try:
+    from utils.evaluator import evaluate, MLFLOW_AVAILABLE
+    from tests.test_data import TEST_CASES
+    from utils.html_renderer import build_evaluation_html
+    EVAL_AVAILABLE = True
+except ImportError:
+    EVAL_AVAILABLE = False
+    MLFLOW_AVAILABLE = False
+    TEST_CASES = []
+
 AUDIO_EXT = {".mp3", ".wav", ".m4a", ".mp4", ".ogg", ".webm"}
 TEXT_EXT  = {".txt", ".vtt", ".json"}
 
@@ -192,6 +203,60 @@ async def export_page(request: Request):
         "cultural_insights_available":  CULTURAL_INSIGHTS_AVAILABLE,
         "cache_stats":                  _get_cache_stats(),
     })
+
+
+@app.get("/evaluate", response_class=HTMLResponse)
+async def evaluate_page(request: Request):
+    # No evaluation runs on page load. The page renders empty/idle until the
+    # person explicitly clicks "Run Evaluation Suite" — POST /evaluate/run
+    # below is the only thing that ever produces results.
+    return templates.TemplateResponse(request, "evaluate.html", {
+        "eval_available":   EVAL_AVAILABLE,
+        "test_case_count":  len(TEST_CASES) if EVAL_AVAILABLE else 0,
+        "mlflow_available": MLFLOW_AVAILABLE,
+        "cache_stats":      _get_cache_stats(),
+    })
+
+
+@app.post("/evaluate/run", response_class=HTMLResponse)
+async def evaluate_run():
+    if not EVAL_AVAILABLE:
+        return HTMLResponse(
+            content=_err("Evaluation module unavailable — check utils/evaluator.py and tests/test_data.py."),
+            status_code=500,
+        )
+    if not TEST_CASES:
+        return HTMLResponse(
+            content=_err("No ground-truth test cases found in tests/test_data.py."),
+            status_code=400,
+        )
+
+    async def _run_one(tc: dict) -> dict:
+        prediction = await asyncio.to_thread(
+            analyze_transcript, tc["transcript"], tc["language"], bypass_cache=True
+        )
+        report = await asyncio.to_thread(
+            evaluate, prediction, tc["ground_truth"], tc["transcript"],
+            tc_name=tc["name"], provider=prediction.get("_provider", "unknown"),
+        )
+        return {
+            "tc_id":       tc["id"],
+            "tc_name":     tc["name"],
+            "provider":    prediction.get("_provider", "unknown"),
+            "duration_ms": prediction.get("_duration_ms", 0),
+            "report":      report,
+        }
+
+    try:
+        # Run all ground-truth cases concurrently — each goes through Groq's
+        # 2-key round-robin independently, so this is no riskier than running
+        # them one at a time, just faster.
+        reports = await asyncio.gather(*[_run_one(tc) for tc in TEST_CASES])
+    except Exception as exc:
+        return HTMLResponse(content=_err(f"Evaluation run failed: {exc}"), status_code=500)
+
+    html = build_evaluation_html(list(reports), MLFLOW_AVAILABLE)
+    return HTMLResponse(content=html)
 
 
 # ── /transcribe ───────────────────────────────────────────────────────────────
@@ -415,6 +480,7 @@ async def health():
             "cultural_insights":  CULTURAL_INSIGHTS_AVAILABLE,
             "slide_architect":    SLIDE_ARCHITECT_AVAILABLE,
             "language_intel":     LANGUAGE_INTEL_AVAILABLE,
+            "evaluation":         EVAL_AVAILABLE,
         },
     }
 
