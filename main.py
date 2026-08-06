@@ -19,6 +19,69 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+# ── Optional Google OAuth ─────────────────────────────────────────────────────
+# Required packages (not in requirements.txt by default):
+#   pip install authlib python-jose[cryptography] itsdangerous
+#
+# Required environment variables:
+#   GOOGLE_CLIENT_ID      → from https://console.cloud.google.com/
+#   GOOGLE_CLIENT_SECRET  → same place
+#   SESSION_SECRET        → any long random string, e.g. openssl rand -hex 32
+#   AUTH_ENABLED          → set to "1" to turn auth on (default: off)
+#
+# When AUTH_ENABLED is not set (default), the app works exactly as before —
+# all requests treated as anonymous, all caches shared (v1 behaviour).
+# Flip AUTH_ENABLED=1 when you're ready to open to multiple real users.
+
+AUTH_ENABLED = os.getenv("AUTH_ENABLED", "0") == "1"
+_AUTH_AVAILABLE = False
+
+if AUTH_ENABLED:
+    try:
+        from starlette.middleware.sessions import SessionMiddleware
+        from authlib.integrations.starlette_client import OAuth
+        _AUTH_AVAILABLE = True
+    except ImportError:
+        print("[TRANSCRIPT_AI] authlib not installed — auth disabled. "
+              "pip install authlib itsdangerous", flush=True)
+        AUTH_ENABLED = False
+
+
+def _setup_auth(app):
+    """Attach session middleware and OAuth client to the app if auth is enabled."""
+    if not AUTH_ENABLED or not _AUTH_AVAILABLE:
+        return None
+
+    secret = os.getenv("SESSION_SECRET", "change-me-in-production")
+    app.add_middleware(SessionMiddleware, secret_key=secret,
+                       max_age=60 * 60 * 24 * 30)   # 30-day sessions
+
+    oauth = OAuth()
+    oauth.register(
+        name="google",
+        client_id=os.getenv("GOOGLE_CLIENT_ID", ""),
+        client_secret=os.getenv("GOOGLE_CLIENT_SECRET", ""),
+        server_metadata_url=(
+            "https://accounts.google.com/.well-known/openid-configuration"
+        ),
+        client_kwargs={"scope": "openid email profile"},
+    )
+    return oauth
+
+
+def get_current_user(request: Request) -> str | None:
+    """
+    Returns the authenticated user_id (Google sub) for this request.
+    Returns None when auth is disabled or the user is not logged in.
+
+    Downstream code treats None as "anonymous" — same behaviour as v1.
+    This means the app works identically with auth off, and gains
+    per-user data isolation the moment AUTH_ENABLED=1 is set.
+    """
+    if not AUTH_ENABLED:
+        return None
+    return request.session.get("user_id")   # set in /auth/callback
+
 from analysis.analyzer import analyze_transcript
 from utils import detect_language, clean_text, parse_uploaded_file
 from utils.html_renderer import build_results_html
@@ -125,9 +188,13 @@ AUDIO_EXT = {".mp3", ".wav", ".m4a", ".mp4", ".ogg", ".webm"}
 TEXT_EXT  = {".txt", ".vtt", ".json"}
 
 # ── App ───────────────────────────────────────────────────────────────────────
-app = FastAPI(title="TranscriptAI", version="3.1.0", docs_url="/docs")
+app = FastAPI(title="TranscriptAI", version="3.2.0", docs_url="/docs")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
                    allow_methods=["*"], allow_headers=["*"])
+
+# Auth setup — attaches SessionMiddleware + OAuth client if AUTH_ENABLED=1
+_oauth = _setup_auth(app)
+
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
@@ -192,7 +259,69 @@ def _get_cache_stats():
 # ── Pages ─────────────────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse(request, "index.html", {"cache_stats": _get_cache_stats()})
+    return templates.TemplateResponse(request, "index.html", {
+        "cache_stats":    _get_cache_stats(),
+        "current_user":   get_current_user(request),
+        "auth_enabled":   AUTH_ENABLED,
+    })
+
+
+# ── Auth routes (only active when AUTH_ENABLED=1) ─────────────────────────────
+
+@app.get("/auth/login")
+async def auth_login(request: Request):
+    """Redirect user to Google consent screen."""
+    if not AUTH_ENABLED or not _oauth:
+        return JSONResponse({"error": "Auth not enabled — set AUTH_ENABLED=1"}, 400)
+    redirect_uri = request.url_for("auth_callback")
+    return await _oauth.google.authorize_redirect(request, redirect_uri)
+
+
+@app.get("/auth/callback", name="auth_callback")
+async def auth_callback(request: Request):
+    """
+    Google redirects here after the user grants consent.
+    Exchange code → token → decode user info → store in session.
+    """
+    if not AUTH_ENABLED or not _oauth:
+        return RedirectResponse("/")
+    try:
+        token     = await _oauth.google.authorize_access_token(request)
+        user_info = token["userinfo"]          # sub, email, name, picture
+        request.session["user_id"] = user_info["sub"]
+        request.session["email"]   = user_info.get("email", "")
+        request.session["name"]    = user_info.get("name", "")
+
+        # Create user record in SQLite if it doesn't exist
+        await _upsert_user(
+            user_id = user_info["sub"],
+            email   = user_info.get("email", ""),
+            name    = user_info.get("name", ""),
+        )
+    except Exception as exc:
+        print(f"[AUTH] callback error: {exc}", flush=True)
+    return RedirectResponse("/")
+
+
+@app.get("/auth/logout")
+async def auth_logout(request: Request):
+    """Clear session — user is logged out."""
+    request.session.clear()
+    return RedirectResponse("/")
+
+
+@app.get("/auth/me")
+async def auth_me(request: Request):
+    """Returns current user info — used by frontend to show name/avatar."""
+    user_id = get_current_user(request)
+    if not user_id:
+        return JSONResponse({"authenticated": False})
+    return JSONResponse({
+        "authenticated": True,
+        "user_id":       user_id,
+        "email":         request.session.get("email", ""),
+        "name":          request.session.get("name", ""),
+    })
 
 
 @app.get("/export", response_class=HTMLResponse)
@@ -330,7 +459,10 @@ async def analyze_text_route(
             text_to_analyze, pii_mask = mask_transcript(cleaned)
             pii_report = get_pii_report(pii_mask)
 
-        result = await asyncio.to_thread(analyze_transcript, text_to_analyze, detected_lang)
+        result = await asyncio.to_thread(
+            analyze_transcript, text_to_analyze, detected_lang,
+            user_id=get_current_user(request)
+        )
 
         if pii_mask is not None:
             result = restore_pii_in_result(result, pii_mask)
@@ -490,6 +622,50 @@ def _err(msg: str) -> str:
     return (f'<div style="background:var(--red-bg);border-left:3px solid var(--red);'
             f'border-radius:0 10px 10px 0;padding:14px 18px;color:#3C2416;margin-top:12px">'
             f'<b style="color:var(--red)">⚠ Error</b><br>{msg}</div>')
+
+
+# ── User store (SQLite — created on first startup) ─────────────────────────────
+import sqlite3 as _sqlite3
+_DB_PATH = Path("users.db")
+
+
+def _init_user_db():
+    """Create users table on first run. Safe to call every startup (IF NOT EXISTS)."""
+    try:
+        con = _sqlite3.connect(_DB_PATH)
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id    TEXT PRIMARY KEY,
+                email      TEXT UNIQUE NOT NULL,
+                name       TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                last_seen  TEXT,
+                total_analyses INTEGER DEFAULT 0
+            )
+        """)
+        con.commit()
+        con.close()
+    except Exception as exc:
+        print(f"[DB] init_user_db failed: {exc}", flush=True)
+
+
+async def _upsert_user(user_id: str, email: str, name: str):
+    """Insert a new user or update last_seen for a returning user."""
+    try:
+        now = __import__("datetime").datetime.utcnow().isoformat()
+        con = _sqlite3.connect(_DB_PATH)
+        con.execute("""
+            INSERT INTO users (user_id, email, name, created_at, last_seen)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET last_seen=excluded.last_seen
+        """, (user_id, email, name, now, now))
+        con.commit()
+        con.close()
+    except Exception as exc:
+        print(f"[DB] upsert_user failed: {exc}", flush=True)
+
+
+_init_user_db()    # runs once at import time
 
 
 if __name__ == "__main__":

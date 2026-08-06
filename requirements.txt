@@ -144,3 +144,6 @@ zstandard==0.25.0
 python-multipart>=0.0.9
 aiofiles>=23.2.1
 unidic-lite>=1.0.8
+authlib>=1.3.0
+itsdangerous>=2.1.0
+filelock>=3.13.0

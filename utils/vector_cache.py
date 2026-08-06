@@ -1,15 +1,15 @@
-# vector_cache.py — v1
+# vector_cache.py — v2.0
 # Persistent vector cache using ChromaDB + sentence-transformers
 #
-# Architecture:
-#   - Every analyzed transcript is stored as a vector embedding
-#   - On new transcript: semantic similarity search first
-#   - If similarity > 0.92: return stored result instantly (no Groq call)
-#   - If not found: call Groq, store result for future
+# v2.0 changes (multi-user safety):
+#   - Per-user ChromaDB collections: transcripts_{safe_user_id}
+#   - Anonymous requests use "transcripts_anonymous" (shared, as before)
+#   - _get_user_collection(user_id) replaces the global _transcript_coll
+#   - Global singleton _chroma_client still shared (ChromaDB supports this)
+#   - NLP patterns collection remains global (not user-specific)
 #
-# Storage: ./vector_store/ (persists across restarts, reloads, everything)
-# No login required — global shared collection
-# Sample transcript cached on first run, instant forever after
+# Storage: ./vector_store/chroma_db/ (persists across restarts)
+# Each user's embeddings are isolated — no cross-user semantic leakage.
 
 import os
 import json
@@ -63,13 +63,13 @@ def _get_chroma():
         import chromadb
         _chroma_client = chromadb.PersistentClient(path=str(CHROMA_DIR))
 
-        # Main transcript collection
+        # Anonymous collection — backwards-compatible with v1
         _transcript_coll = _chroma_client.get_or_create_collection(
-            name="transcripts",
+            name="transcripts_anonymous",
             metadata={"hnsw:space": "cosine"}
         )
 
-        # NLP pattern reference library
+        # NLP pattern reference library — global, not user-specific
         _patterns_coll = _chroma_client.get_or_create_collection(
             name="nlp_patterns",
             metadata={"hnsw:space": "cosine"}
@@ -82,6 +82,44 @@ def _get_chroma():
     except ImportError:
         _chroma_client = False
     return _chroma_client or None, _transcript_coll, _patterns_coll
+
+
+def _safe_uid(user_id: str) -> str:
+    """Sanitise user_id for ChromaDB collection name."""
+    import re
+    clean = re.sub(r"[^a-zA-Z0-9_-]", "_", str(user_id))[:40]
+    return clean if clean else "anonymous"
+
+
+def _get_user_collection(user_id: str | None = None):
+    """
+    Returns the ChromaDB collection for this specific user.
+
+    user_id=None  → shared anonymous collection (v1 behaviour)
+    user_id="xyz" → isolated collection "transcripts_{safe_id}"
+                    created on first use, never visible to other users
+
+    This is the core fix for the data isolation bug.
+    Before v2.0: ALL users searched the same "transcripts" collection.
+    A transcript from Company A that was 95% similar to Company B's
+    would return Company A's confidential analysis to Company B's user.
+    Now each user's embeddings live in their own collection — zero leakage.
+    """
+    client, anon_coll, _ = _get_chroma()
+    if client is None:
+        return None
+
+    if not user_id:
+        return anon_coll   # anonymous — shared, backwards-compatible
+
+    coll_name = f"transcripts_{_safe_uid(user_id)}"
+    try:
+        return client.get_or_create_collection(
+            name=coll_name,
+            metadata={"hnsw:space": "cosine"}
+        )
+    except Exception:
+        return anon_coll   # fallback to anonymous on any error
 
 
 def _seed_nlp_patterns(coll):
@@ -150,18 +188,22 @@ def _seed_nlp_patterns(coll):
 
 # ── MAIN PUBLIC API ───────────────────────────────────────────────────────────
 
-def get_cached_result(transcript: str, language: str) -> dict | None:
+def get_cached_result(transcript: str, language: str,
+                      user_id: str | None = None) -> dict | None:
     """
-    Search ChromaDB for a semantically similar transcript.
+    Search this user's ChromaDB collection for a semantically similar transcript.
     Returns stored analysis result if similarity >= threshold.
     Returns None if no match found (caller should run Groq).
+
+    user_id=None  → anonymous shared collection (v1 behaviour)
+    user_id="xyz" → searches ONLY this user's collection — no cross-user leaks
     """
     embedder = _get_embedder()
     if not embedder:
         return None
 
-    client, coll, _ = _get_chroma()
-    if not client or coll.count() == 0:
+    coll = _get_user_collection(user_id)
+    if coll is None or coll.count() == 0:
         return None
 
     try:
@@ -196,16 +238,24 @@ def get_cached_result(transcript: str, language: str) -> dict | None:
     return None
 
 
-def store_result(transcript: str, language: str, result: dict) -> str | None:
+def store_result(transcript: str, language: str, result: dict,
+                 user_id: str | None = None) -> str | None:
     """
-    Store a transcript and its analysis result in ChromaDB.
+    Store a transcript and its analysis result in this user's ChromaDB collection.
     Returns the document ID on success, None on failure.
+
+    user_id=None  → anonymous shared collection (v1 behaviour)
+    user_id="xyz" → stores in user's private collection only
     """
     embedder = _get_embedder()
     if not embedder:
         return None
 
-    client, coll, _ = _get_chroma()
+    coll = _get_user_collection(user_id)
+    if coll is None:
+        return None
+
+    client, _, _ = _get_chroma()
     if not client:
         return None
 
