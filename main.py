@@ -15,7 +15,7 @@ from typing import Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -247,10 +247,10 @@ def _ensure_speaker_labels(text: str):
 
 
 # ── Cache stats ───────────────────────────────────────────────────────────────
-def _get_cache_stats():
+def _get_cache_stats(user_id: str | None = None) -> dict | None:
     try:
         from utils.vector_cache import get_cache_stats
-        vc = get_cache_stats()
+        vc = get_cache_stats(user_id=user_id)
         return vc if vc.get("available") else None
     except Exception:
         return None
@@ -260,7 +260,7 @@ def _get_cache_stats():
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse(request, "index.html", {
-        "cache_stats":    _get_cache_stats(),
+        "cache_stats":    _get_cache_stats(get_current_user(request)),
         "current_user":   get_current_user(request),
         "auth_enabled":   AUTH_ENABLED,
     })
@@ -330,7 +330,7 @@ async def export_page(request: Request):
         "pptx_available":               PPTX_AVAILABLE,
         "gijiroku_available":           GIJIROKU_AVAILABLE,
         "cultural_insights_available":  CULTURAL_INSIGHTS_AVAILABLE,
-        "cache_stats":                  _get_cache_stats(),
+        "cache_stats":                  _get_cache_stats(get_current_user(request)),
     })
 
 
@@ -343,7 +343,7 @@ async def evaluate_page(request: Request):
         "eval_available":   EVAL_AVAILABLE,
         "test_case_count":  len(TEST_CASES) if EVAL_AVAILABLE else 0,
         "mlflow_available": MLFLOW_AVAILABLE,
-        "cache_stats":      _get_cache_stats(),
+        "cache_stats":      _get_cache_stats(get_current_user(request)),
     })
 
 
