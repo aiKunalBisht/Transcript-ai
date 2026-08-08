@@ -440,6 +440,7 @@ async def transcribe(file: UploadFile = File(...)):
 # ── /analyze-text ─────────────────────────────────────────────────────────────
 @app.post("/analyze-text", response_class=HTMLResponse)
 async def analyze_text_route(
+    request:    Request,
     transcript: str           = Form(...),
     language:   Optional[str] = Form(None),
     mask_pii:   bool          = Form(True),

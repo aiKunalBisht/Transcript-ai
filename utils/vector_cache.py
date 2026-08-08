@@ -188,15 +188,35 @@ def _seed_nlp_patterns(coll):
 
 # ── MAIN PUBLIC API ───────────────────────────────────────────────────────────
 
+def _user_results_dir(user_id: str | None) -> Path:
+    """
+    Returns the directory where full result JSONs are stored for this user.
+    Each user gets their own subdirectory so result files never collide.
+
+    Why separate from ChromaDB?  ChromaDB stores the embedding + metadata
+    (fast search). The full analysis JSON (5–10 KB) lives on disk separately
+    because ChromaDB has a document size limit and we need every field.
+
+    Structure:
+        vector_store/results/anonymous/{doc_id}.json   ← shared / no auth
+        vector_store/results/users/{safe_uid}/{doc_id}.json  ← per-user
+    """
+    if not user_id:
+        return RESULTS_DIR / "anonymous"
+    return RESULTS_DIR / "users" / _safe_uid(user_id)
+
+
 def get_cached_result(transcript: str, language: str,
                       user_id: str | None = None) -> dict | None:
     """
     Search this user's ChromaDB collection for a semantically similar transcript.
-    Returns stored analysis result if similarity >= threshold.
-    Returns None if no match found (caller should run Groq).
+    Returns stored analysis result if similarity >= SEMANTIC_THRESHOLD.
+    Returns None if no match found — caller runs the full LLM pipeline.
 
-    user_id=None  → anonymous shared collection (v1 behaviour)
-    user_id="xyz" → searches ONLY this user's collection — no cross-user leaks
+    user_id=None  → anonymous shared collection (v1 behaviour, backwards-compatible)
+    user_id="xyz" → searches ONLY this user's past transcripts — zero cross-user leakage
+
+    DSA: HNSW approximate nearest-neighbour O(log n) — fast even at 10,000+ entries.
     """
     embedder = _get_embedder()
     if not embedder:
@@ -218,12 +238,13 @@ def get_cached_result(transcript: str, language: str,
             return None
 
         distance   = results["distances"][0][0]
-        similarity = 1 - distance   # cosine distance → similarity
+        similarity = 1 - distance           # cosine distance → similarity
         doc_id     = results["ids"][0][0]
 
         if similarity >= SEMANTIC_THRESHOLD:
-            # Load full result from results store
-            result_path = RESULTS_DIR / f"{doc_id}.json"
+            # Load full result from THIS user's results directory — not global
+            result_dir  = _user_results_dir(user_id)
+            result_path = result_dir / f"{doc_id}.json"
             if result_path.exists():
                 with open(result_path) as f:
                     result = json.load(f)
@@ -241,11 +262,14 @@ def get_cached_result(transcript: str, language: str,
 def store_result(transcript: str, language: str, result: dict,
                  user_id: str | None = None) -> str | None:
     """
-    Store a transcript and its analysis result in this user's ChromaDB collection.
-    Returns the document ID on success, None on failure.
+    Store a transcript embedding + full result in this user's private store.
 
-    user_id=None  → anonymous shared collection (v1 behaviour)
-    user_id="xyz" → stores in user's private collection only
+    Two things get written:
+      1. Embedding + metadata → user's ChromaDB collection (fast search)
+      2. Full result JSON     → user's results subdirectory (no size limit)
+
+    user_id=None  → anonymous shared store (v1 behaviour)
+    user_id="xyz" → private — another user can never retrieve this result
     """
     embedder = _get_embedder()
     if not embedder:
@@ -260,34 +284,38 @@ def store_result(transcript: str, language: str, result: dict,
         return None
 
     try:
-        # Use MD5 as stable document ID
+        # Stable document ID — same transcript always gets same ID
         doc_id    = hashlib.md5(transcript.encode()).hexdigest()
         embedding = embedder.encode([transcript], show_progress_bar=False).tolist()
 
         word_count = len(transcript.split())
         lang_label = language or "unknown"
 
-        # Store embedding + metadata in ChromaDB
-        # Upsert so re-analyzing same transcript updates the result
+        # 1. Store embedding in THIS user's ChromaDB collection
         coll.upsert(
             ids        =[doc_id],
-            documents  =[transcript[:2000]],  # ChromaDB doc limit
+            documents  =[transcript[:2000]],   # ChromaDB document size limit
             embeddings =embedding,
             metadatas  =[{
                 "language":   lang_label,
                 "word_count": word_count,
                 "stored_at":  time.strftime("%Y-%m-%dT%H:%M:%S"),
-                "provider":   result.get("_provider","unknown"),
+                "provider":   result.get("_provider", "unknown"),
+                "user_id":    user_id or "anonymous",   # auditable
             }]
         )
 
-        # Store full result JSON separately (no size limit)
-        result_path = RESULTS_DIR / f"{doc_id}.json"
-        clean_result = {k: v for k, v in result.items()
-                        if not k.startswith("_") or k in ("_provider","_duration_ms")}
-        clean_result["_cached_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        # 2. Store full result JSON in THIS user's results directory
+        result_dir = _user_results_dir(user_id)
+        result_dir.mkdir(parents=True, exist_ok=True)
+        result_path = result_dir / f"{doc_id}.json"
 
-        with open(result_path, "w") as f:
+        clean_result = {k: v for k, v in result.items()
+                        if not k.startswith("_") or k in ("_provider", "_duration_ms")}
+        clean_result["_cached_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        clean_result["_user_id"]   = user_id or "anonymous"
+
+        with open(result_path, "w", encoding="utf-8") as f:
             json.dump(clean_result, f, ensure_ascii=False, indent=2)
 
         return doc_id
@@ -336,18 +364,24 @@ def query_patterns(text: str, category: str = None, top_k: int = 3) -> list:
         return []
 
 
-def get_cache_stats() -> dict:
-    """Returns stats about the vector cache — used in Trends tab."""
-    client, coll, patterns_coll = _get_chroma()
+def get_cache_stats(user_id: str | None = None) -> dict:
+    """
+    Returns vector cache stats.
+    user_id=None  → global anonymous collection count
+    user_id="xyz" → this user's collection count only
+    """
+    client, _, patterns_coll = _get_chroma()
     if not client:
         return {"available": False, "transcript_count": 0}
 
     try:
+        coll = _get_user_collection(user_id)
         return {
             "available":        True,
             "transcript_count": coll.count() if coll else 0,
             "pattern_count":    patterns_coll.count() if patterns_coll else 0,
             "store_path":       str(VECTOR_STORE_DIR),
+            "user_id":          user_id or "anonymous",
         }
     except Exception:
         return {"available": False, "transcript_count": 0}
