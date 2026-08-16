@@ -778,7 +778,13 @@ def _try_providers(system_prompt: str, user_prompt: str, max_tokens: int,
                 if "NO_GROQ_KEY" in str(e) or "ALL_KEYS_EXHAUSTED" in str(e):
                     break
                 if attempt < retries:
-                    time.sleep(1)
+                    # I3 fix: exponential backoff + jitter instead of flat sleep(1)
+                    # Flat sleep(1) causes a thundering herd when multiple requests
+                    # all fail at the same time — they all retry at t+1 together.
+                    # Jitter spreads retries: attempt 0→~1s, attempt 1→~2s, attempt 2→~4s
+                    import random
+                    backoff = (2 ** attempt) + random.uniform(0, 1)
+                    time.sleep(min(backoff, 8))   # cap at 8s
             except requests.exceptions.Timeout:
                 last_error = TimeoutError(f"{name} timed out")
                 break
@@ -788,7 +794,9 @@ def _try_providers(system_prompt: str, user_prompt: str, max_tokens: int,
             except Exception as e:
                 last_error = e
                 if attempt < retries:
-                    time.sleep(1)
+                    import random
+                    backoff = (2 ** attempt) + random.uniform(0, 1)
+                    time.sleep(min(backoff, 8))
 
     raise last_error or RuntimeError("All providers failed")
 
@@ -1041,6 +1049,11 @@ def analyze_transcript(text: str, language: str = "en",
               file=sys.stderr, flush=True)
 
     # Hallucination guard + semantic rescue
+    # I4 fix: failures are no longer silently swallowed.
+    # When the guard crashes, action items are flagged as unverified so
+    # users know the output has not been cross-checked against the transcript.
+    # Before: except Exception as e: print(...) — output went out unverified.
+    # After: flag every action item + surface the warning in the result.
     try:
         from analysis.hallucination_guard import verify_result
         result = verify_result(result, text)
@@ -1049,10 +1062,19 @@ def analyze_transcript(text: str, language: str = "en",
             result.get("action_items", []), text
         )
     except ImportError:
-        pass
+        # Module not installed — flag action items as unverified
+        for item in result.get("action_items", []):
+            item.setdefault("hallucination_flag", False)
+            item["verification_skipped"] = True
     except Exception as e:
-        print(f"[TRANSCRIPT_AI] hallucination_guard/semantic_validator failed, skipping: {e}\n{traceback.format_exc()}",
+        print(f"[TRANSCRIPT_AI] hallucination_guard failed: {e}\n{traceback.format_exc()}",
               file=sys.stderr, flush=True)
+        # Flag every action item as unverified — do not silently pass
+        for item in result.get("action_items", []):
+            item["hallucination_flag"]    = True
+            item["flag_reason"]           = "Hallucination guard failed — output unverified"
+            item["verification_skipped"]  = True
+        result["_hallucination_guard_error"] = str(e)
 
     # Soft rejection detection
     try:

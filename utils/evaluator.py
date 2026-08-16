@@ -11,6 +11,7 @@
 #         so nemawashi precision reads from soft_rejection_detector output
 #         (same source as Streamlit Insights tab) instead of separate keyword set.
 
+import os
 import re
 import unicodedata
 
@@ -366,7 +367,14 @@ def _log_to_mlflow(report: dict, tc_name: str, provider: str) -> None:
     if not MLFLOW_AVAILABLE:
         return
     try:
-        mlflow.set_tracking_uri("http://127.0.0.1:5000")
+        # C4 fix: URI from env var — not hardcoded to 127.0.0.1:5000.
+        # On HuggingFace the local MLflow server is never running, so
+        # the hardcoded URI caused every eval run to silently log nothing.
+        # If MLFLOW_TRACKING_URI is not set, MLflow uses ./mlruns/ local
+        # file store — works on HF Spaces with no extra server needed.
+        tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "")
+        if tracking_uri:
+            mlflow.set_tracking_uri(tracking_uri)
         mlflow.set_experiment("TranscriptAI-Evaluation")
         with mlflow.start_run(run_name=f"{tc_name}__{provider}"):
             mlflow.log_param("test_case",    tc_name)
@@ -483,4 +491,4 @@ if __name__ == "__main__":
                   f"source={ji['nemawashi']['source']} "
                   f"detected={ji['nemawashi']['rule_detected']}")
         if MLFLOW_AVAILABLE:
-            print(f"MLflow:     logged to http://127.0.0.1:5000")
+            print(f"MLflow:     logged to {os.getenv('MLFLOW_TRACKING_URI', './mlruns (local file store)')}")

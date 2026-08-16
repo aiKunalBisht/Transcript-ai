@@ -600,7 +600,7 @@ async def export_txt_route(request: Request):
 @app.get("/health")
 async def health():
     return {
-        "status": "healthy", "version": "3.1.0",
+        "status": "healthy", "version": "3.2.0",
         "provider": "groq" if os.getenv("GROQ_API_KEY") else "mock",
         "appi_compliant": PII_AVAILABLE,
         "modules": {
@@ -618,6 +618,52 @@ async def health():
     }
 
 
+# ── SEO: sitemap.xml ──────────────────────────────────────────────────────────
+# Submit this to Google Search Console after deploy:
+#   https://kunalthebeast-transcriptai.hf.space/sitemap.xml
+@app.get("/sitemap.xml", response_class=HTMLResponse)
+async def sitemap():
+    from datetime import date
+    today = date.today().isoformat()
+    base  = "https://kunalthebeast-transcriptai.hf.space"
+    pages = [
+        ("",          "daily",  "1.0"),   # home — highest priority
+        ("/export",   "weekly", "0.7"),
+        ("/evaluate", "weekly", "0.6"),
+    ]
+    urls = "\n".join(
+        f"""  <url>
+    <loc>{base}{path}</loc>
+    <lastmod>{today}</lastmod>
+    <changefreq>{freq}</changefreq>
+    <priority>{priority}</priority>
+  </url>"""
+        for path, freq, priority in pages
+    )
+    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+{urls}
+</urlset>"""
+    return HTMLResponse(content=xml, media_type="application/xml")
+
+
+# ── SEO: manifest.json (PWA metadata — helps Google classify the app) ─────────
+@app.get("/manifest.json")
+async def manifest():
+    return JSONResponse({
+        "name":             "TranscriptAI",
+        "short_name":       "TranscriptAI",
+        "description":      "Japanese & Multilingual Meeting Intelligence AI — detects nemawashi, keigo, soft rejections, and meeting outcomes.",
+        "start_url":        "/",
+        "display":          "standalone",
+        "background_color": "#FDF8F5",
+        "theme_color":      "#D96080",
+        "categories":       ["business", "productivity"],
+        "lang":             "en",
+        "keywords":         "Japanese meeting, nemawashi, soft rejection, keigo, transcript analysis, multilingual AI",
+    })
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def _err(msg: str) -> str:
     return (f'<div style="background:var(--red-bg);border-left:3px solid var(--red);'
@@ -625,15 +671,27 @@ def _err(msg: str) -> str:
             f'<b style="color:var(--red)">⚠ Error</b><br>{msg}</div>')
 
 
-# ── User store (SQLite — created on first startup) ─────────────────────────────
-import sqlite3 as _sqlite3
+# ── User store — aiosqlite (non-blocking) ─────────────────────────────────────
+# C3 fix: replaced blocking sqlite3 with aiosqlite.
+# Original sqlite3.connect() blocks the entire event loop for the duration
+# of the write — on a busy server this stalls every other request.
+# aiosqlite wraps SQLite in a background thread and returns control to the
+# event loop immediately, same as asyncio.to_thread() does for Groq calls.
+try:
+    import aiosqlite as _aiosqlite
+    _AIOSQLITE = True
+except ImportError:
+    import sqlite3 as _sqlite3   # fallback — still works, just blocks
+    _AIOSQLITE = False
+
 _DB_PATH = Path("users.db")
 
 
 def _init_user_db():
-    """Create users table on first run. Safe to call every startup (IF NOT EXISTS)."""
+    """Create users table on first startup. Uses sync sqlite3 — only runs once at import."""
     try:
-        con = _sqlite3.connect(_DB_PATH)
+        import sqlite3
+        con = sqlite3.connect(_DB_PATH)
         con.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 user_id    TEXT PRIMARY KEY,
@@ -650,23 +708,39 @@ def _init_user_db():
         print(f"[DB] init_user_db failed: {exc}", flush=True)
 
 
-async def _upsert_user(user_id: str, email: str, name: str):
-    """Insert a new user or update last_seen for a returning user."""
+async def _upsert_user(user_id: str, email: str, name: str) -> None:
+    """
+    Insert or update a user record — fully async, never blocks the event loop.
+    C3 fix: uses aiosqlite when available, falls back to sync sqlite3 on import error.
+    """
+    now = __import__("datetime").datetime.utcnow().isoformat()
+    sql = """
+        INSERT INTO users (user_id, email, name, created_at, last_seen)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET last_seen=excluded.last_seen
+    """
     try:
-        now = __import__("datetime").datetime.utcnow().isoformat()
-        con = _sqlite3.connect(_DB_PATH)
-        con.execute("""
-            INSERT INTO users (user_id, email, name, created_at, last_seen)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(user_id) DO UPDATE SET last_seen=excluded.last_seen
-        """, (user_id, email, name, now, now))
-        con.commit()
-        con.close()
+        if _AIOSQLITE:
+            async with _aiosqlite.connect(_DB_PATH) as db:
+                await db.execute(sql, (user_id, email, name, now, now))
+                await db.commit()
+        else:
+            # Fallback — runs in thread pool so it doesn't fully block
+            await asyncio.to_thread(_sync_upsert, user_id, email, name, now, sql)
     except Exception as exc:
         print(f"[DB] upsert_user failed: {exc}", flush=True)
 
 
-_init_user_db()    # runs once at import time
+def _sync_upsert(user_id: str, email: str, name: str, now: str, sql: str) -> None:
+    """Sync fallback for _upsert_user when aiosqlite is unavailable."""
+    import sqlite3
+    con = sqlite3.connect(_DB_PATH)
+    con.execute(sql, (user_id, email, name, now, now))
+    con.commit()
+    con.close()
+
+
+_init_user_db()
 
 
 if __name__ == "__main__":
