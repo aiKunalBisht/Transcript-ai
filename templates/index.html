@@ -105,43 +105,97 @@
      the exact keywords people search for. This is the most important on-page
      SEO element — Google ranks pages based on visible text, not meta tags alone.
 ──────────────────────────────────────────────────────────────────────────────── -->
+
 <section aria-label="About TranscriptAI" style="margin-top:4rem;padding:2rem;background:var(--washi);border-radius:14px;border:1px solid var(--border);">
   <h2 style="font-size:1.1rem;font-weight:800;color:var(--ink);margin-bottom:1rem;">
-    Japanese &amp; Multilingual Meeting Intelligence
+    AI Meeting Analyzer for Japanese &amp; Multilingual Business Communication
   </h2>
+
   <p style="font-size:0.88rem;color:var(--ink-mid);line-height:1.8;margin-bottom:1rem;">
-    TranscriptAI is the only meeting AI that understands what Japanese and Indian business partners
-    <em>actually mean</em> — not just what they say. When a Japanese counterpart says
-    <strong>検討いたします</strong> (we will consider it), generic tools log an action item.
-    TranscriptAI flags it as a <strong>soft rejection</strong> with 72% confidence and explains
-    that this phrase almost always means no in Japanese business culture.
+    TranscriptAI is an AI meeting intelligence platform for analyzing meeting transcripts, generating
+    summaries, extracting key points, detecting action items and decisions, and understanding
+    Japanese, Hindi, English, and mixed-language business communication. Unlike a basic meeting
+    summarizer, TranscriptAI analyzes the meaning and context behind what participants say, including
+    indirect communication, Japanese business expressions, formality, meeting outcomes, and approval
+    signals.
   </p>
-  <h3 style="font-size:0.95rem;font-weight:700;color:var(--ink);margin:1rem 0 0.5rem;">What TranscriptAI detects</h3>
+
+  <p style="font-size:0.88rem;color:var(--ink-mid);line-height:1.8;margin-bottom:1rem;">
+    When a Japanese counterpart says <strong>検討いたします</strong> ("we will consider it"),
+    TranscriptAI can identify the phrase as a potential <strong>soft rejection or non-commitment
+    signal</strong>, assign a confidence score, and explain the communication context instead of
+    treating the sentence as a simple action item or approval.
+  </p>
+
+  <h3 style="font-size:0.95rem;font-weight:700;color:var(--ink);margin:1rem 0 0.5rem;">
+    AI Meeting Analysis Features
+  </h3>
+
   <ul style="font-size:0.85rem;color:var(--ink-mid);line-height:2;padding-left:1.2rem;">
-    <li><strong>Nemawashi signals</strong> — indirect consensus-building language that precedes a soft rejection</li>
-    <li><strong>Japanese soft rejection patterns</strong> — 難しいかもしれません, 対応しかねます, 善処します and 17 more</li>
-    <li><strong>Keigo formality level</strong> — HIGH / MEDIUM / LOW via MeCab morphological analysis, not word-level guessing</li>
-    <li><strong>はい trap</strong> — 承知しました and はい flagged as understanding, not approval</li>
-    <li><strong>Hindi indirect communication</strong> — dekhte hain, kal pakka, kuch na kuch ho jayega and more</li>
-    <li><strong>Meeting outcome verdict</strong> — Approved, Rejected, Conditional, Deferred, Pending, Informational, At Risk, or Unclear</li>
-    <li><strong>Approval gate detection</strong> — 稟議が必要です, board must approve, decision not made at this meeting</li>
-    <li><strong>APPI-compliant PII masking</strong> — names, phones, emails masked locally before any LLM call</li>
+    <li><strong>Meeting summary analysis</strong> — automatically generate concise summaries from long meeting transcripts</li>
+    <li><strong>Key point extraction</strong> — identify the most important information, discussion points, and meeting highlights</li>
+    <li><strong>Action item extraction</strong> — detect tasks, follow-ups, responsibilities, and next steps from conversations</li>
+    <li><strong>Decision detection</strong> — identify approvals, rejections, pending decisions, conditional decisions, and unresolved topics</li>
+    <li><strong>Meeting outcome analysis</strong> — classify meetings as Approved, Rejected, Conditional, Deferred, Pending, Informational, At Risk, or Unclear</li>
+    <li><strong>Meeting context analysis</strong> — understand the surrounding meaning of statements rather than relying only on individual keywords</li>
+    <li><strong>Conversation and communication analysis</strong> — identify important language patterns, signals, topics, and business communication cues</li>
+    <li><strong>Meeting transcript analysis</strong> — transform raw transcripts into structured business insights</li>
   </ul>
-  <h3 style="font-size:0.95rem;font-weight:700;color:var(--ink);margin:1rem 0 0.5rem;">Supported languages</h3>
+
+  <h3 style="font-size:0.95rem;font-weight:700;color:var(--ink);margin:1rem 0 0.5rem;">
+    Japanese Business Communication Analysis
+  </h3>
+
+  <ul style="font-size:0.85rem;color:var(--ink-mid);line-height:2;padding-left:1.2rem;">
+    <li><strong>Nemawashi signals</strong> — detect indirect consensus-building language that can appear before decisions or soft rejection</li>
+    <li><strong>Japanese soft rejection patterns</strong> — detect expressions such as 難しいかもしれません, 対応しかねます, 善処します and other indirect responses</li>
+    <li><strong>Keigo formality analysis</strong> — analyze Japanese formality and politeness levels using morphological analysis</li>
+    <li><strong>Japanese indirect communication</strong> — identify business expressions whose intended meaning may differ from their literal wording</li>
+    <li><strong>はい / understanding vs approval</strong> — distinguish acknowledgement or understanding from actual agreement or approval</li>
+    <li><strong>Approval gate detection</strong> — identify statements such as 稟議が必要です and other indications that additional approval is required</li>
+  </ul>
+
+  <h3 style="font-size:0.95rem;font-weight:700;color:var(--ink);margin:1rem 0 0.5rem;">
+    Hindi, English &amp; Multilingual Meeting Intelligence
+  </h3>
+
+  <ul style="font-size:0.85rem;color:var(--ink-mid);line-height:2;padding-left:1.2rem;">
+    <li><strong>Hindi indirect communication</strong> — analyze expressions such as dekhte hain, kal pakka, kuch na kuch ho jayega and related contextual signals</li>
+    <li><strong>English meeting analysis</strong> — summarize discussions, extract key points, identify decisions, and detect action items</li>
+    <li><strong>Hinglish analysis</strong> — analyze Hindi written or spoken in Roman script alongside English</li>
+    <li><strong>Multilingual meeting analysis</strong> — process conversations involving Japanese, Hindi, English, and mixed-language communication</li>
+    <li><strong>Cross-cultural communication insights</strong> — provide additional context for business communication across languages and cultures</li>
+  </ul>
+
+  <h3 style="font-size:0.95rem;font-weight:700;color:var(--ink);margin:1rem 0 0.5rem;">
+    Privacy &amp; Secure AI Processing
+  </h3>
+
+  <ul style="font-size:0.85rem;color:var(--ink-mid);line-height:2;padding-left:1.2rem;">
+    <li><strong>PII masking</strong> — names, phone numbers, email addresses, and other personal information can be masked before external LLM processing</li>
+    <li><strong>Privacy-conscious meeting analysis</strong> — designed for use cases where transcript privacy and sensitive business information matter</li>
+    <li><strong>APPI-aware processing</strong> — built with Japanese privacy considerations in mind</li>
+  </ul>
+
+  <h3 style="font-size:0.95rem;font-weight:700;color:var(--ink);margin:1rem 0 0.5rem;">
+    Supported Languages
+  </h3>
+
   <p style="font-size:0.85rem;color:var(--ink-mid);line-height:1.8;">
     Japanese (日本語) · English · Hindi (हिंदी) · Hinglish (Hindi in Roman script) ·
     Bilingual Japanese-English · Trilingual Japanese-Hindi-English mixed meetings
   </p>
+
   <p style="font-size:0.78rem;color:var(--ink-soft);margin-top:1rem;">
-    Built by <a href="https://linkedin.com/in/kunalhere" style="color:var(--sakura-deep);">Kunal Bisht</a> ·
-    AI/ML Engineer · LLM Pipelines &amp; Multilingual NLP ·
-    <a href="https://github.com/aiKunalBisht/Transcript-ai" style="color:var(--sakura-deep);">GitHub</a> ·
-    93.8% accuracy on bilingual ground-truth test cases
+    Built by
+    <a href="https://linkedin.com/in/kunalhere" style="color:var(--sakura-deep);">Kunal Bisht</a>
+    · AI/ML Engineer · LLM Pipelines &amp; Multilingual NLP ·
+    <a href="https://github.com/aiKunalBisht/Transcript-ai" style="color:var(--sakura-deep);">GitHub</a>
+    · 93.8% accuracy on bilingual ground-truth test cases
   </p>
 </section>
 
 <style>
-/* Input grid: 2 cols on desktop, 1 col on mobile */
 .tai-input-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
