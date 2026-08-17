@@ -7,8 +7,13 @@
   
   <!-- ── Primary SEO ──────────────────────────────────────────────────── -->
   <title>{% block title %}TranscriptAI · Japanese &amp; Multilingual Meeting Intelligence AI{% endblock %}</title>
+
+  {# ── FIX: {% block %} inside attribute values breaks on HuggingFace's  #}
+  {#        Jinja2 build. Use context variables with | default() instead. #}
+  {#        Pass meta_description and canonical_url from each route.      #}
   <meta name="description"
-        content="{% block meta_description %}TranscriptAI detects Japanese soft rejections (nemawashi, 難しいですね), keigo formality, Hindi indirect communication, and meeting outcomes. APPI-compliant PII masking. Free to try.{% endblock %}">
+        content="{{ meta_description | default('TranscriptAI detects Japanese soft rejections (nemawashi, 難しいですね), keigo formality, Hindi indirect communication, and meeting outcomes. APPI-compliant PII masking. Free to try.') }}">
+
   <meta name="keywords"
         content="AI meetings, AI meeting, AI meeting analyzer, AI meeting analysis, AI meeting intelligence, AI meeting assistant, AI meeting summarizer, AI meeting summary, AI meeting transcription, AI meeting transcript, AI meeting notes, 
         AI meeting notes generator, AI meeting minutes, AI meeting minutes generator, meeting analyzer, meeting analysis AI, meeting intelligence AI, meeting transcript analyzer, meeting transcript analysis, meeting transcript summarizer, 
@@ -37,7 +42,9 @@
         multilingual meeting intelligence AI">
   <meta name="author" content="Kunal Bisht">
   <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large">
-  <link rel="canonical" href="{% block canonical %}https://kunalthebeast-transcriptai.hf.space/{% endblock %}">
+
+  {# FIX: was {% block canonical %}...{% endblock %} inside href="..." #}
+  <link rel="canonical" href="{{ canonical_url | default('https://kunalthebeast-transcriptai.hf.space/') }}">
 
   <!-- ── Open Graph (Facebook / LinkedIn previews) ─────────────────── -->
   <meta property="og:type"        content="website">
@@ -54,8 +61,6 @@
   <meta name="twitter:creator"     content="@kunalhere">
 
   <!-- ── Schema.org structured data (JSON-LD) ──────────────────────── -->
-  <!-- Google reads this to understand what the page is about.          -->
-  <!-- SoftwareApplication schema tells Google this is a real app.      -->
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -322,9 +327,6 @@ function taiToggleSidebar() {
 }
 
 function taiSetNavToken() {
-  // Called right before any internal navigation link is followed.
-  // Copies the current page token into the nav token slot so loadHistory()
-  // on the next page knows this was a navigation, not a reload.
   try {
     const token = sessionStorage.getItem('tai_page_token_v1');
     if (token) sessionStorage.setItem('tai_nav_token_v1', token);
@@ -389,17 +391,11 @@ Sharma Sir: Seedha mujhe batao. Aap jo theek samjhe karo, but kal tak complete c
 
 <script>
 // ── Storage keys ──────────────────────────────────────────────────────────────
-// History (across page reloads, shared via localStorage so the sidebar list
-// persists, but ONLY the label/ts — never the HTML or result, to keep it light)
-const TAI_HISTORY_KEY     = 'tai_history_v1';
-// Per-session result: only lives for this tab's lifetime (sessionStorage).
-// We deliberately NO LONGER auto-restore this into #results on page load —
-// each fresh page open starts blank. restoreHistory() is the only way to
-// repopulate the results area.
+const TAI_HISTORY_KEY          = 'tai_history_v1';
 const TAI_LAST_RESULT_KEY      = 'tai_last_result_v1';
 const TAI_LAST_RESULT_HTML_KEY = 'tai_last_result_html_v1';
-const TAI_PAGE_TOKEN_KEY       = 'tai_page_token_v1';   // set on runAnalyze
-const TAI_NAV_TOKEN_KEY        = 'tai_nav_token_v1';    // set right before navigation
+const TAI_PAGE_TOKEN_KEY       = 'tai_page_token_v1';
+const TAI_NAV_TOKEN_KEY        = 'tai_nav_token_v1';
 const TAI_HISTORY_MAX = 6;
 
 function tai() {
@@ -411,35 +407,16 @@ function tai() {
     transcriptText: '',
     analyzing:      false,
     activePreview:  null,
-    hoveredHistory: null,   // tracks which history item is being hovered
+    hoveredHistory: null,
     previews: {
       gijiroku: { markdown: '', html: '', loading: false },
       cultural: { markdown: '', html: '', loading: false },
     },
 
     loadHistory() {
-      // Load history label list from localStorage (persists across tabs/sessions)
       try {
         this.history = JSON.parse(localStorage.getItem(TAI_HISTORY_KEY) || '[]');
       } catch(e) { this.history = []; }
-
-      // ── Navigation vs Reload detection ────────────────────────────────────
-      // We need different behaviour for two cases:
-      //   CASE A — Page navigation (main → export → main, history item click):
-      //     Restore lastResult JSON (so export buttons work) AND restore HTML
-      //     into #results so the user sees their analysis immediately.
-      //   CASE B — Hard reload (F5, Ctrl+R, Ctrl+Shift+R, or fresh URL open):
-      //     Keep lastResult JSON (export page still works) but clear #results
-      //     so the main page opens blank. User chose to reload = fresh start.
-      //
-      // How we detect reload vs navigation:
-      //   On every runAnalyze(), we write a unique page-instance token to
-      //   sessionStorage (TAI_PAGE_TOKEN_KEY). We also write it to a separate
-      //   key (TAI_NAV_TOKEN_KEY) right before any <a> navigation.
-      //   On load: if both tokens match → navigation (restore HTML).
-      //   If they differ or TAI_NAV_TOKEN_KEY is missing → reload (blank).
-      //
-      // sessionStorage itself is already tab-scoped so new tabs always blank.
 
       try {
         const savedResult   = sessionStorage.getItem(TAI_LAST_RESULT_KEY);
@@ -448,12 +425,10 @@ function tai() {
         const navToken      = sessionStorage.getItem(TAI_NAV_TOKEN_KEY);
         const isNavigation  = pageToken && navToken && pageToken === navToken;
 
-        // Always restore the result object so export page unlocks
         if (savedResult) {
           this.lastResult = JSON.parse(savedResult);
         }
 
-        // Only restore HTML visually if this was a navigation, not a reload
         if (isNavigation && savedHtml && this.lastResult) {
           this.$nextTick(() => {
             const el = document.getElementById('results');
@@ -463,8 +438,6 @@ function tai() {
           });
         }
 
-        // Clear the nav token so the NEXT load defaults to "reload" behaviour
-        // unless a navigation sets it again right before the page change.
         sessionStorage.removeItem(TAI_NAV_TOKEN_KEY);
 
       } catch(e) { this.lastResult = null; }
@@ -478,13 +451,9 @@ function tai() {
       this.history = this.history.slice(0, TAI_HISTORY_MAX);
       try { localStorage.setItem(TAI_HISTORY_KEY, JSON.stringify(this.history)); } catch(e) {}
 
-      // Still save to sessionStorage so the Export page can read lastResult
-      // within the same session after navigating there. But we never auto-read
-      // it back into #results on load.
       try {
         sessionStorage.setItem(TAI_LAST_RESULT_KEY, JSON.stringify(resultJson));
         sessionStorage.setItem(TAI_LAST_RESULT_HTML_KEY, html);
-        // Write a page token so navigation back restores the results display
         const token = Date.now().toString(36);
         sessionStorage.setItem(TAI_PAGE_TOKEN_KEY, token);
       } catch(e) {}
@@ -496,14 +465,12 @@ function tai() {
       const target = document.getElementById('results');
       if (target) target.innerHTML = entry.html;
       this.lastResult = entry.result;
-      // Update session so Export page picks up the restored result
       try {
         sessionStorage.setItem(TAI_LAST_RESULT_KEY, JSON.stringify(entry.result));
         sessionStorage.setItem(TAI_LAST_RESULT_HTML_KEY, entry.html);
         const token = Date.now().toString(36);
         sessionStorage.setItem(TAI_PAGE_TOKEN_KEY, token);
       } catch(e) {}
-      // Scroll to results
       setTimeout(function() {
         document.getElementById('results-top')?.scrollIntoView({behavior:'smooth', block:'start'});
       }, 80);
@@ -548,7 +515,6 @@ function tai() {
 
     hasResult() { return this.lastResult !== null; },
 
-    // ── Export — shows toast instead of browser alert when no result ──────────
     async exportAs(format) {
       if (!this.lastResult) { taiShowNoAnalysisToast(); return; }
       const ext = {pptx:'pptx', markdown:'md', json:'json', txt:'txt'}[format] ?? format;
