@@ -1,4 +1,12 @@
 User-agent: *
 Allow: /
+Disallow: /auth/callback
+Disallow: /auth/logout
+Disallow: /analyze-text
+Disallow: /transcribe
+Disallow: /export/
+Disallow: /evaluate/run
+Disallow: /health
 
-Sitemap: https://kunaladithebeast-transcriptai.hf.space/sitemap.xml
+# Sitemap
+Sitemap: https://kunalthebeast-transcriptai.hf.space/sitemap.xml

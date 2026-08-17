@@ -3,10 +3,113 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}TranscriptAI · Speech &amp; Meeting Analyzer{% endblock %}</title>
+
+  <!-- ── Primary SEO ──────────────────────────────────────────────────── -->
+  <title>{% block title %}TranscriptAI · Japanese &amp; Multilingual Meeting Intelligence AI{% endblock %}</title>
+  <meta name="description"
+        content="{% block meta_description %}TranscriptAI detects Japanese soft rejections (nemawashi, 難しいですね), keigo formality, Hindi indirect communication, and meeting outcomes. APPI-compliant PII masking. Free to try.{% endblock %}">
+  <meta name="keywords"
+        content="Japanese meeting analysis AI, soft rejection detector, nemawashi detection, keigo formality AI, multilingual meeting intelligence, Japanese business communication, transcript analysis, Hindi meeting AI, APPI compliant, meeting outcome detector, TranscriptAI">
+  <meta name="author" content="Kunal Bisht">
+  <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large">
+  <link rel="canonical" href="{% block canonical %}https://kunalthebeast-transcriptai.hf.space/{% endblock %}">
+
+  <!-- ── Open Graph (Facebook / LinkedIn previews) ─────────────────── -->
+  <meta property="og:type"        content="website">
+  <meta property="og:url"         content="https://kunalthebeast-transcriptai.hf.space/">
+  <meta property="og:title"       content="TranscriptAI · Japanese &amp; Multilingual Meeting Intelligence">
+  <meta property="og:description" content="Detects Japanese soft rejections, nemawashi signals, keigo formality, Hindi indirect communication, and meeting outcomes. APPI-compliant. Free to try.">
+  <meta property="og:site_name"   content="TranscriptAI">
+  <meta property="og:locale"      content="en_US">
+
+  <!-- ── Twitter / X card ─────────────────────────────────────────────── -->
+  <meta name="twitter:card"        content="summary_large_image">
+  <meta name="twitter:title"       content="TranscriptAI · Japanese Meeting Intelligence AI">
+  <meta name="twitter:description" content="Detects nemawashi, keigo, soft rejections and meeting outcomes across Japanese, Hindi, and English transcripts. APPI-compliant.">
+  <meta name="twitter:creator"     content="@kunalhere">
+
+  <!-- ── Schema.org structured data (JSON-LD) ──────────────────────── -->
+  <!-- Google reads this to understand what the page is about.          -->
+  <!-- SoftwareApplication schema tells Google this is a real app.      -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "TranscriptAI",
+    "url": "https://kunalthebeast-transcriptai.hf.space/",
+    "description": "Multilingual meeting intelligence platform that detects Japanese soft rejections (nemawashi, keigo), Hindi indirect communication patterns, and meeting outcomes across Japanese, Hindi, and English transcripts. APPI-compliant PII masking built in.",
+    "applicationCategory": "BusinessApplication",
+    "operatingSystem": "Web",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD"
+    },
+    "creator": {
+      "@type": "Person",
+      "name": "Kunal Bisht",
+      "url": "https://linkedin.com/in/kunalhere",
+      "sameAs": [
+        "https://github.com/aiKunalBisht",
+        "https://linkedin.com/in/kunalhere",
+        "https://huggingface.co/KunalTheBeast"
+      ]
+    },
+    "featureList": [
+      "Japanese soft rejection detection (nemawashi, 難しいですね, 対応しかねます)",
+      "Keigo formality level detection via MeCab morphological analysis",
+      "Hindi indirect communication patterns (dekhte hain, kal pakka, jugaad signals)",
+      "8-state meeting outcome verdict (Approved, Rejected, Conditional, Deferred, Pending)",
+      "APPI-compliant PII masking before any LLM call",
+      "Hallucination guard — rule-based token overlap verification",
+      "議事録 Japanese business minutes export",
+      "PPTX presentation export",
+      "93.8% accuracy on bilingual ground-truth test cases"
+    ],
+    "keywords": "Japanese meeting analysis, soft rejection detector, nemawashi, keigo, multilingual AI, transcript analysis, APPI compliance, business communication AI"
+  }
+  </script>
+
+  <!-- ── FAQ schema (helps Google show rich results) ───────────────── -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "What is nemawashi and why does it matter in business meetings?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Nemawashi (根回し) is the Japanese business practice of building informal consensus before a formal decision. In meetings, it often manifests as indirect language — phrases like 検討いたします (we will consider it) or 難しいかもしれません (it may be difficult) that actually signal a soft rejection rather than genuine interest. TranscriptAI detects 20+ nemawashi patterns and flags them with confidence scores."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "What is the はい trap in Japanese business communication?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "The はい trap is the common misreading of Japanese acknowledgment phrases (はい, 承知しました) as agreement or approval. In Japanese business, はい means 'I understand/I am listening', not 'I agree'. Indian and Western counterparts frequently leave meetings believing a proposal was accepted when the Japanese side was simply being politely attentive. TranscriptAI flags these phrases as understanding signals, not approval."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "What is APPI compliance in meeting transcription?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "APPI (Act on the Protection of Personal Information) is Japan's data privacy law. It restricts how personal data in meeting transcripts — names, contact details, company information — may be processed by third-party AI systems. TranscriptAI masks all PII locally before any data is sent to cloud LLM providers, ensuring full APPI compliance."
+        }
+      }
+    ]
+  }
+  </script>
+
+  <!-- ── Fonts ──────────────────────────────────────────────────────── -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+JP:wght@400;500;700;800&display=swap" rel="stylesheet">
+
+  <!-- ── Styles and scripts ──────────────────────────────────────────── -->
   <link rel="stylesheet" href="/static/style.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/htmx/1.9.12/htmx.min.js" defer></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/alpinejs/3.14.1/cdn.min.js" defer></script>
