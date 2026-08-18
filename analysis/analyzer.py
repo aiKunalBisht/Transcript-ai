@@ -333,9 +333,9 @@ Return ONLY valid JSON — no markdown, no backticks, no explanation.
 {{
   "meeting_title": "Specific 4-8 word title",
   "full_summary": "2-4 sentence narrative prose — state no outcome/unanswered if nothing decided",
-  "summary": ["bullet"],
+  "summary": ["one detailed bullet per distinct topic — do NOT compress multiple topics into one bullet. A 10-topic meeting must produce 10 bullets."],
   "key_decisions": ["explicit decisions only — [] if none"],
-  "action_items": [{{"task":"str","owner":"FIRST_NAME_ONLY","deadline":"str_or_Not_specified"}}],
+  "action_items": [{{"task":"Complete self-contained sentence including what, who, and by when — e.g. Send revised contract to Yamamoto by Friday 20th August","owner":"FIRST_NAME_ONLY","deadline":"20 August"}}],
   "sentiment": [{{"speaker":"FIRST_NAME_ONLY","score":"positive|neutral|negative","label":"str"}}],
   "speakers": [{{"name":"FIRST_NAME_ONLY","talk_time_pct":50,"tone":"aggressive|assertive|neutral|cooperative|deferential|hesitant","tone_label":"str","tone_intensity":3}}],
 {japan_schema}
@@ -348,8 +348,11 @@ Rules:
 - talk_time_pct: must sum to 100 — list ALL speakers
 - meeting_title: content-specific — "Team Meeting" forbidden
 - full_summary: prose only, no lists, state "no outcome" when nothing decided
+- summary: one bullet per distinct topic discussed — never merge topics. If 10 things were discussed, produce 10 bullets.
 - sentiment = REGISTER toward the other party (NOT word valence):
-    positive=enthusiastic/welcoming  negative=hostile/accusatory/blaming  neutral=everything else incl. professional apology
+    positive  = enthusiastic/welcoming
+    negative  = hostile or adversarial toward the other party — direct threats, blame, ultimatums, or deliberately dismissive language. A client expressing dissatisfaction professionally is NEUTRAL. Only score negative when the speaker is attacking the other party personally or making threats.
+    neutral   = everything else incl. professional apology, professional dissatisfaction, or formal complaint
 - tone per speaker (ALL their lines): aggressive|assertive|neutral|cooperative|deferential|hesitant + tone_intensity 1-5
 - Outside knowledge forbidden — transcript only
 - {_summary_instruction(text)}
@@ -778,13 +781,9 @@ def _try_providers(system_prompt: str, user_prompt: str, max_tokens: int,
                 if "NO_GROQ_KEY" in str(e) or "ALL_KEYS_EXHAUSTED" in str(e):
                     break
                 if attempt < retries:
-                    # I3 fix: exponential backoff + jitter instead of flat sleep(1)
-                    # Flat sleep(1) causes a thundering herd when multiple requests
-                    # all fail at the same time — they all retry at t+1 together.
-                    # Jitter spreads retries: attempt 0→~1s, attempt 1→~2s, attempt 2→~4s
                     import random
                     backoff = (2 ** attempt) + random.uniform(0, 1)
-                    time.sleep(min(backoff, 8))   # cap at 8s
+                    time.sleep(min(backoff, 8))
             except requests.exceptions.Timeout:
                 last_error = TimeoutError(f"{name} timed out")
                 break
@@ -979,13 +978,13 @@ def analyze_transcript(text: str, language: str = "en",
     # v3.2: reduced max_tokens — actual output JSON rarely exceeds 700 tokens.
     # Old values (700/1000/1400/1800) were too conservative and wasted quota.
     if words < 300:
-        max_tokens = 550
+        max_tokens = 650
     elif words < 800:
-        max_tokens = 750
-    elif words < 2000:
         max_tokens = 950
+    elif words < 2000:
+        max_tokens = 1200
     else:
-        max_tokens = 1100
+        max_tokens = 1400
 
     provider_used = "unknown"
     last_error    = None
@@ -1049,11 +1048,6 @@ def analyze_transcript(text: str, language: str = "en",
               file=sys.stderr, flush=True)
 
     # Hallucination guard + semantic rescue
-    # I4 fix: failures are no longer silently swallowed.
-    # When the guard crashes, action items are flagged as unverified so
-    # users know the output has not been cross-checked against the transcript.
-    # Before: except Exception as e: print(...) — output went out unverified.
-    # After: flag every action item + surface the warning in the result.
     try:
         from analysis.hallucination_guard import verify_result
         result = verify_result(result, text)
@@ -1062,14 +1056,12 @@ def analyze_transcript(text: str, language: str = "en",
             result.get("action_items", []), text
         )
     except ImportError:
-        # Module not installed — flag action items as unverified
         for item in result.get("action_items", []):
             item.setdefault("hallucination_flag", False)
             item["verification_skipped"] = True
     except Exception as e:
         print(f"[TRANSCRIPT_AI] hallucination_guard failed: {e}\n{traceback.format_exc()}",
               file=sys.stderr, flush=True)
-        # Flag every action item as unverified — do not silently pass
         for item in result.get("action_items", []):
             item["hallucination_flag"]    = True
             item["flag_reason"]           = "Hallucination guard failed — output unverified"
