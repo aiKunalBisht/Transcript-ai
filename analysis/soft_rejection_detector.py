@@ -23,24 +23,19 @@ from typing import Optional
 
 # ════════════════════════════════════════════════════════════════════════════════
 # TIER 1 — EXPLICIT TERMINATION (CRITICAL risk, irrevocable)
-# These phrases = relationship/contract is definitively ending.
-# Match any of these → risk_level = CRITICAL regardless of anything else.
 # ════════════════════════════════════════════════════════════════════════════════
 
 EN_TERMINATION_PHRASES = [
-    # Direct "decided not to continue" family
     ("decided not to continue",              "Explicit finalized decision not to continue"),
     ("have decided not to continue",         "Past-tense finalized decision (most common JP→EN form)"),
     ("not to continue this partnership",     "Explicit partnership non-continuation"),
     ("not to continue the partnership",      "Explicit partnership non-continuation"),
     ("not continue this partnership",        "Non-continuation"),
     ("decision not to continue",             "Nominalized termination decision"),
-    # "not renew" family
     ("will not be renewing",                 "Future non-renewal"),
     ("not renewing our contract",            "Non-renewal"),
     ("decided not to renew",                 "Decision not to renew"),
     ("not to renew this contract",           "Contract non-renewal"),
-    # "end / terminate / discontinue" family
     ("decided to end",                       "Decision to end relationship"),
     ("cannot continue this partnership",     "Inability-framed termination"),
     ("cannot continue our partnership",      "Inability-framed termination"),
@@ -53,37 +48,28 @@ EN_TERMINATION_PHRASES = [
 ]
 
 JP_TERMINATION_PHRASES = [
-    # 継続しない family (will not continue)
     ("継続しないことを決定",          "Decided not to continue — most common written form"),
     ("継続しないことを決定しました",   "Polite past — decided not to continue (exact common form)"),
     ("パートナーシップは継続しない",   "Partnership will not continue"),
     ("継続しないことを",              "Will-not-continue particle construction"),
     ("継続することはできません",       "Cannot continue (negative potential)"),
     ("継続できません",                "Cannot continue (short form)"),
-    # 契約 / 更新 family (contract / renewal)
     ("契約を更新しない",              "Will not renew contract"),
     ("契約を更新しないことを決定",     "Decided not to renew contract"),
     ("ご契約を更新しない",            "Honorific — will not renew your contract"),
     ("契約終了",                      "Contract termination (noun)"),
     ("取引を終了",                    "End business dealings"),
-    # 決定 family (decision)
     ("決定は最終的",                  "Decision is final"),
     ("最終的な決断",                  "Final decision"),
-    # 終了 / パートナーシップ endings
     ("関係を終了",                    "Ending the relationship"),
     ("パートナーシップを終了",         "Ending the partnership"),
 ]
 
 # ════════════════════════════════════════════════════════════════════════════════
-# TIER 1b — APPROVAL GATE (HIGH risk, not CRITICAL — decision pending, not ended)
-# These phrases signal that apparent approval is NOT actual approval:
-#   • Technical approval ≠ commercial approval
-#   • Personal support ≠ organizational decision
-#   • Department sign-off ≠ committee authority
+# TIER 1b — APPROVAL GATE (HIGH risk, not CRITICAL)
 # ════════════════════════════════════════════════════════════════════════════════
 
 EN_APPROVAL_GATE_PHRASES = [
-    # Technical ≠ Commercial approval
     ("commercial contract has not yet been approved",   "Technical approval exists but commercial contract still pending"),
     ("technical approval and contract approval are separate", "Explicit split: tech approval ≠ contract approval"),
     ("technical review is complete, but",               "Technical done BUT commercial not — gate pattern"),
@@ -92,7 +78,6 @@ EN_APPROVAL_GATE_PHRASES = [
     ("purchasing committee must review",                "Committee gate — final authority not present in meeting"),
     ("committee must review",                           "Review committee required before decision"),
     ("before any final decision",                       "Explicitly no final decision yet"),
-    # Personal opinion ≠ organizational decision (harder test)
     ("headquarters in tokyo must make the final decision",  "Director lacks final authority — HQ decides"),
     ("headquarters must make the final decision",           "Authority escalation to headquarters"),
     ("the board has reached a different conclusion",        "Board overrides personal support — authority conflict"),
@@ -111,7 +96,6 @@ EN_APPROVAL_GATE_PHRASES = [
 ]
 
 JP_APPROVAL_GATE_PHRASES = [
-    # Technical ≠ Commercial
     ("商業契約はまだ承認されていません",        "Commercial contract not yet approved"),
     ("技術承認と契約承認は別の手続きです",      "Technical and contract approval are separate processes"),
     ("技術審査は完了していますが",              "Technical review complete BUT (commercial pending)"),
@@ -119,7 +103,6 @@ JP_APPROVAL_GATE_PHRASES = [
     ("購買委員会が価格と契約条件を審査",        "Purchasing committee must review pricing and terms"),
     ("最終決定の前に",                          "Before the final decision — explicitly not final yet"),
     ("委員会の決定",                            "Committee decision required"),
-    # Personal vs organizational authority
     ("本社が最終決定を",                        "Headquarters makes the final decision"),
     ("取締役会が異なる結論に",                  "Board reached a different conclusion"),
     ("個人的にはこの提案を支持します",          "Personally support — but org decision may differ"),
@@ -133,12 +116,9 @@ JP_APPROVAL_GATE_PHRASES = [
 
 # ════════════════════════════════════════════════════════════════════════════════
 # TIER 2 — PERFORMANCE FAILURE FRAMING (HIGH risk)
-# These appear in the lead-up to termination announcements.
-# Alone: HIGH risk. Combined with TIER 1: confirms CRITICAL context.
 # ════════════════════════════════════════════════════════════════════════════════
 
 EN_HIGH_PHRASES = [
-    # Performance failure — precede termination
     ("results have not met our expectations",        "Results did not meet expectations"),
     ("not met our expectations",                     "Expectations unmet"),
     ("did not meet our expectations",                "Past tense — expectations not met"),
@@ -147,7 +127,6 @@ EN_HIGH_PHRASES = [
     ("did not observe sufficient improvement",       "No improvement observed"),
     ("multiple opportunities to improve",            "Multiple chances given — precedes termination"),
     ("despite multiple opportunities",               "Despite opportunities given"),
-    # はい / Yes trap — acknowledgement mistaken for approval
     ("i did not say the proposal was approved",      "Explicit correction — yes did NOT mean approval"),
     ("does not mean i agree",                        "Clarification that yes = understanding not agreement"),
     ("yes often means that i understand",            "Cultural clarification of はい meaning"),
@@ -160,7 +139,6 @@ EN_HIGH_PHRASES = [
 ]
 
 JP_HIGH_PHRASES = [
-    # Performance failure
     ("期待に達していませんでした",               "Did not meet expectations (past)"),
     ("期待に達していません",                     "Has not met expectations"),
     ("十分な改善は見られませんでした",            "Insufficient improvement observed"),
@@ -169,25 +147,17 @@ JP_HIGH_PHRASES = [
     ("改善は見られませんでした",                  "No improvement was observed"),
     ("結果は私たちの期待に達していません",         "Results did not meet our expectations"),
     ("何度も機会を提供しました",                  "Multiple opportunities were provided"),
-    # はい / Yes trap patterns
     ("承認されたとは申し上げておりません",        "I did not say it was approved — はい ≠ 承認"),
     ("社内で提案内容を検討する必要があります",    "Internal review still needed — no decision yet"),
     ("社内での検討が終わり次第",                  "Will contact after internal review — decision deferred"),
     ("決定を下す前に",                            "Before making any decision — explicitly unresolved"),
     ("はい」は相手の話を理解したという意味",      "Explicit cultural clarification: はい = understanding not approval"),
     ("必ずしも賛成や承認を意味するわけではありません", "Yes does not necessarily mean agreement or approval"),
-    # NOTE: "ご提案の内容は理解しました" removed from here — it's already in
-    # SOFT_PATTERNS below (the はい/Yes-trap section). Having it in both lists
-    # meant a single occurrence in a transcript was counted twice: once as a
-    # TIER 2 high_signal and once as a TIER 3 medium_signal, inflating
-    # total_signals and risk_level for one real signal.
 ]
 
 
 # ════════════════════════════════════════════════════════════════════════════════
-# TIER 3 — SOFT REJECTIONS (your existing patterns — LOW/MEDIUM/HIGH)
-# These are the original 20 indirect/hedged refusal patterns.
-# Keep these exactly as they are in your actual file.
+# TIER 3 — SOFT REJECTIONS (LOW/MEDIUM/HIGH)
 # ════════════════════════════════════════════════════════════════════════════════
 
 SOFT_PATTERNS = [
@@ -211,6 +181,28 @@ SOFT_PATTERNS = [
         "english": "That's difficult, isn't it",
         "confidence": 0.85,
         "explanation": "Hedged rejection seeking shared acknowledgement of difficulty.",
+    },
+    # ── Fix 5: ですが variants — trailing が confirms refusal is incoming ──────
+    {
+        "phrase": "難しい状況ですが",
+        "reading": "Muzukashii jōkyō desu ga",
+        "english": "It's a difficult situation, but...",
+        "confidence": 0.85,
+        "explanation": "Trailing が signals refusal coming — stronger than the base form.",
+    },
+    {
+        "phrase": "難しいですが",
+        "reading": "Muzukashii desu ga",
+        "english": "That's difficult, but...",
+        "confidence": 0.88,
+        "explanation": "が after difficulty phrase = explicit incoming refusal.",
+    },
+    {
+        "phrase": "対応しかねますが",
+        "reading": "Taiō shikanemasu ga",
+        "english": "We are unable to accommodate, but...",
+        "confidence": 0.93,
+        "explanation": "Softened with が — still a hard refusal.",
     },
     {
         "phrase": "ぜひ検討させていただきます",
@@ -261,7 +253,6 @@ SOFT_PATTERNS = [
         "confidence": 0.65,
         "explanation": "Deliberation request — deferral signal.",
     },
-    # ── Restored from the pre-v3.2 pattern set (were dropped in the rewrite) ──
     {
         "phrase": "難しいかもしれません",
         "reading": "Muzukashii kamoshiremasen",
@@ -332,7 +323,6 @@ SOFT_PATTERNS = [
         "confidence": 0.25,
         "explanation": "Ambiguous — genuine agreement OR filler to avoid disagreement.",
     },
-    # ── はい / Yes Trap patterns ──────────────────────────────────────────────
     {
         "phrase": "承知しました",
         "reading": "Shōchi shimashita",
@@ -380,7 +370,6 @@ def _find_speaker(phrase: str, transcript: str, case_insensitive: bool = False) 
         check_line = line.lower() if case_insensitive else line
         check_phrase = phrase.lower() if case_insensitive else phrase
         if check_phrase in check_line:
-            # Handle **Name:**, Name:, [Name]:, 【Name】：
             m = re.match(r"^\*?\*?([^:*\[\]【】\n]{1,50}?)\*?\*?\s*[：:]\s*", line.strip())
             if m:
                 return m.group(1).strip("* []【】").strip()
@@ -402,10 +391,6 @@ def detect_soft_rejections(transcript: str) -> dict:
         LOW       — mild hedging
         MINIMAL   — one or two weak signals
         NONE      — nothing found
-
-    New keys in v3.2 return dict:
-        termination_detected  bool   True if any CRITICAL-tier phrase matched
-        termination_signals   list   Each matched phrase with speaker + explanation
     """
     transcript_lower = transcript.lower()
 
@@ -417,7 +402,7 @@ def detect_soft_rejections(transcript: str) -> dict:
             speaker = _find_speaker(phrase, transcript, case_insensitive=True)
             termination_signals.append({
                 "phrase":       phrase,
-                "reading":      phrase,          # EN needs no romaji
+                "reading":      phrase,
                 "english":      phrase,
                 "category":     "explicit_termination",
                 "confidence":   0.97,
@@ -432,7 +417,7 @@ def detect_soft_rejections(transcript: str) -> dict:
             speaker = _find_speaker(phrase, transcript, case_insensitive=False)
             termination_signals.append({
                 "phrase":       phrase,
-                "reading":      "",              # populated if you have a romaji map
+                "reading":      "",
                 "english":      explanation,
                 "category":     "explicit_termination",
                 "confidence":   0.99,
@@ -444,7 +429,6 @@ def detect_soft_rejections(transcript: str) -> dict:
 
     termination_detected = len(termination_signals) > 0
 
-    # Deduplicate by phrase (EN + JP may both match for bilingual lines)
     seen = set()
     deduped = []
     for s in termination_signals:
@@ -454,9 +438,8 @@ def detect_soft_rejections(transcript: str) -> dict:
             deduped.append(s)
     termination_signals = deduped
 
-    # ── TIER 1b: Approval gate check (HIGH risk — pending authority) ──────────
+    # ── TIER 1b: Approval gate check ─────────────────────────────────────────
     approval_gate_signals = []
-    approval_gate_detected = False
 
     for phrase, explanation in EN_APPROVAL_GATE_PHRASES:
         if phrase.lower() in transcript_lower:
@@ -486,7 +469,6 @@ def detect_soft_rejections(transcript: str) -> dict:
                 "language":    "JP",
             })
 
-    # Deduplicate approval gate signals
     seen_ag = set()
     deduped_ag = []
     for s in approval_gate_signals:
@@ -496,7 +478,7 @@ def detect_soft_rejections(transcript: str) -> dict:
     approval_gate_signals = deduped_ag
     approval_gate_detected = len(approval_gate_signals) > 0
 
-    # ── TIER 2: Performance failure phrases → HIGH signals ────────────────────
+    # ── TIER 2: Performance failure ───────────────────────────────────────────
     high_signals = []
 
     for phrase, explanation in EN_HIGH_PHRASES:
@@ -523,13 +505,12 @@ def detect_soft_rejections(transcript: str) -> dict:
                 "speaker":     speaker,
             })
 
-    # ── TIER 3: Soft rejection patterns → LOW/MEDIUM signals ─────────────────
+    # ── TIER 3: Soft rejection patterns ──────────────────────────────────────
     medium_signals = []
     low_signals    = []
 
     for pattern in SOFT_PATTERNS:
         phrase = pattern["phrase"]
-        # EN patterns: case-insensitive; JP patterns: exact
         found = (phrase.lower() in transcript_lower) if re.search(r'[a-zA-Z]', phrase) else (phrase in transcript)
         if not found:
             continue
@@ -547,8 +528,6 @@ def detect_soft_rejections(transcript: str) -> dict:
     if termination_detected:
         risk_level = "CRITICAL"
     elif approval_gate_detected:
-        # Approval gate = decision is pending, not refused — HIGH not CRITICAL
-        # But if combined with high performance-failure signals, treat as CRITICAL
         if len(high_signals) >= 3:
             risk_level = "CRITICAL"
         else:
@@ -613,11 +592,6 @@ def detect_soft_rejections(transcript: str) -> dict:
         "approval_gate_detected":  approval_gate_detected,
         "approval_gate_signals":   approval_gate_signals,
         "cultural_note":           cultural_note,
-        # ── Backward-compat aliases — agents/cultural_insights_formatter.py and
-        # agents/slide_architect.py still read the pre-v3.2 "detected" and
-        # "risk_summary" keys, and tests/test_core.py checks for "detected" as
-        # one of its accepted key names. Severity is synthesized per tier since
-        # individual signal dicts don't carry one natively in v3.2.
         "detected": (
             [{**s, "severity": "HIGH"}   for s in termination_signals] +
             [{**s, "severity": "HIGH"}   for s in approval_gate_signals] +

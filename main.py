@@ -20,19 +20,6 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 # ── Optional Google OAuth ─────────────────────────────────────────────────────
-# Required packages (not in requirements.txt by default):
-#   pip install authlib python-jose[cryptography] itsdangerous
-#
-# Required environment variables:
-#   GOOGLE_CLIENT_ID      → from https://console.cloud.google.com/
-#   GOOGLE_CLIENT_SECRET  → same place
-#   SESSION_SECRET        → any long random string, e.g. openssl rand -hex 32
-#   AUTH_ENABLED          → set to "1" to turn auth on (default: off)
-#
-# When AUTH_ENABLED is not set (default), the app works exactly as before —
-# all requests treated as anonymous, all caches shared (v1 behaviour).
-# Flip AUTH_ENABLED=1 when you're ready to open to multiple real users.
-
 AUTH_ENABLED = os.getenv("AUTH_ENABLED", "0") == "1"
 _AUTH_AVAILABLE = False
 
@@ -51,11 +38,9 @@ def _setup_auth(app):
     """Attach session middleware and OAuth client to the app if auth is enabled."""
     if not AUTH_ENABLED or not _AUTH_AVAILABLE:
         return None
-
     secret = os.getenv("SESSION_SECRET", "change-me-in-production")
     app.add_middleware(SessionMiddleware, secret_key=secret,
-                       max_age=60 * 60 * 24 * 30)   # 30-day sessions
-
+                       max_age=60 * 60 * 24 * 30)
     oauth = OAuth()
     oauth.register(
         name="google",
@@ -73,14 +58,10 @@ def get_current_user(request: Request) -> str | None:
     """
     Returns the authenticated user_id (Google sub) for this request.
     Returns None when auth is disabled or the user is not logged in.
-
-    Downstream code treats None as "anonymous" — same behaviour as v1.
-    This means the app works identically with auth off, and gains
-    per-user data isolation the moment AUTH_ENABLED=1 is set.
     """
     if not AUTH_ENABLED:
         return None
-    return request.session.get("user_id")   # set in /auth/callback
+    return request.session.get("user_id")
 
 from analysis.analyzer import analyze_transcript
 from utils import detect_language, clean_text, parse_uploaded_file
@@ -167,13 +148,13 @@ except ImportError:
             "insight_tab_label": (
                 "🔍 Communication Intelligence" if has_ja else
                 "💬 English Analysis"           if lang == "en" else
-                "🗣️ Hindi Analysis"             if lang == "hi" else
+                "🗣️ Hindi Analysis"        if lang == "hi" else
                 "🌐 Insights"
             ),
             "insight_tab_enabled": True,
         }
 
-# ── Evaluation module (optional — needs utils/evaluator.py + tests/test_data.py) ──
+# ── Evaluation module ──────────────────────────────────────────────────────────
 try:
     from utils.evaluator import evaluate, MLFLOW_AVAILABLE
     from tests.test_data import TEST_CASES
@@ -192,7 +173,6 @@ app = FastAPI(title="TranscriptAI", version="3.2.0", docs_url="/docs")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
                    allow_methods=["*"], allow_headers=["*"])
 
-# Auth setup — attaches SessionMiddleware + OAuth client if AUTH_ENABLED=1
 _oauth = _setup_auth(app)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -223,19 +203,16 @@ def _strip_markdown_bold(text: str) -> str:
     # Remove markdown bold markers from speaker labels before analysis.
     # '**Japanese Director:** text' becomes 'Japanese Director: text'
     cleaned = []
-    for line in text.split('\n'):
+    for line in text.split("\n"):
         stripped = line
-        # Handle **Name:** and **Name：** at start of line
-        if stripped.startswith('**'):
+        if stripped.startswith("**"):
             stripped = stripped[2:]
-        # Remove any remaining ** pairs
-        stripped = stripped.replace('**', '')
+        stripped = stripped.replace("**", "")
         cleaned.append(stripped)
-    return '\n'.join(cleaned)
+    return "\n".join(cleaned)
 
 def _ensure_speaker_labels(text: str):
     """Return (processed_text, was_unlabeled)."""
-    # Always strip markdown bold first — **Name:** → Name:
     text = _strip_markdown_bold(text)
     if _has_speaker_labels(text):
         return text, False
@@ -287,12 +264,10 @@ async def auth_callback(request: Request):
         return RedirectResponse("/")
     try:
         token     = await _oauth.google.authorize_access_token(request)
-        user_info = token["userinfo"]          # sub, email, name, picture
+        user_info = token["userinfo"]
         request.session["user_id"] = user_info["sub"]
         request.session["email"]   = user_info.get("email", "")
         request.session["name"]    = user_info.get("name", "")
-
-        # Create user record in SQLite if it doesn't exist
         await _upsert_user(
             user_id = user_info["sub"],
             email   = user_info.get("email", ""),
@@ -336,9 +311,6 @@ async def export_page(request: Request):
 
 @app.get("/evaluate", response_class=HTMLResponse)
 async def evaluate_page(request: Request):
-    # No evaluation runs on page load. The page renders empty/idle until the
-    # person explicitly clicks "Run Evaluation Suite" — POST /evaluate/run
-    # below is the only thing that ever produces results.
     return templates.TemplateResponse(request, "evaluate.html", {
         "eval_available":   EVAL_AVAILABLE,
         "test_case_count":  len(TEST_CASES) if EVAL_AVAILABLE else 0,
@@ -377,9 +349,6 @@ async def evaluate_run():
         }
 
     try:
-        # Run all ground-truth cases concurrently — each goes through Groq's
-        # 2-key round-robin independently, so this is no riskier than running
-        # them one at a time, just faster.
         reports = await asyncio.gather(*[_run_one(tc) for tc in TEST_CASES])
     except Exception as exc:
         return HTMLResponse(content=_err(f"Evaluation run failed: {exc}"), status_code=500)
@@ -451,7 +420,6 @@ async def analyze_text_route(
         cleaned = clean_text(transcript)
         detected_lang = language or detect_language(cleaned)
 
-        # ── Unlabeled transcript fallback ─────────────────────────────────────
         cleaned, was_unlabeled = _ensure_speaker_labels(cleaned)
 
         pii_report = pii_mask = None
@@ -618,6 +586,14 @@ async def health():
     }
 
 
+# ── SEO: robots.txt ───────────────────────────────────────────────────────────
+# FIX: FastAPI does not auto-serve files at the project root.
+# Without this route every crawler gets a 404 on /robots.txt.
+@app.get("/robots.txt", response_class=HTMLResponse)
+async def robots_txt():
+    return HTMLResponse(open("robots.txt").read(), media_type="text/plain")
+
+
 # ── SEO: sitemap.xml ──────────────────────────────────────────────────────────
 # Submit this to Google Search Console after deploy:
 #   https://kunalthebeast-transcriptai.hf.space/sitemap.xml
@@ -627,7 +603,7 @@ async def sitemap():
     today = date.today().isoformat()
     base  = "https://kunalthebeast-transcriptai.hf.space"
     pages = [
-        ("",          "daily",  "1.0"),   # home — highest priority
+        ("",          "daily",  "1.0"),
         ("/export",   "weekly", "0.7"),
         ("/evaluate", "weekly", "0.6"),
     ]
@@ -666,29 +642,25 @@ async def manifest():
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def _err(msg: str) -> str:
-    return (f'<div style="background:var(--red-bg);border-left:3px solid var(--red);'
-            f'border-radius:0 10px 10px 0;padding:14px 18px;color:#3C2416;margin-top:12px">'
+    return (f'<div style="background:var(--red-bg);border-left:3px solid var(--red);' 
+            f'border-radius:0 10px 10px 0;padding:14px 18px;color:#3C2416;margin-top:12px">' 
             f'<b style="color:var(--red)">⚠ Error</b><br>{msg}</div>')
 
 
 # ── User store — aiosqlite (non-blocking) ─────────────────────────────────────
 # C3 fix: replaced blocking sqlite3 with aiosqlite.
-# Original sqlite3.connect() blocks the entire event loop for the duration
-# of the write — on a busy server this stalls every other request.
-# aiosqlite wraps SQLite in a background thread and returns control to the
-# event loop immediately, same as asyncio.to_thread() does for Groq calls.
 try:
     import aiosqlite as _aiosqlite
     _AIOSQLITE = True
 except ImportError:
-    import sqlite3 as _sqlite3   # fallback — still works, just blocks
+    import sqlite3 as _sqlite3
     _AIOSQLITE = False
 
 _DB_PATH = Path("users.db")
 
 
 def _init_user_db():
-    """Create users table on first startup. Uses sync sqlite3 — only runs once at import."""
+    """Create users table on first startup."""
     try:
         import sqlite3
         con = sqlite3.connect(_DB_PATH)
@@ -709,10 +681,7 @@ def _init_user_db():
 
 
 async def _upsert_user(user_id: str, email: str, name: str) -> None:
-    """
-    Insert or update a user record — fully async, never blocks the event loop.
-    C3 fix: uses aiosqlite when available, falls back to sync sqlite3 on import error.
-    """
+    """Insert or update a user record — fully async, never blocks the event loop."""
     now = __import__("datetime").datetime.utcnow().isoformat()
     sql = """
         INSERT INTO users (user_id, email, name, created_at, last_seen)
@@ -725,7 +694,6 @@ async def _upsert_user(user_id: str, email: str, name: str) -> None:
                 await db.execute(sql, (user_id, email, name, now, now))
                 await db.commit()
         else:
-            # Fallback — runs in thread pool so it doesn't fully block
             await asyncio.to_thread(_sync_upsert, user_id, email, name, now, sql)
     except Exception as exc:
         print(f"[DB] upsert_user failed: {exc}", flush=True)

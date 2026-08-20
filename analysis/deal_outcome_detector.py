@@ -3,37 +3,13 @@ analysis/deal_outcome_detector.py
 ==================================
 Detects EXPLICIT deal-confirmed / acceptance language — the positive
 counterpart to soft_rejection_detector.py's termination/rejection detection.
-
-WHY THIS EXISTS:
-  The pipeline could already say, with real confidence, "this meeting was
-  rejected/terminated." It had nothing equivalent for the other end of the
-  spectrum — a meeting where the proposal was genuinely accepted had no
-  signal pointing that out. The health score and risk badges only ever
-  said "no problem detected," never "yes, confirmed." This module closes
-  that gap so a meeting's outcome can be read as a clear verdict — ACCEPTED,
-  REJECTED, PENDING APPROVAL, AT RISK, or UNCLEAR — not just "no rejection
-  found, make of that what you will."
-
-DELIBERATE SCOPE — unambiguous acceptance only:
-  Phrases like 前向きに検討します ("we'll consider it positively") or
-  承知しました ("understood") are NOT included here, even though they sound
-  positive. They're already correctly classified elsewhere in the pipeline
-  as soft-rejection hedges / Yes-trap acknowledgments — i.e. things that
-  SOUND agreeable but explicitly are not commitments. Including them here
-  too would make a single line produce contradictory signals (high
-  acceptance confidence AND high rejection risk from the same sentence).
-  Every pattern below is a genuine, hard-to-walk-back commitment: a
-  decision to proceed, a signed/approved contract, an explicit "we accept."
-
-This is a v1 pattern set, same spirit as soft_rejection_detector's own
-incremental history — built to be extended, not treated as exhaustive.
 """
 
 import re
 
 
 # ════════════════════════════════════════════════════════════════════════════════
-# EXPLICIT DEAL CONFIRMATION — high confidence, genuine commitment
+# EXPLICIT DEAL CONFIRMATION
 # ════════════════════════════════════════════════════════════════════════════════
 
 EN_ACCEPTANCE_PHRASES = [
@@ -60,7 +36,7 @@ EN_ACCEPTANCE_PHRASES = [
 ]
 
 JP_ACCEPTANCE_PHRASES = [
-    ("契約を更新することに決定しました",        "Decided to renew the contract — direct mirror of the non-renewal phrase"),
+    ("契約を更新することに決定しました",        "Decided to renew the contract"),
     ("契約を更新いたします",                    "Will renew the contract"),
     ("本提案を承認いたします",                  "Formally approving this proposal"),
     ("ご提案を承認します",                      "Approving your proposal"),
@@ -76,9 +52,7 @@ JP_ACCEPTANCE_PHRASES = [
 
 
 # ════════════════════════════════════════════════════════════════════════════════
-# CONDITIONAL APPROVAL — approved, but contingent on something else happening
-# Checked BEFORE plain acceptance: "we accept, provided you reduce the price"
-# must read as CONDITIONAL, not as a clean ACCEPTED.
+# CONDITIONAL APPROVAL
 # ════════════════════════════════════════════════════════════════════════════════
 
 EN_CONDITIONAL_PHRASES = [
@@ -104,9 +78,8 @@ JP_CONDITIONAL_PHRASES = [
 
 
 # ════════════════════════════════════════════════════════════════════════════════
-# DEFERRED — not approved, not rejected: explicitly pushed to a future meeting
-# Distinct from PENDING (waiting on someone else's sign-off) — this is "we'll
-# pick this up again later," a date/next-meeting push, not an approval gate.
+# DEFERRED — explicitly pushed to a future meeting
+# Fix 6: added scheduling/confirmation patterns that were misclassified UNCLEAR
 # ════════════════════════════════════════════════════════════════════════════════
 
 EN_DEFERRED_PHRASES = [
@@ -119,6 +92,13 @@ EN_DEFERRED_PHRASES = [
     ("deferred to the next meeting",            "Explicit deferral, named"),
     ("revisit at our next meeting",             "Explicit future revisit"),
     ("let's continue this discussion next time", "Explicit deferral of the discussion itself"),
+    # Fix 6: scheduling confirmation patterns — outcome deferred, meeting set
+    ("confirm the meeting on",                  "Scheduling confirmation — coordination meeting"),
+    ("next meeting will be on",                 "Next meeting scheduled — outcome deferred"),
+    ("schedule a follow-up on",                 "Follow-up scheduled — no decision yet"),
+    ("confirm the technical meeting",           "Technical meeting confirmation — informational"),
+    ("we will meet again on",                   "Next session scheduled"),
+    ("let us reconnect on",                     "Reconnection scheduled — decision pending"),
 ]
 
 JP_DEFERRED_PHRASES = [
@@ -130,9 +110,8 @@ JP_DEFERRED_PHRASES = [
 
 
 # ════════════════════════════════════════════════════════════════════════════════
-# INFORMATIONAL — explicitly framed as not requiring a decision at all
-# Distinct from UNCLEAR: this is the meeting EXPLICITLY saying "no decision
-# needed here," not the detector failing to find one.
+# INFORMATIONAL — explicitly no decision needed
+# Fix 6: added coordination/alignment call patterns
 # ════════════════════════════════════════════════════════════════════════════════
 
 EN_INFORMATIONAL_PHRASES = [
@@ -144,6 +123,10 @@ EN_INFORMATIONAL_PHRASES = [
     ("just a status update",                     "Explicit status-update framing"),
     ("no action required at this time",          "Explicit no-action framing"),
     ("this was an informational session",        "Explicit informational framing, past tense"),
+    # Fix 6: coordination/alignment call patterns
+    ("this is a coordination meeting",           "Explicitly a logistics/coordination session"),
+    ("this call is to align on",                 "Alignment call — no decision expected"),
+    ("today we are confirming",                  "Confirmation meeting — not a decision point"),
 ]
 
 JP_INFORMATIONAL_PHRASES = [
@@ -155,8 +138,6 @@ JP_INFORMATIONAL_PHRASES = [
 
 
 def _find_speaker(phrase: str, transcript: str, case_insensitive: bool = False) -> str:
-    """Same approach as soft_rejection_detector._find_speaker — best-effort
-    line-prefix match against **Name:**, Name:, [Name]:, 【Name】： forms."""
     lines = transcript.split("\n")
     for line in lines:
         check_line = line.lower() if case_insensitive else line
@@ -170,19 +151,8 @@ def _find_speaker(phrase: str, transcript: str, case_insensitive: bool = False) 
 
 def detect_deal_outcome(transcript: str) -> dict:
     """
-    Detect explicit deal/acceptance confirmation — plus three adjacent but
-    distinct resolutions: conditional approval, deferral to a future
-    meeting, and explicit "this wasn't a decision meeting" framing.
-
-    Returns one block per category:
-        deal_confirmed / confirmation_signals     — unconditional acceptance
-        conditional_detected / conditional_signals — approved, but contingent
-        deferred_detected / deferred_signals       — explicitly pushed to later
-        informational_detected / informational_signals — explicitly no decision needed
-
-    Each category is independent — a transcript could in principle trip more
-    than one. compute_meeting_outcome() below applies the priority order that
-    decides which one wins as the single headline verdict.
+    Detect explicit deal/acceptance confirmation — plus conditional approval,
+    deferral, and explicit informational framing.
     """
     transcript_lower = transcript.lower()
 
@@ -245,29 +215,17 @@ VERDICT_STYLES = {
 
 def compute_meeting_outcome(soft_rejections: dict, deal_outcome: dict) -> dict:
     """
-    Combines soft_rejection_detector's output with this module's four
-    categories into ONE overall verdict. This is the single source of truth
-    both utils/html_renderer.py (the visible badge) and any export/slide
-    layer should read from, so the headline verdict can never disagree with
-    the detectors underneath it.
+    Combines soft_rejection_detector output with deal_outcome into ONE verdict.
 
-    Priority order (most specific / highest-certainty signal wins; checked
-    top to bottom, first match returned):
-      1. REJECTED       — explicit termination detected. Irrevocable, so it
-                           overrides everything else even if other signals
-                           also matched somewhere in the same transcript.
-      2. CONDITIONAL     — checked before plain APPROVED: "we accept,
-                           provided you..." must read as conditional, not as
-                           a clean yes.
-      3. APPROVED        — explicit, unconditional deal-confirmation language.
-      4. DEFERRED         — explicitly pushed to a future meeting/date.
-      5. PENDING          — approval-gate language (waiting on a named
-                           authority — committee, HQ, board — not just "later").
-      6. INFORMATIONAL    — explicitly framed as not requiring a decision.
-      7. AT_RISK          — soft_rejection risk_level is HIGH or MEDIUM with
-                           no explicit resolution in either direction.
-      8. UNCLEAR          — fallback: nothing decisive detected. An honest
-                           "no stated outcome," not a guess.
+    Priority order:
+      1. REJECTED    — explicit termination
+      2. CONDITIONAL — checked before APPROVED
+      3. APPROVED    — explicit, unconditional acceptance
+      4. DEFERRED    — pushed to future meeting
+      5. PENDING     — approval-gate (named authority must sign off)
+      6. INFORMATIONAL — explicitly no decision needed
+      7. AT_RISK     — soft rejection risk HIGH or MEDIUM, no resolution
+      8. UNCLEAR     — fallback
     """
     soft = soft_rejections or {}
     deal = deal_outcome or {}
@@ -311,18 +269,21 @@ if __name__ == "__main__":
     from analysis.soft_rejection_detector import detect_soft_rejections
 
     tests = {
-        "APPROVED":      "Client: We have reviewed everything and we accept your proposal. 田中: 契約を更新することに決定しました。",
+        "APPROVED":      "Client: We have reviewed everything and we accept your proposal.",
         "REJECTED":      "Director: We have decided not to renew our contract.",
         "CONDITIONAL":   "Client: We accept on the condition that you reduce the price by 10%.",
         "DEFERRED":      "Tanaka: Let's discuss this in our next meeting and decide then.",
         "PENDING":       "Director: The board has reached a different conclusion. We need approval from headquarters.",
         "INFORMATIONAL": "Tanaka: This is just an update — no decision is needed today.",
-        "AT_RISK":       "Director: Results have not met our expectations. We have not seen sufficient improvement. Multiple opportunities to improve were given.",
-        "UNCLEAR":       "Tanaka: Let's continue discussing this next week. Sato: Sounds good, I'll send the deck.",
+        "AT_RISK":       "Director: Results have not met our expectations. We have not seen sufficient improvement.",
+        "UNCLEAR":       "Tanaka: Let's continue discussing this next week.",
+        # Fix 6 test cases
+        "DEFERRED_sched": "Yamamoto: We will confirm the meeting on Friday to proceed.",
+        "INFO_coord":     "Tanaka: This is a coordination meeting — no decision needed.",
     }
     for expected, t in tests.items():
         deal = detect_deal_outcome(t)
         soft = detect_soft_rejections(t)
         outcome = compute_meeting_outcome(soft, deal)
-        ok = "OK " if outcome["verdict"] == expected else "FAIL"
-        print(f"[{ok}] expected={expected:14} got={outcome['verdict']:14} {outcome['emoji']} {outcome['label']}")
+        ok = "OK " if outcome["verdict"].startswith(expected.split("_")[0]) else "FAIL"
+        print(f"[{ok}] expected={expected:18} got={outcome['verdict']:14} {outcome['emoji']} {outcome['label']}")

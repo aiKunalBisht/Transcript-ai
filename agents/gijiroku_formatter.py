@@ -5,48 +5,11 @@ agents/gijiroku_formatter.py
 Rule-based. No LLM call. Restructures analysis_result into the
 standard Japanese business meeting minutes format.
 
-Fields mapped from analysis_result:
-  meeting_title     → 会議名
-  timestamp         → 日時
-  speakers          → 出席者
-  key_decisions     → 決定事項
-  action_items      → アクションアイテム (owner, task, deadline)
-  summary/bullets   → 議題 (agenda items inferred from summary)
-  soft_rejections   → appended as note under 特記事項 if risk>=MEDIUM
-  recorder          → 記録者 (passed in or defaults to TranscriptAI)
-
-Output: plain dict ready for both .txt and .md rendering.
-Caller decides the format — this class only structures the data.
-
-FIX (v2): analysis.get(key, default) only falls back to `default` when the
-key is MISSING — not when it's present with an explicit null. The analyzer's
-LLM step occasionally returns null instead of [] for an empty list field
-(more likely on harder/garbled transcripts), and _validate_and_fill()'s
-setdefault() doesn't catch that either, since the key already exists. That
-previously left raw_decisions/raw_speakers/raw_actions/bullets as None,
-which either skipped an assignment entirely (NameError on kettei_jiko) or
-tried to iterate None directly (TypeError). Every extraction below now uses
-the same `analysis.get(key, default) or default` guard that soft_rejections/
-conversation_dynamics/role_hints already used further down in this file.
-
-FIX (v3): the 日時 (nichiji) line used to build its value with
-datetime.now().strftime("%Y年%m月%d日 %H:%M") — i.e. literal Japanese
-characters embedded directly inside the strftime format string. On Windows,
-CPython's strftime hands that format string to the CRT, which has to
-round-trip it through the process's active locale codepage before calling
-the underlying C function. On any machine whose active locale isn't a
-Japanese codepage, that round-trip can't encode 年/月/日 and raises:
-    UnicodeEncodeError: 'locale' codec can't encode character '\u5e74'
-    in position 2: encoding error
-(position 2 is exactly where 年 sits in "%Y年%m月%d日 %H:%M" — confirmed
-against the real error text, not guessed). This is a known, widely
-reported Windows-only CRT quirk; Linux's glibc doesn't round-trip through
-a codepage this way, so it won't reproduce in most container deployments —
-which is exactly why it can stay hidden until someone runs the app locally
-on a non-Japanese-locale Windows machine. The fix below never lets a CJK
-literal anywhere near strftime: only the numeric %Y/%m/%d/%H/%M-equivalent
-fields (pure ASCII, always safe) are produced via formatting; the
-年/月/日 literals are spliced in afterward with a plain f-string.
+Fix 4 (discussion content): Added 討議内容 (togi_naiyou) section with
+fallback chain: result.get("discussion") → full_summary → summary bullets
+→ placeholder. Previously the section showed a header but no content
+because analysis.get("discussion") returns None (the LLM schema doesn't
+produce this key), and there was no fallback.
 """
 
 from __future__ import annotations
@@ -56,8 +19,7 @@ from datetime import datetime
 
 
 def _get(d: dict, key: str, default):
-    """dict.get() that also coalesces an explicit None to `default` — the
-    one-line fix for the whole class of bug this file hit."""
+    """dict.get() that also coalesces an explicit None to `default`."""
     v = d.get(key, default)
     return v if v is not None else default
 
@@ -67,58 +29,42 @@ class ActionItem:
     task: str
     owner: str
     deadline: str
-    flag: bool = False          # hallucination_flag from pipeline
+    flag: bool = False
 
 
 @dataclass
 class ApprovalStep:
-    """
-    One stamp in a ringi-sho-style approval chain. The ringi-sho (稟議書) is
-    the actual paper-trail-of-record for a decision in many Japanese
-    companies — a written proposal that picks up a hanko (stamp) from each
-    manager in turn, often a better audit trail than the meeting minutes
-    themselves.
-
-    approver/role come from speaker_normalizer.extract_role_hints() — rule-
-    based, derived from the raw transcript label, not from the LLM. If no
-    role hints were detected in the transcript, this falls back to a single
-    "unassigned" placeholder rather than guessing a chain.
-    """
     approver: str
     role: str = ""
-    status: str = "未承認"   # 未承認 (pending) / 承認済み (approved)
+    status: str = "未承認"
 
 
 @dataclass
 class GijirokulPlan:
     """Structured 議事録 ready for any renderer."""
-    kaigi_mei: str              # 会議名 — meeting name
-    nichiji: str                # 日時 — date/time
-    basho: str                  # 場所 — location/platform
-    shussekisha: List[str]      # 出席者 — attendees with roles
-    gidai: List[str]            # 議題 — agenda items
-    kettei_jiko: List[str]      # 決定事項 — decisions made
-    action_items: List[ActionItem]   # アクションアイテム
-    jikai_yotei: str            # 次回予定 — next meeting
-    kirokusha: str              # 記録者 — recorder
-    tokki_jiko: Optional[str]   # 特記事項 — special notes (soft rejection warnings)
-    language: str = "ja"        # source language of transcript
+    kaigi_mei: str
+    nichiji: str
+    basho: str
+    shussekisha: List[str]
+    gidai: List[str]
+    togi_naiyou: str            # 討議内容 — Fix 4: discussion content with fallback chain
+    kettei_jiko: List[str]
+    action_items: List[ActionItem]
+    jikai_yotei: str
+    kirokusha: str
+    tokki_jiko: Optional[str]
+    language: str = "ja"
     generated_at: str = ""
-    approval_chain: List[ApprovalStep] = field(default_factory=list)  # 承認状況
+    approval_chain: List[ApprovalStep] = field(default_factory=list)
     kairan_jotai: str = "ドラフト — 関係者の確認待ち / Draft — pending circulation for review"
 
     def __post_init__(self):
         if not self.generated_at:
-            # ASCII-only format string ("-", ":", " ") — never touches the
-            # locale codepage, so this one was never at risk. Left as-is.
             self.generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
 
 
 class GijirokulFormatter:
-    """
-    Converts TranscriptAI analysis_result → GijirokulPlan.
-    Pure rule-based mapping. Zero API calls.
-    """
+    """Converts TranscriptAI analysis_result → GijirokulPlan. Zero API calls."""
 
     def format(
         self,
@@ -137,10 +83,6 @@ class GijirokulFormatter:
         )
 
         # ── 日時 ────────────────────────────────────────────────
-        # FIX (v3): do NOT pass 年/月/日 as literal characters inside a
-        # strftime format string — see module docstring for why. Only the
-        # numeric fields go through Python's own :02d zero-padding (pure
-        # Python, not the CRT); the CJK literals are spliced in afterward.
         if timestamp:
             nichiji = timestamp
         else:
@@ -151,11 +93,6 @@ class GijirokulFormatter:
             )
 
         # ── 出席者 ──────────────────────────────────────────────
-        # analysis.speakers can be:
-        #   list of str: ["Kenji", "Client"]
-        #   list of dict: [{"name": "Kenji", "role": "Engineer"}]
-        # FIX: guard against an explicit `null` from the LLM, not just a
-        # missing key — `.get(key, [])` alone does NOT catch that case.
         raw_speakers = _get(analysis, "speakers", [])
         shussekisha = []
         for s in raw_speakers:
@@ -176,18 +113,15 @@ class GijirokulFormatter:
             shussekisha = ["出席者情報なし / Not identified"]
 
         # ── 議題 ────────────────────────────────────────────────
-        # Use key_decisions as starting point, fall back to summary bullets
         gidai = []
         bullets = _get(analysis, "summary", [])
         if isinstance(bullets, list):
             gidai = [b for b in bullets if isinstance(b, str) and len(b.strip()) > 4]
         elif isinstance(bullets, str) and bullets.strip():
-            # summary is a single string — split at sentence boundaries
             import re
             sentences = re.split(r'[。.]\s*', bullets.strip())
             gidai = [s.strip() for s in sentences if len(s.strip()) > 4]
 
-        # fallback: use full_summary first sentence
         if not gidai:
             full = analysis.get("full_summary") or ""
             if full:
@@ -195,10 +129,20 @@ class GijirokulFormatter:
             else:
                 gidai = ["議題情報なし / Agenda not extracted"]
 
+        # ── 討議内容 ─────────────────────────────────────────────
+        # Fix 4: fallback chain — discussion field (LLM extended output) →
+        # full_summary → summary bullets joined → empty placeholder.
+        # analysis.get("discussion") returns None when the LLM didn't produce
+        # a dedicated discussion key (the common case); without this chain the
+        # section rendered a header with no content underneath.
+        discussion_content = (
+            analysis.get("discussion")
+            or analysis.get("full_summary")
+            or "\n".join(f"・{b}" for b in _get(analysis, "summary", []))
+            or "（討議内容なし）"
+        )
+
         # ── 決定事項 ────────────────────────────────────────────
-        # FIX: this is the exact spot that crashed — if raw_decisions was
-        # None, neither branch below fired and kettei_jiko was referenced
-        # before assignment (NameError). `_get(...)` makes that impossible.
         raw_decisions = _get(analysis, "key_decisions", [])
         kettei_jiko: List[str] = []
         if isinstance(raw_decisions, list):
@@ -210,8 +154,6 @@ class GijirokulFormatter:
             kettei_jiko = ["明示的な決定事項なし / No explicit decisions recorded"]
 
         # ── アクションアイテム ──────────────────────────────────
-        # FIX: same guard — `for item in raw_actions` would raise TypeError
-        # if action_items came back as an explicit null.
         raw_actions = _get(analysis, "action_items", [])
         action_items = []
         for item in raw_actions:
@@ -236,7 +178,7 @@ class GijirokulFormatter:
                 owner="—", deadline="—"
             )]
 
-        # ── 特記事項 (soft rejection risk + conversation dynamics) ──
+        # ── 特記事項 ────────────────────────────────────────────
         tokki_jiko_parts = []
         soft = analysis.get("soft_rejections", {}) or {}
         risk = soft.get("risk_level") or "NONE"
@@ -265,9 +207,7 @@ class GijirokulFormatter:
 
         tokki_jiko = "\n\n".join(tokki_jiko_parts) if tokki_jiko_parts else None
 
-        # ── 承認状況 (ringi-sho style approval chain) ───────────
-        # Seniority-ranked from role_hints (rule-based, see speaker_normalizer
-        # .extract_role_hints) — never guessed when no roles are detected.
+        # ── 承認状況 ────────────────────────────────────────────
         role_hints = analysis.get("role_hints") or dynamics.get("role_hints") or {}
         ranked = sorted(
             (
@@ -285,13 +225,13 @@ class GijirokulFormatter:
         if not approval_chain:
             approval_chain = [ApprovalStep(approver="未指定 / Unassigned", role="")]
 
-        # ── Assemble ────────────────────────────────────────────
         return GijirokulPlan(
             kaigi_mei=kaigi_mei,
             nichiji=nichiji,
             basho=basho,
             shussekisha=shussekisha,
             gidai=gidai,
+            togi_naiyou=discussion_content,
             kettei_jiko=kettei_jiko,
             action_items=action_items,
             jikai_yotei=jikai_yotei,
@@ -303,7 +243,7 @@ class GijirokulFormatter:
 
 
 # ─────────────────────────────────────────────────────────────
-# Renderers — plain text and markdown
+# Renderers
 # ─────────────────────────────────────────────────────────────
 
 _DIVIDER_MD  = "\n---\n"
@@ -315,16 +255,16 @@ def render_markdown(plan: GijirokulPlan) -> str:
     lines = []
 
     lines += [
-        f"# 議事録",
-        f"",
-        f"| 項目 | 内容 |",
-        f"|------|------|",
+        "# 議事録",
+        "",
+        "| 項目 | 内容 |",
+        "|------|------|",
         f"| **会議名** | {plan.kaigi_mei} |",
         f"| **日時** | {plan.nichiji} |",
         f"| **場所** | {plan.basho} |",
         f"| **記録者** | {plan.kirokusha} |",
         f"| **作成日時** | {plan.generated_at} |",
-        f"",
+        "",
     ]
 
     lines += [_DIVIDER_MD, "## 出席者", ""]
@@ -335,6 +275,13 @@ def render_markdown(plan: GijirokulPlan) -> str:
     lines += [_DIVIDER_MD, "## 議題", ""]
     for i, item in enumerate(plan.gidai, 1):
         lines.append(f"{i}. {item}")
+    lines.append("")
+
+    # Fix 4: 討議内容 section — populated via fallback chain in format()
+    lines += [_DIVIDER_MD, "## 討議内容", ""]
+    for line in plan.togi_naiyou.split("\n"):
+        if line.strip():
+            lines.append(line)
     lines.append("")
 
     lines += [_DIVIDER_MD, "## 決定事項", ""]
@@ -373,7 +320,7 @@ def render_markdown(plan: GijirokulPlan) -> str:
 
     lines += [
         _DIVIDER_MD,
-        f"*Generated by TranscriptAI — github.com/aiKunalBisht/Transcript-ai*",
+        "*Generated by TranscriptAI — github.com/aiKunalBisht/Transcript-ai*",
         f"*{plan.generated_at}*",
     ]
 
@@ -384,10 +331,6 @@ def render_text(plan: GijirokulPlan) -> str:
     """Renders GijirokulPlan as plain-text 議事録 (email/Slack safe)."""
     lines = []
 
-    # FIX: format-spec width (e.g. "{x:<15}") raises TypeError on None —
-    # plain f-string interpolation ({x}) does not, since it implicitly
-    # calls str(). Coalescing here makes render_text() safe even if some
-    # upstream field slips through as None.
     def _s(v):
         return v if v is not None else ""
 
@@ -408,6 +351,12 @@ def render_text(plan: GijirokulPlan) -> str:
     lines += [_DIVIDER_TXT, "【議題】"]
     for i, item in enumerate(plan.gidai, 1):
         lines.append(f"  {i}. {item}")
+
+    # Fix 4: 討議内容 section — populated via fallback chain in format()
+    lines += [_DIVIDER_TXT, "【討議内容】"]
+    for line in plan.togi_naiyou.split("\n"):
+        if line.strip():
+            lines.append(f"  {line}")
 
     lines += [_DIVIDER_TXT, "【決定事項】"]
     for i, d in enumerate(plan.kettei_jiko, 1):
@@ -445,13 +394,8 @@ def render_text(plan: GijirokulPlan) -> str:
 def format_gijiroku(analysis: dict, as_markdown: bool = False, **kwargs) -> str:
     """
     Convenience wrapper — this is what main.py actually imports.
-    GijirokulFormatter/render_text/render_markdown above are the building
-    blocks; main.py expects a single function: dict in, finished string out.
-
     analysis: the full analyze_transcript() result dict
-    as_markdown: False (default) -> render_text(); True -> render_markdown()
-    kwargs: forwarded to GijirokulFormatter().format() (recorder, basho,
-            jikai_yotei, timestamp) if a caller ever wants to override them
+    as_markdown: False → render_text(); True → render_markdown()
     """
     plan = GijirokulFormatter().format(analysis, **kwargs)
     return render_markdown(plan) if as_markdown else render_text(plan)
