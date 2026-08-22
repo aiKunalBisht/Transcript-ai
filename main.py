@@ -18,6 +18,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from dotenv import load_dotenv
+load_dotenv()
 
 # ── Optional Google OAuth ─────────────────────────────────────────────────────
 AUTH_ENABLED = os.getenv("AUTH_ENABLED", "0") == "1"
