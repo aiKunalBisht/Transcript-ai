@@ -109,6 +109,13 @@ class PIIMask:
             # so NAME_1 requires a non-word char (space, comma, quote) on both sides.
             text = re.sub(r"\b" + re.escape(bare) + r"\b", original, text)
 
+            # Safety net: catch any malformed NAME_ tokens the LLM partially stripped
+            text = re.sub(
+                r'\[?NAME_(\d+)\]?',
+                lambda m: self.mapping.get(f'[NAME_{m.group(1)}]', m.group(0)),
+                text,
+            )
+
         return text
 
     def summary(self) -> dict:

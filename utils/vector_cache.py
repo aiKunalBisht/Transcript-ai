@@ -68,8 +68,10 @@ def _get_embedder():
     if _embedder is None:
         try:
             from sentence_transformers import SentenceTransformer
-            # all-MiniLM-L6-v2: 80MB, 384-dim, ~30ms per embedding
-            _embedder = SentenceTransformer("all-MiniLM-L6-v2")
+            # paraphrase-multilingual-MiniLM-L12-v2: 420MB, 384-dim, 50+ languages
+            # Audit fix: all-MiniLM-L6-v2 was English-only — language-blind for JP/HI.
+            # The RAG pipeline already uses this model; vector cache now consistent.
+            _embedder = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
         except ImportError:
             _embedder = False
     return _embedder if _embedder else None
@@ -250,7 +252,7 @@ def get_cached_result(
             result_dir  = _user_results_dir(user_id)
             result_path = result_dir / f"{doc_id}.json"
             if result_path.exists():
-                with open(result_path, "r", encoding="utf-8") as f:
+                with open(result_path) as f:
                     result = json.load(f)
                 result["_from_vector_cache"] = True
                 result["_cache_similarity"]  = round(similarity, 4)

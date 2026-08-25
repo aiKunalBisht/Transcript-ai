@@ -1,20 +1,55 @@
 """
-analysis/soft_rejection_detector.py  — TranscriptAI v3.2
+analysis/soft_rejection_detector.py  — TranscriptAI v3.3
 =========================================================
-v3.2 complete rewrite of termination detection:
-  - 18 EN termination patterns covering real-world phrasing variations
-  - 15 JP termination patterns (exact substring, no tokenisation needed)
-  - 8 EN high-signal performance-failure phrases (precede terminations)
-  - 8 JP high-signal performance-failure phrases
-  - Case-insensitive EN matching
-  - Returns: termination_detected (bool), termination_signals (list), CRITICAL risk
-  - All existing soft patterns preserved (LOW/MEDIUM/HIGH tier)
+v3.3 changes vs v3.2:
 
-Root cause of v3.1 failure:
-  The previous version only matched 8 exact JP phrases like
-  「継続することはできません」but the actual transcript used
-  「パートナーシップは継続しないことを決定しました」— different phrasing,
-  no match, NONE risk. This version covers all common variations.
+C1 FIX: New TIER 1c — EN_CONTRACT_RISK_PHRASES (21 patterns)
+    The single biggest gap in v3.2. The detector had explicit termination
+    (already happened) and performance failure (past context), but was
+    completely blind to CONDITIONAL THREATS — the most actionable signal
+    in any client meeting. "Contract would be reconsidered" is the last
+    warning before formal termination. v3.2 returned NONE for this.
+    The demo transcript produced ZERO matches against a meeting where
+    the client threatened contract reconsideration and set a Friday
+    deadline. v3.3 adds conditional reconsideration, "not acceptable",
+    and cannot-continue patterns as HIGH → CRITICAL signals.
+
+C2 FIX: JP_CONTRACT_RISK_PHRASES (12 patterns)
+    Japanese equivalents for conditional threats, deadline ultimatums,
+    and written commitment demands in keigo register.
+
+C3 FIX: EN_HIGH_PHRASES expanded (+18 patterns)
+    Three missing signal categories added:
+    — Deadline ultimatums: "if not resolved by", "must be resolved by",
+      "unless this is resolved"
+    — Written demand signals: "written commitment", "written response",
+      "demand a written", "put it in writing"
+    — SLA / downtime complaints: "system has been down", "been down for",
+      "hours of downtime", "still not working", "this keeps happening"
+
+C4 FIX: JP_HIGH_PHRASES expanded (+8 patterns)
+    Japanese equivalents: written commitment demand, deadline ultimatum,
+    conditional improvement threat, hours-of-downtime framing.
+
+C5 FIX: Risk level updated
+    contract_risk_detected alone → HIGH
+    contract_risk_detected + any high_signal → CRITICAL
+    Conditional threats + performance failure = same risk as explicit
+    termination from an account management perspective.
+
+C6 FIX: Cultural note added for contract risk tier
+    Explains why conditional threats in Japanese business context are
+    nearly as serious as explicit termination — ringi approval is
+    required before the formal phrase can be used, so the conditional
+    framing means internal discussions have already begun.
+
+Root cause of v3.2 gap:
+    v3.2 was built to fix the JP-only exact-phrase miss (「継続しないことを
+    決定しました」). It covered all explicit termination variants but
+    never modelled the PRE-TERMINATION conditional threat pattern, which
+    is the most common form in English-language client escalations.
+
+All v3.2 patterns preserved unchanged.
 """
 
 import re
@@ -22,7 +57,7 @@ from typing import Optional
 
 
 # ════════════════════════════════════════════════════════════════════════════════
-# TIER 1 — EXPLICIT TERMINATION (CRITICAL risk, irrevocable)
+# TIER 1 — EXPLICIT TERMINATION (CRITICAL, irrevocable)
 # ════════════════════════════════════════════════════════════════════════════════
 
 EN_TERMINATION_PHRASES = [
@@ -65,19 +100,20 @@ JP_TERMINATION_PHRASES = [
     ("パートナーシップを終了",         "Ending the partnership"),
 ]
 
+
 # ════════════════════════════════════════════════════════════════════════════════
 # TIER 1b — APPROVAL GATE (HIGH risk, not CRITICAL)
 # ════════════════════════════════════════════════════════════════════════════════
 
 EN_APPROVAL_GATE_PHRASES = [
-    ("commercial contract has not yet been approved",   "Technical approval exists but commercial contract still pending"),
-    ("technical approval and contract approval are separate", "Explicit split: tech approval ≠ contract approval"),
-    ("technical review is complete, but",               "Technical done BUT commercial not — gate pattern"),
-    ("not be interpreted as contract approval",         "Explicit denial that meeting = approval"),
-    ("today's meeting should not be interpreted",       "Meeting explicitly not an approval event"),
-    ("purchasing committee must review",                "Committee gate — final authority not present in meeting"),
-    ("committee must review",                           "Review committee required before decision"),
-    ("before any final decision",                       "Explicitly no final decision yet"),
+    ("commercial contract has not yet been approved",       "Technical approval exists but commercial contract still pending"),
+    ("technical approval and contract approval are separate","Explicit split: tech approval ≠ contract approval"),
+    ("technical review is complete, but",                   "Technical done BUT commercial not — gate pattern"),
+    ("not be interpreted as contract approval",             "Explicit denial that meeting = approval"),
+    ("today's meeting should not be interpreted",           "Meeting explicitly not an approval event"),
+    ("purchasing committee must review",                    "Committee gate — final authority not present in meeting"),
+    ("committee must review",                               "Review committee required before decision"),
+    ("before any final decision",                           "Explicitly no final decision yet"),
     ("headquarters in tokyo must make the final decision",  "Director lacks final authority — HQ decides"),
     ("headquarters must make the final decision",           "Authority escalation to headquarters"),
     ("the board has reached a different conclusion",        "Board overrides personal support — authority conflict"),
@@ -115,10 +151,64 @@ JP_APPROVAL_GATE_PHRASES = [
 
 
 # ════════════════════════════════════════════════════════════════════════════════
-# TIER 2 — PERFORMANCE FAILURE FRAMING (HIGH risk)
+# TIER 1c — CONTRACT AT RISK (HIGH → CRITICAL, conditional threat)
+# C1/C2 FIX: The pre-termination warning phase — most actionable signal in
+# client escalations. "Contract would be reconsidered" is the last stop before
+# the ringi-sho is filed. In Japanese business culture, saying this phrase
+# means internal discussions about termination have already started.
+# ════════════════════════════════════════════════════════════════════════════════
+
+EN_CONTRACT_RISK_PHRASES = [
+    # Direct reconsideration threats — matched the demo transcript
+    ("contract would be reconsidered",         "Conditional contract reconsideration — last warning before formal termination"),
+    ("contract will be reconsidered",          "Future conditional contract threat"),
+    ("contract may be reconsidered",           "Possibility of reconsideration — still a critical signal"),
+    ("reconsidering our contract",             "Active reconsideration of contract underway"),
+    ("reconsidering the contract",             "Contract under active reconsideration"),
+    ("reconsider our contract",                "Direct conditional — will reconsider"),
+    ("reconsider the contract",                "Contract reconsideration warning"),
+    ("reconsider our partnership",             "Partnership reconsideration"),
+    ("reconsidering our partnership",          "Partnership under active reconsideration"),
+    ("reconsider our business relationship",   "Business relationship reconsideration"),
+    ("reviewing whether to continue",          "Active review of continuation decision"),
+    # Suspension / hold
+    ("put the contract on hold",               "Contract suspension signal"),
+    ("contract on hold",                       "Contract held — pending resolution"),
+    ("suspend the contract",                   "Active contract suspension"),
+    ("contract at risk",                       "Contract explicitly flagged as at risk"),
+    # Unacceptability statements — precede formal action
+    ("this is unacceptable",                   "Explicit rejection of current state — strong escalation preceding formal action"),
+    ("this cannot continue",                   "Cannot-continue statement — precedes reconsideration or termination"),
+    ("cannot accept this situation",           "Formal rejection of current status"),
+    ("cannot accept this",                     "Rejection of current state"),
+    ("no longer acceptable",                   "No longer acceptable — precedes formal action"),
+    ("not acceptable",                         "Explicit unacceptability — precedes formal escalation"),
+]
+
+JP_CONTRACT_RISK_PHRASES = [
+    # C2 FIX: Japanese conditional threats
+    ("契約を見直すことを検討",                 "Considering reviewing/reconsidering the contract"),
+    ("契約の見直し",                           "Contract review/reconsideration (noun)"),
+    ("契約を再検討",                           "Reconsidering the contract"),
+    ("このままでは契約",                       "If this continues, the contract... (conditional threat opener)"),
+    ("契約の継続が困難",                       "Continuation of contract is difficult"),
+    ("この状況は受け入れられません",            "This situation is unacceptable — explicit formal rejection"),
+    ("受け入れがたい状況",                     "Unacceptable situation — formal rejection framing"),
+    ("このような状況が続くようであれば",        "If this situation continues — conditional warning"),
+    ("金曜日までに解決されなければ",            "If not resolved by Friday — exact deadline ultimatum"),
+    ("期限までに改善されなければ",              "If not improved by deadline — conditional threat"),
+    ("書面でのコミットメント",                  "Written commitment demanded — formal escalation to documentation"),
+    ("文書による確約",                          "Written guarantee/commitment demanded — high-stakes escalation"),
+]
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# TIER 2 — PERFORMANCE FAILURE + DEADLINE ULTIMATUMS (HIGH risk)
+# C3/C4 FIX: Three new signal categories added
 # ════════════════════════════════════════════════════════════════════════════════
 
 EN_HIGH_PHRASES = [
+    # ── Retained from v3.2 ────────────────────────────────────────────────────
     ("results have not met our expectations",        "Results did not meet expectations"),
     ("not met our expectations",                     "Expectations unmet"),
     ("did not meet our expectations",                "Past tense — expectations not met"),
@@ -129,16 +219,51 @@ EN_HIGH_PHRASES = [
     ("despite multiple opportunities",               "Despite opportunities given"),
     ("i did not say the proposal was approved",      "Explicit correction — yes did NOT mean approval"),
     ("does not mean i agree",                        "Clarification that yes = understanding not agreement"),
-    ("yes often means that i understand",            "Cultural clarification of はい meaning"),
+    ("yes often means that i understand",            "Cultural clarification of meaning"),
     ("need to review the proposal internally",       "Internal review still pending — no decision made"),
     ("still need to review",                         "Decision explicitly deferred"),
     ("before making any decision",                   "No decision made yet — pending"),
-    ("will contact you after the internal review",   "Deferred — awaiting internal ringi process"),
+    ("will contact you after the internal review",   "Deferred — awaiting internal process"),
     ("internal review is complete",                  "Approval gated on internal review"),
     ("after the internal review",                    "Decision deferred to after review"),
+    # ── C3 FIX: Deadline ultimatums ───────────────────────────────────────────
+    ("if not resolved by",                           "Deadline ultimatum — explicit conditional if unresolved"),
+    ("if this is not resolved",                      "Resolution ultimatum — conditional escalation"),
+    ("if the problem is not resolved",               "Problem-resolution deadline ultimatum"),
+    ("if this is not fixed",                         "Fix-or-else conditional"),
+    ("unless this is resolved",                      "Unless-clause — conditional escalation warning"),
+    ("must be resolved by",                          "Hard deadline imposed for resolution"),
+    ("needs to be resolved by",                      "Deadline for resolution specified"),
+    ("by end of week",                               "End-of-week deadline — escalation framing"),
+    ("by friday",                                    "Friday deadline — common client ultimatum pattern"),
+    ("by monday",                                    "Monday deadline — common client ultimatum pattern"),
+    # ── C3 FIX: Written demand signals ────────────────────────────────────────
+    ("demand a written",                             "Formal written demand — complaint escalation to documentation"),
+    ("written commitment",                           "Written commitment demanded — accountability escalation"),
+    ("written response",                             "Written response demanded — formal escalation signal"),
+    ("written guarantee",                            "Written guarantee demanded — high-stakes escalation"),
+    ("put it in writing",                            "Demand for written documentation"),
+    ("in writing",                                   "Written documentation demanded — formalisation of complaint"),
+    # ── C3 FIX: SLA / system failure signals ──────────────────────────────────
+    ("system has been down",                         "System downtime complaint — SLA failure context"),
+    ("been down for",                                "Extended downtime duration — SLA breach signal"),
+    ("hours of downtime",                            "Extended downtime duration complaint"),
+    ("hours the system",                             "Hours-system failure framing"),
+    ("still not working",                            "Persistent failure — patience exhausted signal"),
+    ("still not fixed",                              "Persistent unfixed issue — patience signal"),
+    ("this keeps happening",                         "Recurring failure — precedes formal escalation"),
+    ("happened before",                              "Recurrence signal — second/third occurrence"),
+    ("not the first time",                           "Recurrence explicitly stated"),
+    # ── C3 FIX: Escalation warnings ───────────────────────────────────────────
+    ("will have to escalate",                        "Formal escalation warning to higher authority"),
+    ("need to escalate",                             "Escalation signal"),
+    ("taking this further",                          "Escalation to higher level"),
+    ("involve our legal team",                       "Legal escalation warning — extreme signal"),
+    ("involve our lawyers",                          "Legal escalation — critical signal"),
 ]
 
 JP_HIGH_PHRASES = [
+    # ── Retained from v3.2 ────────────────────────────────────────────────────
     ("期待に達していませんでした",               "Did not meet expectations (past)"),
     ("期待に達していません",                     "Has not met expectations"),
     ("十分な改善は見られませんでした",            "Insufficient improvement observed"),
@@ -147,17 +272,27 @@ JP_HIGH_PHRASES = [
     ("改善は見られませんでした",                  "No improvement was observed"),
     ("結果は私たちの期待に達していません",         "Results did not meet our expectations"),
     ("何度も機会を提供しました",                  "Multiple opportunities were provided"),
-    ("承認されたとは申し上げておりません",        "I did not say it was approved — はい ≠ 承認"),
+    ("承認されたとは申し上げておりません",        "I did not say it was approved"),
     ("社内で提案内容を検討する必要があります",    "Internal review still needed — no decision yet"),
     ("社内での検討が終わり次第",                  "Will contact after internal review — decision deferred"),
     ("決定を下す前に",                            "Before making any decision — explicitly unresolved"),
-    ("はい」は相手の話を理解したという意味",      "Explicit cultural clarification: はい = understanding not approval"),
+    ("はい」は相手の話を理解したという意味",      "Explicit cultural clarification: yes = understanding not approval"),
     ("必ずしも賛成や承認を意味するわけではありません", "Yes does not necessarily mean agreement or approval"),
+    # ── C4 FIX: Written demand + deadline ultimatum + SLA signals ─────────────
+    ("書面での回答をお願いしたい",                "Request for written response — formal escalation"),
+    ("書面でのコミットメントをいただきたい",      "Request for written commitment — accountability escalation"),
+    ("システムが何時間も停止しており",            "System has been down for hours — SLA failure signal"),
+    ("この問題が解決されない場合",                "If this problem is not resolved — conditional threat"),
+    ("金曜日までに",                              "By Friday — deadline specification in threat context"),
+    ("期限を設けさせていただきます",              "Setting a deadline — formal escalation signal"),
+    ("是正されない場合は",                        "If not corrected — conditional escalation"),
+    ("改善が見られない場合は",                    "If no improvement is seen — conditional threat"),
 ]
 
 
 # ════════════════════════════════════════════════════════════════════════════════
 # TIER 3 — SOFT REJECTIONS (LOW/MEDIUM/HIGH)
+# Unchanged from v3.2
 # ════════════════════════════════════════════════════════════════════════════════
 
 SOFT_PATTERNS = [
@@ -182,7 +317,6 @@ SOFT_PATTERNS = [
         "confidence": 0.85,
         "explanation": "Hedged rejection seeking shared acknowledgement of difficulty.",
     },
-    # ── Fix 5: ですが variants — trailing が confirms refusal is incoming ──────
     {
         "phrase": "難しい状況ですが",
         "reading": "Muzukashii jōkyō desu ga",
@@ -352,8 +486,8 @@ SOFT_PATTERNS = [
         "confidence": 0.90,
         "explanation": (
             "理解しました = 'I have understood'. This is specifically used to close off the "
-            "Indian rep's assumption that approval was given. High confidence signal that "
-            "no decision has been made."
+            "assumption that approval was given. High confidence signal that no decision "
+            "has been made."
         ),
     },
 ]
@@ -367,7 +501,7 @@ def _find_speaker(phrase: str, transcript: str, case_insensitive: bool = False) 
     """Best-effort: find which speaker line contains this phrase."""
     lines = transcript.split("\n")
     for line in lines:
-        check_line = line.lower() if case_insensitive else line
+        check_line   = line.lower() if case_insensitive else line
         check_phrase = phrase.lower() if case_insensitive else phrase
         if check_phrase in check_line:
             m = re.match(r"^\*?\*?([^:*\[\]【】\n]{1,50}?)\*?\*?\s*[：:]\s*", line.strip())
@@ -376,17 +510,28 @@ def _find_speaker(phrase: str, transcript: str, case_insensitive: bool = False) 
     return "Unknown"
 
 
+def _dedup(signals: list) -> list:
+    """Remove duplicate signals by phrase key."""
+    seen, out = set(), []
+    for s in signals:
+        if s["phrase"] not in seen:
+            seen.add(s["phrase"])
+            out.append(s)
+    return out
+
+
 # ════════════════════════════════════════════════════════════════════════════════
 # MAIN FUNCTION
 # ════════════════════════════════════════════════════════════════════════════════
 
 def detect_soft_rejections(transcript: str) -> dict:
     """
-    Detect termination statements and soft rejections in a JP/EN/mixed transcript.
+    Detect termination, contract risk, and soft rejection signals in a
+    JP/EN/mixed business transcript.
 
-    Risk levels (highest to lowest):
-        CRITICAL  — explicit contract/partnership termination detected
-        HIGH      — multiple strong performance-failure + soft signals
+    Risk levels (highest → lowest):
+        CRITICAL  — explicit termination OR conditional threat + performance failure
+        HIGH      — conditional contract threat OR approval gate OR multiple high signals
         MEDIUM    — moderate soft rejection signals
         LOW       — mild hedging
         MINIMAL   — one or two weak signals
@@ -394,56 +539,45 @@ def detect_soft_rejections(transcript: str) -> dict:
     """
     transcript_lower = transcript.lower()
 
-    # ── TIER 1: Termination check ─────────────────────────────────────────────
+    # ── TIER 1: Explicit termination ──────────────────────────────────────────
     termination_signals = []
 
     for phrase, explanation in EN_TERMINATION_PHRASES:
         if phrase.lower() in transcript_lower:
-            speaker = _find_speaker(phrase, transcript, case_insensitive=True)
             termination_signals.append({
-                "phrase":       phrase,
-                "reading":      phrase,
-                "english":      phrase,
-                "category":     "explicit_termination",
-                "confidence":   0.97,
-                "explanation":  explanation,
-                "speaker":      speaker,
-                "language":     "EN",
+                "phrase":      phrase,
+                "reading":     phrase,
+                "english":     phrase,
+                "category":    "explicit_termination",
+                "confidence":  0.97,
+                "explanation": explanation,
+                "speaker":     _find_speaker(phrase, transcript, case_insensitive=True),
+                "language":    "EN",
                 "is_explicit_termination": True,
             })
 
     for phrase, explanation in JP_TERMINATION_PHRASES:
         if phrase in transcript:
-            speaker = _find_speaker(phrase, transcript, case_insensitive=False)
             termination_signals.append({
-                "phrase":       phrase,
-                "reading":      "",
-                "english":      explanation,
-                "category":     "explicit_termination",
-                "confidence":   0.99,
-                "explanation":  explanation,
-                "speaker":      speaker,
-                "language":     "JP",
+                "phrase":      phrase,
+                "reading":     "",
+                "english":     explanation,
+                "category":    "explicit_termination",
+                "confidence":  0.99,
+                "explanation": explanation,
+                "speaker":     _find_speaker(phrase, transcript, case_insensitive=False),
+                "language":    "JP",
                 "is_explicit_termination": True,
             })
 
+    termination_signals  = _dedup(termination_signals)
     termination_detected = len(termination_signals) > 0
 
-    seen = set()
-    deduped = []
-    for s in termination_signals:
-        key = s["phrase"]
-        if key not in seen:
-            seen.add(key)
-            deduped.append(s)
-    termination_signals = deduped
-
-    # ── TIER 1b: Approval gate check ─────────────────────────────────────────
+    # ── TIER 1b: Approval gate ────────────────────────────────────────────────
     approval_gate_signals = []
 
     for phrase, explanation in EN_APPROVAL_GATE_PHRASES:
         if phrase.lower() in transcript_lower:
-            speaker = _find_speaker(phrase, transcript, case_insensitive=True)
             approval_gate_signals.append({
                 "phrase":      phrase,
                 "reading":     phrase,
@@ -451,13 +585,12 @@ def detect_soft_rejections(transcript: str) -> dict:
                 "category":    "approval_gate",
                 "confidence":  0.93,
                 "explanation": explanation,
-                "speaker":     speaker,
+                "speaker":     _find_speaker(phrase, transcript, case_insensitive=True),
                 "language":    "EN",
             })
 
     for phrase, explanation in JP_APPROVAL_GATE_PHRASES:
         if phrase in transcript:
-            speaker = _find_speaker(phrase, transcript, case_insensitive=False)
             approval_gate_signals.append({
                 "phrase":      phrase,
                 "reading":     "",
@@ -465,44 +598,70 @@ def detect_soft_rejections(transcript: str) -> dict:
                 "category":    "approval_gate",
                 "confidence":  0.95,
                 "explanation": explanation,
-                "speaker":     speaker,
+                "speaker":     _find_speaker(phrase, transcript, case_insensitive=False),
                 "language":    "JP",
             })
 
-    seen_ag = set()
-    deduped_ag = []
-    for s in approval_gate_signals:
-        if s["phrase"] not in seen_ag:
-            seen_ag.add(s["phrase"])
-            deduped_ag.append(s)
-    approval_gate_signals = deduped_ag
+    approval_gate_signals  = _dedup(approval_gate_signals)
     approval_gate_detected = len(approval_gate_signals) > 0
 
-    # ── TIER 2: Performance failure ───────────────────────────────────────────
+    # ── TIER 1c: Contract risk — C1/C2 FIX ───────────────────────────────────
+    contract_risk_signals = []
+
+    for phrase, explanation in EN_CONTRACT_RISK_PHRASES:
+        if phrase.lower() in transcript_lower:
+            contract_risk_signals.append({
+                "phrase":      phrase,
+                "reading":     phrase,
+                "english":     explanation,
+                "category":    "contract_risk",
+                "confidence":  0.92,
+                "explanation": explanation,
+                "speaker":     _find_speaker(phrase, transcript, case_insensitive=True),
+                "language":    "EN",
+                "is_contract_risk": True,
+            })
+
+    for phrase, explanation in JP_CONTRACT_RISK_PHRASES:
+        if phrase in transcript:
+            contract_risk_signals.append({
+                "phrase":      phrase,
+                "reading":     "",
+                "english":     explanation,
+                "category":    "contract_risk",
+                "confidence":  0.94,
+                "explanation": explanation,
+                "speaker":     _find_speaker(phrase, transcript, case_insensitive=False),
+                "language":    "JP",
+                "is_contract_risk": True,
+            })
+
+    contract_risk_signals  = _dedup(contract_risk_signals)
+    contract_risk_detected = len(contract_risk_signals) > 0
+
+    # ── TIER 2: Performance failure + deadline ultimatums ─────────────────────
     high_signals = []
 
     for phrase, explanation in EN_HIGH_PHRASES:
         if phrase.lower() in transcript_lower:
-            speaker = _find_speaker(phrase, transcript, case_insensitive=True)
             high_signals.append({
                 "phrase":      phrase,
                 "reading":     phrase,
                 "english":     phrase,
                 "confidence":  0.88,
                 "explanation": explanation,
-                "speaker":     speaker,
+                "speaker":     _find_speaker(phrase, transcript, case_insensitive=True),
             })
 
     for phrase, explanation in JP_HIGH_PHRASES:
         if phrase in transcript:
-            speaker = _find_speaker(phrase, transcript, case_insensitive=False)
             high_signals.append({
                 "phrase":      phrase,
                 "reading":     "",
                 "english":     explanation,
                 "confidence":  0.88,
                 "explanation": explanation,
-                "speaker":     speaker,
+                "speaker":     _find_speaker(phrase, transcript, case_insensitive=False),
             })
 
     # ── TIER 3: Soft rejection patterns ──────────────────────────────────────
@@ -511,22 +670,33 @@ def detect_soft_rejections(transcript: str) -> dict:
 
     for pattern in SOFT_PATTERNS:
         phrase = pattern["phrase"]
-        found = (phrase.lower() in transcript_lower) if re.search(r'[a-zA-Z]', phrase) else (phrase in transcript)
+        found  = (
+            phrase.lower() in transcript_lower
+            if re.search(r"[a-zA-Z]", phrase)
+            else phrase in transcript
+        )
         if not found:
             continue
-        speaker = _find_speaker(phrase, transcript, case_insensitive=True)
-        signal = {**pattern, "speaker": speaker}
-        conf = pattern.get("confidence", 0.5)
-        if conf >= 0.80:
+        signal = {**pattern, "speaker": _find_speaker(phrase, transcript, case_insensitive=True)}
+        if pattern.get("confidence", 0.5) >= 0.80:
             medium_signals.append(signal)
         else:
             low_signals.append(signal)
 
-    total_signals = len(high_signals) + len(medium_signals) + len(low_signals)
+    total_signals = (
+        len(termination_signals) + len(approval_gate_signals) +
+        len(contract_risk_signals) + len(high_signals) +
+        len(medium_signals) + len(low_signals)
+    )
 
-    # ── Risk level ─────────────────────────────────────────────────────────────
+    # ── C5 FIX: Risk level — contract risk tier integrated ────────────────────
     if termination_detected:
         risk_level = "CRITICAL"
+    elif contract_risk_detected and len(high_signals) >= 1:
+        # Conditional threat + evidence of performance failure = imminent termination
+        risk_level = "CRITICAL"
+    elif contract_risk_detected:
+        risk_level = "HIGH"
     elif approval_gate_detected:
         if len(high_signals) >= 3:
             risk_level = "CRITICAL"
@@ -543,27 +713,42 @@ def detect_soft_rejections(transcript: str) -> dict:
     else:
         risk_level = "NONE"
 
-    # ── Cultural note ──────────────────────────────────────────────────────────
+    # ── C6 FIX: Cultural note for contract risk ───────────────────────────────
     if termination_detected:
         cultural_note = (
-            "⚠ Explicit contract/partnership termination detected — this is NOT a soft "
-            "rejection or negotiable refusal. The decision is irrevocable. In Japanese "
-            "business culture, this language is only used AFTER internal ringi-sho "
-            "(稟議書) approval has been finalized. The polite keigo delivery is cultural "
-            "courtesy, not a signal of openness to reconsideration. One follow-up "
-            "request (再検討していただけますか) is culturally acceptable; repeating it "
-            "would be considered disrespectful to the decision's finality."
+            "EXPLICIT TERMINATION DETECTED — this is NOT a soft rejection or "
+            "negotiable refusal. The decision is irrevocable. In Japanese business "
+            "culture, this language is only used AFTER internal ringi-sho (稟議書) "
+            "approval has been finalized. The polite keigo delivery is cultural courtesy, "
+            "not a signal of openness to reconsideration. One follow-up request is "
+            "culturally acceptable; repeating it would be considered disrespectful."
+        )
+    elif contract_risk_detected and len(high_signals) >= 1:
+        cultural_note = (
+            "CONTRACT AT CRITICAL RISK — conditional termination threat combined with "
+            "performance failure signals detected. This pattern means the client has "
+            "already begun internal discussions about ending the relationship. In Japanese "
+            "business culture, stating 'the contract would be reconsidered' is not "
+            "rhetorical — it means a senior decision-maker has endorsed this position. "
+            "Immediate written response and resolution before the stated deadline is "
+            "non-negotiable. Failure to respond in writing will be treated as acceptance "
+            "of termination."
+        )
+    elif contract_risk_detected:
+        cultural_note = (
+            "CONTRACT AT RISK — conditional reconsideration or unacceptability signals "
+            "detected. The client is formally warning that the relationship is in "
+            "jeopardy. In Japanese business context, this phrasing is used only when "
+            "the speaker has internal backing for the position. Treat as HIGH priority "
+            "escalation — provide written commitment and resolution timeline immediately."
         )
     elif approval_gate_detected:
         cultural_note = (
-            "⏳ Approval gate detected — apparent agreement in this meeting does NOT "
-            "constitute final approval. In Japanese organizations, technical departments "
-            "can only approve solutions within their domain. Commercial contracts, pricing, "
-            "and legal terms require separate approval through procurement (調達部) or an "
-            "executive/purchasing committee (購買委員会). The ringi-sho (稟議書) process "
-            "means decisions flow through multiple departments before reaching final "
-            "authority. Do not begin work, resource allocation, or client announcements "
-            "until written confirmation from the authorizing committee is received."
+            "APPROVAL GATE DETECTED — apparent agreement in this meeting does NOT "
+            "constitute final approval. Commercial contracts require separate approval "
+            "through procurement or an executive/purchasing committee. Do not begin "
+            "work or resource allocation until written confirmation from the authorizing "
+            "committee is received."
         )
     elif risk_level == "HIGH":
         cultural_note = (
@@ -582,22 +767,25 @@ def detect_soft_rejections(transcript: str) -> dict:
         cultural_note = "No significant rejection signals detected in this transcript."
 
     return {
-        "risk_level":              risk_level,
-        "total_signals":           total_signals + len(termination_signals) + len(approval_gate_signals),
-        "high_signals":            high_signals,
-        "medium_signals":          medium_signals,
-        "low_signals":             low_signals,
-        "termination_detected":    termination_detected,
-        "termination_signals":     termination_signals,
-        "approval_gate_detected":  approval_gate_detected,
-        "approval_gate_signals":   approval_gate_signals,
-        "cultural_note":           cultural_note,
+        "risk_level":               risk_level,
+        "total_signals":            total_signals,
+        "termination_detected":     termination_detected,
+        "termination_signals":      termination_signals,
+        "approval_gate_detected":   approval_gate_detected,
+        "approval_gate_signals":    approval_gate_signals,
+        "contract_risk_detected":   contract_risk_detected,   # C1 FIX: new field
+        "contract_risk_signals":    contract_risk_signals,    # C1 FIX: new field
+        "high_signals":             high_signals,
+        "medium_signals":           medium_signals,
+        "low_signals":              low_signals,
+        "cultural_note":            cultural_note,
+        "risk_summary":             cultural_note,
         "detected": (
-            [{**s, "severity": "HIGH"}   for s in termination_signals] +
-            [{**s, "severity": "HIGH"}   for s in approval_gate_signals] +
-            [{**s, "severity": "HIGH"}   for s in high_signals] +
-            [{**s, "severity": "MEDIUM"} for s in medium_signals] +
-            [{**s, "severity": "LOW"}    for s in low_signals]
+            [{**s, "severity": "CRITICAL"} for s in termination_signals] +
+            [{**s, "severity": "CRITICAL"} for s in contract_risk_signals] +
+            [{**s, "severity": "HIGH"}     for s in approval_gate_signals] +
+            [{**s, "severity": "HIGH"}     for s in high_signals] +
+            [{**s, "severity": "MEDIUM"}   for s in medium_signals] +
+            [{**s, "severity": "LOW"}      for s in low_signals]
         ),
-        "risk_summary": cultural_note,
     }
