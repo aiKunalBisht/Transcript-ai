@@ -1,449 +1,321 @@
-"""
-agents/slide_architect.py — v2
-Converts TranscriptAI analysis result into a validated slide plan.
+# agents/slide_architect.py
+# Transforms a TranscriptAI analysis result into an ordered slide plan.
+#
+# No LLM call required for standard operation.
+# groq_api_key accepted for a future polish pass (slide text summarisation).
+#
+# ── Data structure ────────────────────────────────────────────────────────────
+# SlidePlan (dict):
+#   meeting_title : str
+#   language      : str          — "en" | "ja" | "hi" | "mixed"
+#   generated_at  : str          — ISO-8601 UTC
+#   slides        : list[SlideDefinition]
+#
+# SlideDefinition — fields depend on type:
+#   cover        : title, subtitle, date, language
+#   overview     : title, bullets[str], full_summary
+#   action_items : title, items[{task,owner,deadline,urgency_tier,flagged}]
+#   speakers     : title, speakers[{name,pct,tone,role}]
+#   sentiment    : title, entries[{speaker,score,note}]
+#   risk         : title, risk_level, total_signals, signals[], cultural_note, termination
+#   closing      : title, takeaways[str]
+#
+# ── Algorithm ─────────────────────────────────────────────────────────────────
+# O(N) — single pass over each list field (action_items, speakers, sentiment).
+# ─────────────────────────────────────────────────────────────────────────────
 
-v2 CHANGE OF APPROACH vs v1:
-v1 asked the LLM to look at the whole analysis_result and freestyle a slide
-deck. That meant the most sensitive content in the deck — "what did the
-Japanese side actually mean" and "what should we be worried about" — was
-left to the model to paraphrase or invent, with no grounding in the
-detectors that were specifically built and calibrated to answer those two
-questions (soft_rejection_detector.py, conversation_dynamics.py).
+from __future__ import annotations
 
-v2 splits the deck into:
-  - DETERMINISTIC slides (said_vs_meant, risk_watch) — built directly from
-    soft_rejections / conversation_dynamics output in this file, zero LLM
-    involvement. These are the slides someone will actually be held to, so
-    they're exactly as trustworthy as the detectors that produced their
-    inputs — no more, no less.
-  - NARRATIVE slides (bottom_line, decisions/commitments, next_steps) —
-    still LLM-written, because turning "what happened" into "what we tell
-    the room" genuinely benefits from synthesis. The LLM is given the
-    deterministic facts as its only inputs and told not to invent beyond
-    them.
-  - The cover slide is assembled from both: title/context from the LLM,
-    status_flag computed deterministically from the same detectors that
-    drive the risk slide, so the headline badge can never disagree with
-    the risk slide underneath it.
-
-A slide is only included if it has something to say. A clean, direct
-meeting with no soft-rejection signals and no conversation_dynamics flags
-produces a 4-slide deck (cover, bottom line, decisions, next steps) — not
-a padded deck with an empty "Risks" slide for show.
-"""
-import os, json, requests
-from dotenv import load_dotenv
-import pathlib
-load_dotenv(dotenv_path=pathlib.Path(__file__).resolve().parent.parent / ".env")
-
-from pydantic import BaseModel, Field
-from typing import List, Optional
-
-
-# ── Slide content models ──────────────────────────────────────────────────────
-
-class SaidVsMeantItem(BaseModel):
-    speaker:  str = "Unknown"
-    said:     str                 # the original phrase (often Japanese)
-    reading:  str = ""            # plain-language reading of that phrase
-    meant:    str                 # what it actually signals — from the detector
-    severity: str = "MEDIUM"      # HIGH | MEDIUM | LOW
-
-
-class CommitmentItem(BaseModel):
-    side:     str = "Unclear"     # "Japan side" | "Our team" | "Joint" | "Unclear"
-    text:     str = ""
-    owner:    str = ""
-    deadline: str = ""
-
-
-class WatchItem(BaseModel):
-    flag:     str = ""
-    detail:   str = ""
-    severity: str = "MEDIUM"      # HIGH | MEDIUM | LOW
-
-
-class Slide(BaseModel):
-    slide_number: int
-    slide_type: str = "content"   # cover|bottom_line|said_vs_meant|decisions|risk_watch|closing
-    title: str
-    bullets: List[str] = Field(default_factory=list)
-    said_vs_meant: List[SaidVsMeantItem] = Field(default_factory=list)
-    commitments: List[CommitmentItem] = Field(default_factory=list)
-    watch_items: List[WatchItem] = Field(default_factory=list)
-    speaker_notes: str = ""
-    language: str = "en"
-    estimated_duration_seconds: int = 60
-
-
-class PresentationPlan(BaseModel):
-    meeting_title: str
-    status_flag: str = "ON_TRACK"   # ON_TRACK | WATCH | ESCALATE
-    meeting_context: str = ""
-    total_slides: int
-    language: str
-    executive_summary: str
-    slides: List[Slide]
-
-
-class _NarrativePlan(BaseModel):
-    """The narrow slice of the deck the LLM is actually responsible for."""
-    meeting_title: str = "Meeting Summary"
-    meeting_context: str = ""
-    executive_summary: str = "Meeting analysis complete."
-    bottom_line_bullets: List[str] = Field(default_factory=list)
-    commitments: List[CommitmentItem] = Field(default_factory=list)
-    next_steps_bullets: List[str] = Field(default_factory=list)
-
-
-def _filter_bullets(bullets: list, min_words: int = 4, fallback: str = None) -> list:
-    """Drops vague fragments ('Fix Needed', 'On Track') the same way v1 did —
-    kept as a safety net even though the prompt already asks for full sentences."""
-    filtered = [b for b in bullets if isinstance(b, str) and b.strip() and len(b.split()) >= min_words]
-    if filtered:
-        return filtered
-    return [fallback] if fallback else []
+import re
+from datetime import datetime, timezone
+from typing import Optional
 
 
 class SlideArchitectAgent:
-    def __init__(self, groq_api_key: str):
-        self.api_key = groq_api_key
-        self.model   = "llama-3.3-70b-versatile"
+    """
+    Plans a slide deck from an analysis result dict.
 
-    def _call_groq(self, prompt: str) -> dict:
-        resp = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "model": self.model,
-                "temperature": 0.2,
-                "max_tokens": 1800,
-                "response_format": {"type": "json_object"},
-                "messages": [{"role": "user", "content": prompt}],
-            },
-            timeout=30,
-        )
-        resp.raise_for_status()
-        return json.loads(resp.json()["choices"][0]["message"]["content"])
+    Accepts groq_api_key for a future LLM enhancement pass;
+    currently not consumed — rule-based mapping only.
+    """
 
-    # ── Deterministic slide builders — no LLM, built straight from detector output ──
+    _MAX_BULLETS      = 6
+    _MAX_ACTION_ITEMS = 7   # 7 data rows + 1 header row ≤ slide height
+    _MAX_SPEAKERS     = 8
+    _MAX_SENTIMENT    = 6   # 2 rows of 3 cards
 
-    @staticmethod
-    def _infer_japan_side_speakers(soft_rejections: dict) -> set:
+    def __init__(self, groq_api_key: Optional[str] = None):
+        self._groq_api_key = groq_api_key   # reserved
+
+    # ── Public API ─────────────────────────────────────────────────────────────
+
+    def plan(self, result: dict, lang: str = "en") -> dict:
         """
-        Heuristic, not certainty: soft_rejection_detector only matches Japanese
-        phrases, so any speaker it attributes a signal to is almost certainly
-        the Japan-side party in the room. This is a v1 heuristic in the same
-        spirit as conversation_dynamics.py's — useful as a default label, not
-        proof of nationality. Returns an empty set (not a guess) when nothing
-        was detected, and the narrative prompt is told explicitly to fall back
-        to per-speaker labeling rather than invent a side in that case.
+        Transform analysis result → ordered slide definitions.
+
+        Slide order:
+          1. Cover        (always)
+          2. Overview     (when summary bullets exist)
+          3. Action Items (when action_items is non-empty)
+          4. Speakers     (when speakers is non-empty)
+          5. Sentiment    (when sentiment is non-empty)
+          6. Risk         (only when risk_level is HIGH, CRITICAL, or MEDIUM)
+          7. Closing      (always)
+
+        DSA: O(N) — N = max(action_items, speakers, sentiment) items
         """
-        names = set()
-        for sig in (soft_rejections or {}).get("detected", []):
-            spk = sig.get("speaker")
-            if spk and spk != "Unknown":
-                names.add(spk)
-        return names
+        slides: list[dict] = []
 
-    @staticmethod
-    def _severity_rank(sev: str) -> int:
-        return {"HIGH": 3, "MEDIUM": 2, "LOW": 1}.get((sev or "").upper(), 0)
+        # 1. Cover ─────────────────────────────────────────────────────────────
+        title    = (result.get("meeting_title") or "Meeting Analysis").strip()
+        subtitle = self._build_subtitle(result, lang)
+        slides.append({
+            "type":     "cover",
+            "title":    title,
+            "subtitle": subtitle,
+            "date":     datetime.now(timezone.utc).strftime("%B %d, %Y"),
+            "language": lang,
+        })
 
-    def _build_said_vs_meant_slide(self, analysis_result: dict, slide_number: int) -> Optional[Slide]:
-        soft = analysis_result.get("soft_rejections", {}) or {}
-        detected = soft.get("detected", [])
-        if not detected:
-            return None
+        # 2. Overview ──────────────────────────────────────────────────────────
+        bullets = self._extract_bullets(result)
+        if bullets:
+            slides.append({
+                "type":         "overview",
+                "title":        "Meeting Overview",
+                "bullets":      bullets[: self._MAX_BULLETS],
+                "full_summary": (result.get("full_summary") or "").strip(),
+            })
 
-        ranked = sorted(
-            detected,
-            key=lambda s: (self._severity_rank(s.get("severity", "")), s.get("confidence", 0)),
-            reverse=True,
+        # 3. Action Items ──────────────────────────────────────────────────────
+        raw_items = result.get("action_items") or []
+        if raw_items:
+            action_items = [
+                {
+                    # Prefer clean description (Task-1 field) over raw task text
+                    "task":         (i.get("description") or i.get("task") or "").strip(),
+                    "owner":        (i.get("owner") or "TBD").strip(),
+                    "deadline":     (i.get("deadline") or "N/A").strip(),
+                    "urgency_tier": i.get("urgency_tier") or "unknown",
+                    "flagged":      bool(i.get("hallucination_flag")),
+                }
+                for i in raw_items[: self._MAX_ACTION_ITEMS]
+                if i.get("task") or i.get("description")
+            ]
+            if action_items:
+                slides.append({
+                    "type":  "action_items",
+                    "title": "Action Items",
+                    "items": action_items,
+                })
+
+        # 4. Speakers ──────────────────────────────────────────────────────────
+        speakers = result.get("speakers") or []
+        if speakers:
+            slides.append({
+                "type":     "speakers",
+                "title":    "Speaker Breakdown",
+                "speakers": [
+                    {
+                        "name": (s.get("name") or "Unknown").strip(),
+                        "pct":  int(s.get("talk_time_pct") or 0),
+                        "tone": (s.get("tone") or "").strip(),
+                        "role": (s.get("role") or "").strip(),
+                    }
+                    for s in speakers[: self._MAX_SPEAKERS]
+                ],
+            })
+
+        # 5. Sentiment ─────────────────────────────────────────────────────────
+        sentiment = result.get("sentiment") or []
+        if sentiment:
+            slides.append({
+                "type":    "sentiment",
+                "title":   "Communication Sentiment",
+                "entries": [
+                    {
+                        "speaker": (s.get("speaker") or "Unknown").strip(),
+                        "score":   (s.get("score") or "neutral").upper().strip(),
+                        "note": (
+                            s.get("note") or
+                            s.get("communicative_function") or
+                            ""
+                        ).strip(),
+                    }
+                    for s in sentiment[: self._MAX_SENTIMENT]
+                ],
+            })
+
+        # 6. Risk (only when meaningful) ───────────────────────────────────────
+        soft_rej   = result.get("soft_rejections") or {}
+        risk_level = (soft_rej.get("risk_level") or "NONE").upper()
+        if risk_level in ("HIGH", "CRITICAL", "MEDIUM"):
+            slides.append({
+                "type":          "risk",
+                "title":         "Soft Rejection & Trust Risk",
+                "risk_level":    risk_level,
+                "total_signals": int(soft_rej.get("total_signals") or 0),
+                "signals":       (soft_rej.get("signals") or [])[:5],
+                "cultural_note": (soft_rej.get("cultural_note") or "").strip(),
+                "termination":   bool(soft_rej.get("termination_detected")),
+            })
+
+        # 7. Closing ───────────────────────────────────────────────────────────
+        slides.append({
+            "type":      "closing",
+            "title":     "Key Takeaways",
+            "takeaways": self._extract_takeaways(result, bullets, soft_rej),
+        })
+
+        return {
+            "meeting_title": title,
+            "language":      lang,
+            "generated_at":  datetime.now(timezone.utc).isoformat(),
+            "slides":        slides,
+        }
+
+    # ── Private helpers ────────────────────────────────────────────────────────
+
+    def _build_subtitle(self, result: dict, lang: str) -> str:
+        lang_labels = {
+            "ja":    "Japanese Business Meeting · 日本語",
+            "en":    "English Meeting Analysis",
+            "hi":    "Hindi Meeting Analysis · हिंदी",
+            "mixed": "Multilingual Meeting Analysis",
+        }
+        base    = lang_labels.get(lang, "Meeting Analysis")
+        verdict = (
+            result.get("deal_outcome") or
+            result.get("meeting_outcome") or
+            result.get("verdict")
         )
-        items = [
-            SaidVsMeantItem(
-                speaker=sig.get("speaker", "Unknown"),
-                said=sig.get("phrase", ""),
-                reading=sig.get("reading", ""),
-                meant=sig.get("explanation", ""),
-                severity=(sig.get("severity") or "MEDIUM").upper(),
-            )
-            for sig in ranked[:4]
-        ]
-        bullets = [f'{i.speaker} said "{i.reading}" — reads as: {i.meant}' for i in items[:3]]
+        if verdict:
+            return f"{base}  ·  {verdict}"
+        return base
 
-        return Slide(
-            slide_number=slide_number,
-            slide_type="said_vs_meant",
-            title="What They Said vs. What It Meant",
-            bullets=bullets,
-            said_vs_meant=items,
-            speaker_notes=(
-                "These are the indirect phrases used in the meeting and what they "
-                "actually signal in Japanese business communication — this is a "
-                "read on intent, not a literal translation."
-            ),
-            estimated_duration_seconds=90,
-        )
+    def _extract_bullets(self, result: dict) -> list[str]:
+        """
+        Pull summary bullets from result.
+        Prefers result["summary"] (list) over result["full_summary"] (str).
+        O(N) where N = number of summary items.
+        """
+        summary = result.get("summary") or []
 
-    def _build_risk_watch_slide(self, analysis_result: dict, slide_number: int) -> Optional[Slide]:
-        soft     = analysis_result.get("soft_rejections", {}) or {}
-        dynamics = analysis_result.get("conversation_dynamics", {}) or {}
-        watch_items: List[WatchItem] = []
+        if isinstance(summary, list):
+            cleaned = []
+            for b in summary:
+                text = str(b).strip().lstrip("•-– ").strip()
+                if text:
+                    cleaned.append(text)
+            return cleaned
 
-        risk_level = (soft.get("risk_level") or "NONE").upper()
-        if risk_level not in ("NONE", "MINIMAL"):
-            watch_items.append(WatchItem(
-                flag=f"Soft rejection risk: {risk_level}",
-                detail=soft.get("risk_summary", ""),
-                severity="HIGH" if risk_level == "HIGH" else "MEDIUM",
-            ))
+        if isinstance(summary, str) and summary.strip():
+            return [
+                line.strip().lstrip("•-– ").strip()
+                for line in summary.splitlines()
+                if line.strip()
+            ]
 
-        for stall in dynamics.get("topic_stalls", []):
-            watch_items.append(WatchItem(
-                flag=f"Topic stalled — {stall.get('stalled_speaker', 'unknown speaker')}",
-                detail=stall.get("explanation", ""),
-                severity="MEDIUM",
-            ))
+        # Fallback: sentence-split full_summary
+        full = (result.get("full_summary") or "").strip()
+        if full:
+            sentences = re.split(r"(?<=[.。!?])\s+", full)
+            return [s.strip() for s in sentences[:6] if len(s.strip()) > 10]
 
-        for pivot in dynamics.get("senior_silence_pivots", []):
-            watch_items.append(WatchItem(
-                flag=f"{pivot.get('senior_speaker', 'A senior speaker')} went quiet",
-                detail=pivot.get("explanation", ""),
-                severity="MEDIUM",
-            ))
+        return []
 
-        closer = dynamics.get("closing_summarizer", {}) or {}
-        if closer.get("detected"):
-            watch_items.append(WatchItem(
-                flag=f"{closer.get('speaker', 'A quiet speaker')} controlled the close",
-                detail=closer.get("explanation", ""),
-                severity="LOW",
-            ))
+    def _extract_takeaways(
+        self,
+        result: dict,
+        bullets: list[str],
+        soft_rej: dict,
+    ) -> list[str]:
+        """
+        Build closing takeaways:
+          - last 2 summary bullets (the most conclusive points)
+          - action item owner list
+          - risk signal if present
+        O(N) where N = number of action items.
+        """
+        takeaways: list[str] = []
 
-        if not watch_items:
-            return None  # nothing to flag — no slide, rather than an empty one for show
+        if bullets:
+            takeaways.extend(bullets[-2:])
 
-        # Highest severity first
-        watch_items.sort(key=lambda w: self._severity_rank(w.severity), reverse=True)
-        bullets = [f"{w.flag}: {w.detail}" for w in watch_items[:4]]
-
-        return Slide(
-            slide_number=slide_number,
-            slide_type="risk_watch",
-            title="Risk & Watch Items",
-            bullets=bullets,
-            watch_items=watch_items[:4],
-            speaker_notes=(
-                "These are language and structural signals worth a deliberate "
-                "follow-up — not necessarily a crisis, but not nothing either."
-            ),
-            estimated_duration_seconds=75,
-        )
-
-    @staticmethod
-    def _compute_status_flag(analysis_result: dict) -> str:
-        soft     = analysis_result.get("soft_rejections", {}) or {}
-        risk     = (soft.get("risk_level") or "NONE").upper()
-        dynamics = analysis_result.get("conversation_dynamics", {}) or {}
-        dyn_events = (
-            len(dynamics.get("topic_stalls", []))
-            + len(dynamics.get("senior_silence_pivots", []))
-        )
-        if risk == "HIGH":
-            return "ESCALATE"
-        if risk == "MEDIUM" or dyn_events >= 2:
-            return "WATCH"
-        if risk == "LOW" or dyn_events >= 1:
-            return "WATCH"
-        return "ON_TRACK"
-
-    # ── Narrative prompt (the only part still written by the LLM) ────────────
-
-    def _build_narrative_prompt(self, summary, action_details, decisions,
-                                 sentiment_summary, speaker_names, japan_side,
-                                 status_flag, language) -> str:
-        japan_side_note = (
-            f"Speakers identified as the Japan-side party, based on language "
-            f"patterns in their lines: {', '.join(sorted(japan_side))}."
-            if japan_side else
-            "Could not confidently identify which speaker(s) are on the Japan "
-            "side from language patterns. Do not guess nationality — label "
-            "commitments by speaker name, or as 'Unclear', instead."
-        )
-
-        return f"""You are briefing a room of Indian colleagues who were NOT in this meeting. Only 2-3 of their colleagues were actually in the room with the Japanese client or HQ contact, speaking mostly in Japanese. Your job is to translate this into a business briefing the rest of the team can act on.
-
-MEETING SUMMARY:
-{summary}
-
-ALL SPEAKERS DETECTED: {', '.join(speaker_names) if speaker_names else 'Not detected'}
-{japan_side_note}
-
-ACTION ITEMS (owner, deadline):
-{json.dumps(action_details)}
-
-KEY DECISIONS:
-{json.dumps(decisions)}
-
-SPEAKER SENTIMENT:
-{json.dumps(sentiment_summary)}
-
-OVERALL STATUS (already computed from language-risk and conversation-pattern detectors — do not contradict this, and do not soften or dramatize it): {status_flag}
-
-Write the following. Every bullet must be a COMPLETE, INFORMATIVE SENTENCE a presenter could read aloud — never a fragment like "Budget discussed" or "On track". Use real names and dates from the data above; never write a placeholder like "[Name]". Do not invent any decision, commitment, or outcome that isn't present in the data above.
-
-1. meeting_title: under 8 words, specific to this meeting's actual subject — not "Team Meeting" or "Client Sync".
-2. meeting_context: ONE sentence describing who was in the room and why this meeting mattered, for someone who wasn't there.
-3. executive_summary: ONE sentence on what happened and where things stand. Must be consistent with OVERALL STATUS — don't sound upbeat if status is ESCALATE, don't sound alarming if status is ON_TRACK.
-4. bottom_line_bullets: 2-4 sentences covering what was discussed and the real takeaway.
-5. commitments: a list of {{"side": "Japan side" | "Our team" | "Joint" | "Unclear", "text": "complete sentence describing the commitment", "owner": "name or empty string", "deadline": "date or empty string"}}, based only on the key decisions and action items given above.
-6. next_steps_bullets: 3-5 sentences framed as "what we do in response" — not a restated task list — each naming an owner where known.
-
-Return ONLY this exact JSON structure, no explanation, no markdown:
-{{
-  "meeting_title": "...",
-  "meeting_context": "...",
-  "executive_summary": "...",
-  "bottom_line_bullets": ["...", "..."],
-  "commitments": [{{"side": "...", "text": "...", "owner": "...", "deadline": "..."}}],
-  "next_steps_bullets": ["...", "..."]
-}}"""
-
-    def _fallback_narrative(self, summary, summary_bullets, action_details,
-                             decisions, japan_side) -> _NarrativePlan:
-        """Used only if the Groq call fails — built from the same real data,
-        no vague filler, honest 'none recorded' notes where data is missing."""
-        bottom_line = summary_bullets[:3] if summary_bullets else (
-            [summary[:140]] if summary else ["Meeting analysis is complete."]
-        )
-        commitments = [CommitmentItem(side="Unclear", text=f"Decided: {d}") for d in decisions[:4]]
-        if not commitments:
-            commitments = [CommitmentItem(side="Unclear", text="No formal decisions were recorded in this transcript.")]
-        next_steps = action_details[:5] if action_details else [
-            "No specific action items were identified for this meeting."
-        ]
-        exec_summary = (summary or "").strip()
-        if len(exec_summary) > 150:
-            cutoff = exec_summary.rfind(" ", 0, 150)
-            exec_summary = exec_summary[:cutoff if cutoff > 0 else 150] + "…"
-        if not exec_summary:
-            exec_summary = "Meeting analysis complete."
-        context = (
-            f"Discussion involving {', '.join(sorted(japan_side))} on the Japan side."
-            if japan_side else "Meeting context could not be automatically determined."
-        )
-        return _NarrativePlan(
-            meeting_title="Meeting Summary",
-            meeting_context=context,
-            executive_summary=exec_summary,
-            bottom_line_bullets=bottom_line,
-            commitments=commitments,
-            next_steps_bullets=next_steps,
-        )
-
-    # ── Public API ─────────────────────────────────────────────────────────
-
-    def plan(self, analysis_result: dict, language: str = "en") -> PresentationPlan:
-        summary_bullets = analysis_result.get("summary", []) or []
-        summary = analysis_result.get("full_summary") or ""
-        if not summary:
-            summary = " ".join(summary_bullets) if summary_bullets else "Meeting completed."
-
-        action_items = analysis_result.get("action_items", [])
-        decisions    = analysis_result.get("key_decisions", [])
-        sentiment    = analysis_result.get("sentiment", [])
-        speakers     = analysis_result.get("speakers", [])
-        soft         = analysis_result.get("soft_rejections", {}) or {}
-
-        speaker_names = [s.get("name", "") for s in speakers if s.get("name")]
-        japan_side    = self._infer_japan_side_speakers(soft)
-        status_flag   = self._compute_status_flag(analysis_result)
-
-        said_vs_meant_slide = self._build_said_vs_meant_slide(analysis_result, slide_number=0)
-        risk_watch_slide    = self._build_risk_watch_slide(analysis_result, slide_number=0)
-
-        action_details = []
-        for item in action_items:
-            task  = item.get("task", "")
-            owner = item.get("owner", "TBD")
-            due   = item.get("deadline", "TBD")
-            if task:
-                action_details.append(f"{task} (Owner: {owner}, Due: {due})")
-
-        sentiment_summary = [
-            f"{s.get('speaker', '?')}: {s.get('score', 'neutral')} — {s.get('label', '')}"
-            for s in sentiment
-        ]
-
-        try:
-            prompt = self._build_narrative_prompt(
-                summary, action_details, decisions, sentiment_summary,
-                speaker_names, japan_side, status_flag, language,
-            )
-            raw = self._call_groq(prompt)
-            narrative = _NarrativePlan(**raw)
-        except Exception:
-            narrative = self._fallback_narrative(
-                summary, summary_bullets, action_details, decisions, japan_side
+        items = result.get("action_items") or []
+        owners = sorted({
+            i.get("owner") for i in items
+            if i.get("owner") and i.get("owner") not in ("TBD", "Unknown", "")
+        })
+        if owners:
+            takeaways.append(
+                f"Action items assigned to: {', '.join(owners)}"
             )
 
-        bottom_line_bullets = _filter_bullets(narrative.bottom_line_bullets, fallback=summary[:140] or "Meeting analysis is complete.")
-        next_steps_bullets  = _filter_bullets(
-            narrative.next_steps_bullets,
-            fallback=(action_details[0] if action_details else "No specific action items were identified for this meeting."),
-        )
-        commitments = [c for c in narrative.commitments if c.text.strip()] or [
-            CommitmentItem(side="Unclear", text="No formal decisions were recorded in this transcript.")
-        ]
+        risk_level = (soft_rej.get("risk_level") or "NONE").upper()
+        if risk_level not in ("NONE", "MINIMAL", ""):
+            n = soft_rej.get("total_signals", 0)
+            takeaways.append(
+                f"Risk level: {risk_level} — {n} signal{'s' if n != 1 else ''} detected"
+            )
 
-        slides: List[Slide] = []
-        n = 1
+        return takeaways or ["Review the full analysis for detailed insights."]
 
-        slides.append(Slide(
-            slide_number=n, slide_type="cover", title=narrative.meeting_title,
-            speaker_notes=narrative.meeting_context, language=language,
-            estimated_duration_seconds=30,
-        )); n += 1
 
-        slides.append(Slide(
-            slide_number=n, slide_type="bottom_line", title="Bottom Line",
-            bullets=bottom_line_bullets, speaker_notes=narrative.executive_summary,
-            language=language, estimated_duration_seconds=60,
-        )); n += 1
+# ── Self-test ─────────────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    import json
 
-        if said_vs_meant_slide:
-            said_vs_meant_slide.slide_number = n
-            slides.append(said_vs_meant_slide); n += 1
+    mock_result = {
+        "meeting_title": "Q3 Budget Review — Acme Corp",
+        "full_summary":  "The team reviewed Q3 budget overruns. Action items were assigned.",
+        "summary": [
+            "Q3 budget exceeded by 12% due to engineering hires.",
+            "Client raised concerns about delivery timeline.",
+            "Next review scheduled for end of quarter.",
+        ],
+        "action_items": [
+            {"task": "Send revised budget report", "description": "Send revised budget report",
+             "owner": "Alice", "deadline": "by Friday", "urgency_tier": "this_week"},
+            {"task": "上司に相談して書面でご回答します", "description": "上司に相談して書面でご回答します",
+             "owner": "Kenji", "deadline": "within 2 hours", "urgency_tier": "immediate"},
+        ],
+        "speakers": [
+            {"name": "Alice",  "talk_time_pct": 45, "tone": "assertive"},
+            {"name": "Kenji",  "talk_time_pct": 35, "tone": "deferential"},
+            {"name": "Client", "talk_time_pct": 20, "tone": "concerned"},
+        ],
+        "sentiment": [
+            {"speaker": "Alice",  "score": "professional", "note": "Direct and solution-focused"},
+            {"speaker": "Kenji",  "score": "defensive",    "note": "Escalation + relationship preservation"},
+            {"speaker": "Client", "score": "concerned",    "note": "Trust fragile but recoverable"},
+        ],
+        "soft_rejections": {
+            "risk_level": "HIGH",
+            "total_signals": 3,
+            "signals": [
+                {"phrase": "上司に相談します", "english": "I need to consult my manager", "speaker": "Kenji"},
+            ],
+            "cultural_note": "The escalation phrase signals authority deferral, not nemawashi.",
+        },
+        "_detected_language": "ja",
+    }
 
-        slides.append(Slide(
-            slide_number=n, slide_type="decisions", title="Decisions & Commitments",
-            bullets=[c.text for c in commitments[:4]], commitments=commitments,
-            speaker_notes="What each side actually committed to, kept separate so nothing gets misattributed later.",
-            language=language, estimated_duration_seconds=75,
-        )); n += 1
+    agent = SlideArchitectAgent(groq_api_key=None)
+    plan  = agent.plan(mock_result, lang="ja")
 
-        if risk_watch_slide:
-            risk_watch_slide.slide_number = n
-            slides.append(risk_watch_slide); n += 1
+    print(f"Slides generated: {len(plan['slides'])}")
+    for s in plan["slides"]:
+        print(f"  [{s['type']:14s}]", end=" ")
+        if s["type"] == "action_items":
+            print(f"items={len(s['items'])}, "
+                  f"urgencies={[i['urgency_tier'] for i in s['items']]}")
+        elif s["type"] == "speakers":
+            print(f"speakers={[sp['name'] for sp in s['speakers']]}")
+        elif s["type"] == "closing":
+            print(f"takeaways={len(s['takeaways'])}")
+        else:
+            print()
 
-        slides.append(Slide(
-            slide_number=n, slide_type="closing", title="Next Steps",
-            bullets=next_steps_bullets,
-            speaker_notes="What we do in response — not just a restated task list.",
-            language=language, estimated_duration_seconds=45,
-        ))
-
-        return PresentationPlan(
-            meeting_title=narrative.meeting_title,
-            status_flag=status_flag,
-            meeting_context=narrative.meeting_context,
-            total_slides=len(slides),
-            language=language,
-            executive_summary=narrative.executive_summary,
-            slides=slides,
-        )
+    print("\nFull plan (JSON):")
+    print(json.dumps(plan, ensure_ascii=False, indent=2))

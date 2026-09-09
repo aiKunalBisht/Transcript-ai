@@ -1,671 +1,592 @@
-"""
-exporters/pptx_builder.py — TranscriptAI Enterprise Edition v2
-Design: Midnight Executive palette — dark cover/last, light content (sandwich)
-Motif: numbered circle icons + severity color bars on every content slide
+# exporters/pptx_builder.py
+# Converts a SlidePlan dict into a .pptx byte stream via pptxgenjs (Node.js).
+#
+# Called by : main.py /export/pptx route
+#             SlideArchitectAgent.plan() feeds the input
+#
+# ── Data flow ─────────────────────────────────────────────────────────────────
+# build_pptx(plan: dict) → bytes
+#   1. Serialize plan → tmp/plan.json
+#   2. Write Node.js generator script → tmp/gen.js
+#      (JS uses __PLAN_PATH__ / __OUT_PATH__ placeholders, replaced in Python)
+#   3. subprocess: node tmp/gen.js
+#   4. Read tmp/output.pptx → return bytes
+#   5. Cleanup temp dir
+#
+# ── Algorithm ─────────────────────────────────────────────────────────────────
+# O(S × C)  S = slides, C = content items per slide (table rows, bar entries)
+# Subprocess adds ~1–3 s fixed overhead for Node.js startup + pptxgenjs init.
+# ─────────────────────────────────────────────────────────────────────────────
 
-v2 CHANGE: rendering is now dispatched by slide.slide_type (set by
-slide_architect.py v2) instead of by slide position. Three new layouts:
-  - said_vs_meant : two-column "what was said" / "what it meant" table,
-    color-coded by severity, built straight from soft_rejection_detector
-    output via slide_architect — this is the slide the whole deck exists
-    for, so it gets its own dedicated treatment rather than the generic
-    icon-row layout.
-  - decisions     : commitments grouped with a side badge (Japan side /
-    Our team / Joint / Unclear) plus owner/deadline, so nothing about who
-    owns what gets lost in a flat bullet list.
-  - risk_watch    : a small risk register — severity bar + flag + detail,
-    sorted highest-severity first.
-The cover now also carries a status badge (ON TRACK / NEEDS FOLLOW-UP /
-ESCALATE) computed deterministically upstream, so the headline can never
-contradict the risk slide underneath it.
+from __future__ import annotations
 
-_two_col_slide / _icon_row_slide are kept as fallbacks for any slide whose
-slide_type isn't recognized (e.g. an older plan dict without slide_type).
+import json
+import os
+import subprocess
+import tempfile
+from typing import Optional
 
-NO accent stripes for decoration. Color bars that appear (severity, side
-badges) carry meaning, not decoration. Safe fonts: Cambria titles, Calibri
-body. Margins=0 on all textboxes.
-"""
-import io
-import logging
-from datetime import datetime
+# ── pptxgenjs Node.js generator script ───────────────────────────────────────
+# Raw string — no Python f-string escaping needed.
+# __PLAN_PATH__ and __OUT_PATH__ are replaced at call time.
+# Design: white content slides, dark cover/closing, clean typography.
+# Follows skill rules: no # in hex, isTextBox:true everywhere,
+#   bullet:true (never literal •), no shared option objects,
+#   shadow offset ≥ 0, no decorative stripes.
+_JS = r"""
+'use strict';
+const pptxgen = require('pptxgenjs');
+const fs      = require('fs');
 
-from pptx import Presentation
-from pptx.util import Inches, Pt
-from pptx.dml.color import RGBColor
-from pptx.enum.text import PP_ALIGN
+const plan = JSON.parse(fs.readFileSync('__PLAN_PATH__', 'utf8'));
+const prs  = new pptxgen();
+prs.layout  = 'LAYOUT_WIDE';   // 13.3" × 7.5"
+prs.title   = plan.meeting_title || 'Meeting Analysis';
+prs.company = 'TranscriptAI';
+prs.subject = 'Meeting Intelligence Report';
 
-log = logging.getLogger(__name__)
+// ── Palette ───────────────────────────────────────────────────────────────────
+var COV_BG   = '1E1428';
+var CLO_BG   = '15102A';
+var ACCENT   = 'C2566A';
+var WHITE    = 'FFFFFF';
+var TXT_DARK = '1A1228';
+var TXT_MID  = '5C4B5A';
+var TXT_SOFT = '9080A0';
+var SLD_BG   = 'FFFFFF';
+var BORDER   = 'E4DCE8';
 
-# ── Midnight Executive palette ────────────────────────────────────────────────
-DARK_BG     = RGBColor(0x1E, 0x27, 0x61)   # deep navy
-DARK_CARD   = RGBColor(0x28, 0x33, 0x78)   # slightly lighter navy for cards
-ICE_BLUE    = RGBColor(0xCA, 0xDC, 0xFC)   # ice blue — accent on dark slides
-WHITE       = RGBColor(0xFF, 0xFF, 0xFF)
-OFF_WHITE   = RGBColor(0xF8, 0xF9, 0xFF)   # content slide bg
-CARD_BG     = RGBColor(0xEE, 0xF2, 0xFF)   # icon circle / card bg
-NAVY_TEXT   = RGBColor(0x1E, 0x27, 0x61)   # body text on light slides
-MID_TEXT    = RGBColor(0x3D, 0x4E, 0x8A)   # secondary text
-SOFT_TEXT   = RGBColor(0x7A, 0x8A, 0xBB)   # captions
+// Urgency row colours — background and text
+var URG_BG = {
+  immediate: 'FFF0F2', next_day:  'FFF4EB',
+  this_week: 'FEFCE8', standard:  'EFFAF4', unknown: 'F8F6F8'
+};
+var URG_TXT = {
+  immediate: 'B91C1C', next_day:  'C05700',
+  this_week: 'A16207', standard:  '166534', unknown: '6B7280'
+};
 
-# Severity / status colors — these carry meaning (risk level), not decoration.
-SEV_HIGH    = RGBColor(0xC0, 0x3B, 0x3B)   # red
-SEV_MEDIUM  = RGBColor(0xC9, 0x8A, 0x2E)   # amber
-SEV_LOW     = RGBColor(0x5B, 0x7A, 0xAE)   # steel blue
-STATUS_OK   = RGBColor(0x2E, 0x8B, 0x57)   # green — ON_TRACK
+// Risk badge colour
+var RISK_CLR = {
+  CRITICAL: '7C3AED', HIGH: 'C0392B', MEDIUM: 'D97706',
+  LOW: 'BE4060', MINIMAL: 'A87868', NONE: '2D7A55'
+};
 
-SIDE_COLORS = {
-    "Japan side": RGBColor(0xA8, 0x3A, 0x3A),
-    "Our team":   RGBColor(0x1E, 0x6B, 0x4A),
-    "Joint":      RGBColor(0x3D, 0x4E, 0x8A),
-    "Unclear":    SOFT_TEXT,
+// Sentiment score badge colour
+var SCORE_CLR = {
+  POSITIVE: '166534', NEUTRAL: '374151', NEGATIVE: 'B91C1C',
+  CONCERNED: 'C05700', DEFENSIVE: 'C05700', PROFESSIONAL: '1E40AF',
+  FORMAL: '1E40AF', ANXIOUS: 'D97706', TENSE: 'C0392B'
+};
+
+// Bar colours for speaker chart
+var BAR_CLRS = ['C2566A','7D4E8A','1E6B9A','2D7A55','D97706','8B5E3C','4A5568','9B2C2C'];
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function hdr(slide, title, sub) {
+  slide.addText(title, {
+    x:0.55, y:0.22, w:12.2, h:0.65,
+    fontSize:26, bold:true, color:TXT_DARK,
+    fontFace:'Calibri', align:'left',
+    isTextBox:true, margin:0
+  });
+  if (sub) {
+    slide.addText(sub, {
+      x:0.55, y:0.85, w:12.2, h:0.28,
+      fontSize:9, color:TXT_SOFT,
+      fontFace:'Calibri', align:'left',
+      isTextBox:true, margin:0
+    });
+  }
 }
 
-STATUS_BADGE = {
-    "ON_TRACK": ("ON TRACK",        STATUS_OK),
-    "WATCH":    ("NEEDS FOLLOW-UP", SEV_MEDIUM),
-    "ESCALATE": ("ESCALATE",        SEV_HIGH),
+function ftr(slide) {
+  slide.addText('TranscriptAI  \u00B7  Meeting Intelligence', {
+    x:0.55, y:7.22, w:12.2, h:0.22,
+    fontSize:7.5, color:TXT_SOFT, align:'right',
+    fontFace:'Calibri', isTextBox:true, margin:0
+  });
 }
 
-SLIDE_W = Inches(13.33)
-SLIDE_H = Inches(7.5)
+// ── Cover ─────────────────────────────────────────────────────────────────────
+function buildCover(slide, s) {
+  slide.background = { color: COV_BG };
 
-_PML_NS = "{http://schemas.openxmlformats.org/presentationml/2006/main}"
+  slide.addText('TRANSCRIPTAI  \u00B7  MEETING INTELLIGENCE', {
+    x:0.8, y:0.7, w:11.7, h:0.42,
+    fontSize:9, bold:true, color:ACCENT,
+    fontFace:'Calibri', charSpacing:2,
+    isTextBox:true, margin:0
+  });
+
+  var tlen = (s.title || '').length;
+  var tfs  = tlen > 65 ? 27 : tlen > 45 ? 32 : 38;
+  slide.addText(s.title || 'Meeting Analysis', {
+    x:0.8, y:1.5, w:11.7, h:2.3,
+    fontSize:tfs, bold:true, color:WHITE,
+    fontFace:'Calibri', align:'left', valign:'top',
+    isTextBox:true, margin:0
+  });
+
+  if (s.subtitle) {
+    slide.addText(s.subtitle, {
+      x:0.8, y:3.9, w:11.7, h:0.55,
+      fontSize:14, color:'A090B8',
+      fontFace:'Calibri', isTextBox:true, margin:0
+    });
+  }
+
+  slide.addText(s.date || '', {
+    x:0.8, y:6.6, w:5.5, h:0.38,
+    fontSize:10, color:'70607A',
+    fontFace:'Calibri', isTextBox:true, margin:0
+  });
+
+  // Language is already in the subtitle line — no separate badge needed.
+}
+
+// ── Overview ──────────────────────────────────────────────────────────────────
+function buildOverview(slide, s) {
+  slide.background = { color: SLD_BG };
+  hdr(slide, s.title || 'Meeting Overview', 'Key points from this meeting');
+  ftr(slide);
+
+  var bullets = s.bullets || [];
+  if (!bullets.length) return;
+
+  var runs = bullets.map(function(b, i) {
+    return {
+      text: b,
+      options: {
+        bullet: true, fontSize: 13.5, color: TXT_DARK,
+        fontFace: 'Calibri', paraSpaceAfter: 10,
+        breakLine: i < bullets.length - 1
+      }
+    };
+  });
+
+  slide.addText(runs, {
+    x:0.65, y:1.25, w:12.0, h:5.8,
+    valign:'top', isTextBox:true, margin:0
+  });
+}
+
+// ── Action Items ──────────────────────────────────────────────────────────────
+function buildActionItems(slide, s) {
+  slide.background = { color: SLD_BG };
+  var items = (s.items || []).slice(0, 7);
+  var sub   = items.length + ' commitment' + (items.length !== 1 ? 's' : '') + ' tracked';
+  hdr(slide, s.title || 'Action Items', sub);
+  ftr(slide);
+
+  if (!items.length) {
+    slide.addText('No action items extracted from this meeting.', {
+      x:0.6, y:3.0, w:12.0, h:0.5,
+      fontSize:13, color:TXT_SOFT, align:'center',
+      fontFace:'Calibri', isTextBox:true, margin:0
+    });
+    return;
+  }
+
+  var hFill = { color: 'EEE4F0' };
+  var headerRow = [
+    { text:'TASK / ACTION',   options:{ bold:true, fontSize:8.5, color:TXT_MID, fill:hFill, align:'left',   fontFace:'Calibri' } },
+    { text:'OWNER',           options:{ bold:true, fontSize:8.5, color:TXT_MID, fill:hFill, align:'center', fontFace:'Calibri' } },
+    { text:'DEADLINE',        options:{ bold:true, fontSize:8.5, color:TXT_MID, fill:hFill, align:'center', fontFace:'Calibri' } },
+    { text:'URGENCY',         options:{ bold:true, fontSize:8.5, color:TXT_MID, fill:hFill, align:'center', fontFace:'Calibri' } }
+  ];
+
+  var rows = [headerRow];
+  items.forEach(function(item) {
+    var tier   = item.urgency_tier || 'unknown';
+    var bgClr  = URG_BG[tier]  || URG_BG.unknown;
+    var fgClr  = URG_TXT[tier] || URG_TXT.unknown;
+    var urgLbl = tier.replace('_', ' ').toUpperCase();
+    var taskTxt = (item.flagged ? '\u26A0 ' : '') + (item.task || '\u2014');
+    var taskClr = item.flagged ? 'B91C1C' : TXT_DARK;
+    var bg      = { color: bgClr };
+
+    rows.push([
+      { text:taskTxt,               options:{ fontSize:10, color:taskClr, fill:bg, align:'left',   fontFace:'Calibri' } },
+      { text:item.owner   || 'TBD', options:{ fontSize:10, color:TXT_DARK, fill:bg, align:'center', fontFace:'Calibri' } },
+      { text:item.deadline|| 'N/A', options:{ fontSize:10, color:TXT_MID,  fill:bg, align:'center', fontFace:'Calibri' } },
+      { text:urgLbl,                options:{ fontSize:9,  color:fgClr,    fill:bg, align:'center', fontFace:'Calibri', bold:true } }
+    ]);
+  });
+
+  slide.addTable(rows, {
+    x:0.4, y:1.2, w:12.4,
+    colW:[5.9, 2.1, 2.4, 2.0],
+    rowH:0.65,
+    border:{ pt:0.5, color:BORDER }
+  });
+}
+
+// ── Speakers ──────────────────────────────────────────────────────────────────
+function buildSpeakers(slide, s) {
+  slide.background = { color: SLD_BG };
+  var speakers = s.speakers || [];
+  var sub = speakers.length + ' participant' + (speakers.length !== 1 ? 's' : '');
+  hdr(slide, s.title || 'Speaker Breakdown', sub);
+  ftr(slide);
+
+  if (!speakers.length) return;
+
+  var maxPct  = Math.max.apply(null, speakers.map(function(sp){ return sp.pct || 0; }));
+  if (!maxPct) maxPct = 1;
+  var maxBarW = 9.0;
+  var startY  = 1.35;
+  var avail   = 7.0 - startY - 0.4;
+  var rowH    = avail / speakers.length;
+
+  speakers.forEach(function(sp, i) {
+    var y    = startY + i * rowH;
+    var pct  = sp.pct || 0;
+    var barW = Math.max((pct / maxPct) * maxBarW, 0.06);
+    var barH = Math.min(rowH * 0.44, 0.38);
+    var clr  = BAR_CLRS[i % BAR_CLRS.length];
+    var barY = y + (rowH - barH) / 2;
+
+    // Speaker name
+    slide.addText(sp.name || 'Unknown', {
+      x:0.4, y:barY, w:2.55, h:barH,
+      fontSize:11, bold:true, color:TXT_DARK,
+      fontFace:'Calibri', align:'right', valign:'middle',
+      isTextBox:true, margin:0
+    });
+
+    // Track (background bar)
+    slide.addShape('rect', {
+      x:3.1, y:barY, w:maxBarW, h:barH,
+      fill:{ color:'EDE4F0' }, line:{ type:'none' }
+    });
+
+    // Fill bar
+    slide.addShape('rect', {
+      x:3.1, y:barY, w:barW, h:barH,
+      fill:{ color:clr }, line:{ type:'none' }
+    });
+
+    // Percentage label (right of bar)
+    slide.addText(pct + '%', {
+      x:3.15 + barW, y:barY, w:0.85, h:barH,
+      fontSize:10, bold:true, color:clr,
+      fontFace:'Calibri', align:'left', valign:'middle',
+      isTextBox:true, margin:0
+    });
+
+    // Tone (below name)
+    if (sp.tone) {
+      slide.addText(sp.tone, {
+        x:0.4, y:barY + barH + 0.03, w:2.55, h:0.22,
+        fontSize:8, color:TXT_SOFT, italic:true,
+        fontFace:'Calibri', align:'right',
+        isTextBox:true, margin:0
+      });
+    }
+  });
+}
+
+// ── Sentiment ─────────────────────────────────────────────────────────────────
+function buildSentiment(slide, s) {
+  slide.background = { color: SLD_BG };
+  var entries = (s.entries || []).slice(0, 6);
+  var sub = entries.length + ' speaker' + (entries.length !== 1 ? 's' : '') + ' analyzed';
+  hdr(slide, s.title || 'Communication Sentiment', sub);
+  ftr(slide);
+
+  if (!entries.length) return;
+
+  var cols   = entries.length <= 2 ? entries.length : 3;
+  var cardW  = cols === 1 ? 5.0 : cols === 2 ? 5.6 : 3.8;
+  var cardH  = 2.1;
+  var gapX   = 0.3;
+  var totalW = cols * cardW + (cols - 1) * gapX;
+  var startX = (13.3 - totalW) / 2;
+  var startY = 1.3;
+
+  entries.forEach(function(e, i) {
+    var col    = i % cols;
+    var row    = Math.floor(i / cols);
+    var x      = startX + col * (cardW + gapX);
+    var y      = startY + row * (cardH + 0.28);
+    var scClr  = SCORE_CLR[e.score] || '374151';
+    var bdgW   = 1.55;
+    var bdgX   = x + (cardW - bdgW) / 2;
+
+    // Card background
+    slide.addShape('rect', {
+      x:x, y:y, w:cardW, h:cardH,
+      fill:{ color:'FAFAFA' },
+      line:{ pt:0.75, color:BORDER },
+      shadow:{ type:'outer', color:'000000', blur:6, offset:3, angle:90, opacity:0.06 }
+    });
+
+    // Speaker name
+    slide.addText(e.speaker || 'Unknown', {
+      x:x+0.15, y:y+0.18, w:cardW-0.3, h:0.52,
+      fontSize:13, bold:true, color:TXT_DARK,
+      fontFace:'Calibri', align:'center',
+      isTextBox:true, margin:0
+    });
+
+    // Score badge (coloured rectangle)
+    slide.addShape('rect', {
+      x:bdgX, y:y+0.78, w:bdgW, h:0.4,
+      fill:{ color:scClr }, line:{ type:'none' }
+    });
+    slide.addText(e.score || 'NEUTRAL', {
+      x:bdgX, y:y+0.78, w:bdgW, h:0.4,
+      fontSize:9.5, bold:true, color:WHITE,
+      fontFace:'Calibri', align:'center', valign:'middle',
+      isTextBox:true, margin:0
+    });
+
+    // Note
+    if (e.note) {
+      slide.addText(e.note, {
+        x:x+0.12, y:y+1.28, w:cardW-0.24, h:0.72,
+        fontSize:8.5, color:TXT_SOFT,
+        fontFace:'Calibri', align:'center', valign:'top',
+        isTextBox:true, margin:0
+      });
+    }
+  });
+}
+
+// ── Risk ──────────────────────────────────────────────────────────────────────
+function buildRisk(slide, s) {
+  slide.background = { color: SLD_BG };
+  var rClr = RISK_CLR[s.risk_level] || RISK_CLR.NONE;
+  var nsig = s.total_signals || 0;
+  var sub  = nsig + ' signal' + (nsig !== 1 ? 's' : '') + ' detected';
+  hdr(slide, s.title || 'Risk Assessment', sub);
+  ftr(slide);
+
+  // Risk level badge
+  slide.addShape('rect', {
+    x:0.5, y:1.3, w:2.6, h:1.15,
+    fill:{ color:rClr }, line:{ type:'none' }
+  });
+  slide.addText(s.risk_level || 'UNKNOWN', {
+    x:0.5, y:1.3, w:2.6, h:0.75,
+    fontSize:24, bold:true, color:WHITE,
+    fontFace:'Calibri', align:'center', valign:'middle',
+    isTextBox:true, margin:0
+  });
+  slide.addText('Risk Level', {
+    x:0.5, y:2.05, w:2.6, h:0.4,
+    fontSize:9, color:WHITE, align:'center',
+    fontFace:'Calibri', isTextBox:true, margin:0
+  });
+
+  // Signals list
+  slide.addText('Detected signals:', {
+    x:3.45, y:1.3, w:9.35, h:0.38,
+    fontSize:10.5, bold:true, color:TXT_DARK,
+    fontFace:'Calibri', isTextBox:true, margin:0
+  });
+
+  var signals = (s.signals || []).slice(0, 5);
+  signals.forEach(function(sig, i) {
+    var phrase  = typeof sig === 'string' ? sig : (sig.phrase || sig.english || '(signal)');
+    var speaker = typeof sig === 'object'  ? (sig.speaker || '') : '';
+    var txt     = phrase + (speaker ? '  \u2014  ' + speaker : '');
+    slide.addText(txt, {
+      x:3.45, y:1.75 + i * 0.48, w:9.35, h:0.42,
+      fontSize:11, color:rClr, fontFace:'Calibri',
+      isTextBox:true, margin:0
+    });
+  });
+
+  // Cultural note
+  if (s.cultural_note) {
+    slide.addText(s.cultural_note, {
+      x:0.5, y:5.55, w:12.3, h:1.45,
+      fontSize:9.5, color:TXT_SOFT, italic:true,
+      fontFace:'Calibri', valign:'top',
+      isTextBox:true, margin:0
+    });
+  }
+}
+
+// ── Closing ───────────────────────────────────────────────────────────────────
+function buildClosing(slide, s) {
+  slide.background = { color: CLO_BG };
+
+  slide.addText(s.title || 'Key Takeaways', {
+    x:0.8, y:0.85, w:11.7, h:0.78,
+    fontSize:30, bold:true, color:WHITE,
+    fontFace:'Calibri', isTextBox:true, margin:0
+  });
+
+  var items = s.takeaways || [];
+  if (items.length) {
+    var runs = items.map(function(t, i) {
+      return {
+        text: '\u2713   ' + t,
+        options: {
+          fontSize:13.5, color:'D0C0CE', fontFace:'Calibri',
+          paraSpaceAfter:16,
+          breakLine: i < items.length - 1
+        }
+      };
+    });
+    slide.addText(runs, {
+      x:0.8, y:2.05, w:11.7, h:4.8,
+      valign:'top', isTextBox:true, margin:0
+    });
+  }
+
+  slide.addText('Generated by TranscriptAI', {
+    x:0.8, y:7.18, w:11.7, h:0.24,
+    fontSize:8, color:'4A3856', align:'right',
+    fontFace:'Calibri', isTextBox:true, margin:0
+  });
+}
+
+// ── Dispatch ──────────────────────────────────────────────────────────────────
+var BUILDERS = {
+  cover:        buildCover,
+  overview:     buildOverview,
+  action_items: buildActionItems,
+  speakers:     buildSpeakers,
+  sentiment:    buildSentiment,
+  risk:         buildRisk,
+  closing:      buildClosing
+};
+
+(plan.slides || []).forEach(function(s) {
+  var slide = prs.addSlide();
+  var fn    = BUILDERS[s.type];
+  if (fn) {
+    fn(slide, s);
+  } else {
+    slide.addText('Unknown slide type: ' + s.type, {
+      x:1, y:2.5, w:11, h:0.6,
+      fontSize:13, color:'C0392B',
+      isTextBox:true, margin:0
+    });
+  }
+});
+
+prs.writeFile({ fileName: '__OUT_PATH__' })
+  .then(function() { process.exit(0); })
+  .catch(function(err) { console.error('pptxgenjs:', err.message); process.exit(1); });
+"""
 
 
-# ── Safe attribute helpers ────────────────────────────────────────────────────
+# ── Public API ────────────────────────────────────────────────────────────────
 
-def _get(obj, attr, default=None):
-    """getattr that also works on dicts."""
-    if isinstance(obj, dict):
-        return obj.get(attr, default)
-    return getattr(obj, attr, default)
-
-
-# ── Plan normalisation ────────────────────────────────────────────────────────
-
-class _SaidVsMeantData:
-    __slots__ = ("speaker", "said", "reading", "meant", "severity")
-
-    def __init__(self, src):
-        self.speaker  = str(_get(src, "speaker", "Unknown") or "Unknown")
-        self.said     = str(_get(src, "said", "") or "")
-        self.reading  = str(_get(src, "reading", "") or "")
-        self.meant    = str(_get(src, "meant", "") or "")
-        self.severity = str(_get(src, "severity", "MEDIUM") or "MEDIUM").upper()
-
-
-class _CommitmentData:
-    __slots__ = ("side", "text", "owner", "deadline")
-
-    def __init__(self, src):
-        self.side     = str(_get(src, "side", "Unclear") or "Unclear")
-        self.text     = str(_get(src, "text", "") or "")
-        self.owner    = str(_get(src, "owner", "") or "")
-        self.deadline = str(_get(src, "deadline", "") or "")
-
-
-class _WatchItemData:
-    __slots__ = ("flag", "detail", "severity")
-
-    def __init__(self, src):
-        self.flag     = str(_get(src, "flag", "") or "")
-        self.detail   = str(_get(src, "detail", "") or "")
-        self.severity = str(_get(src, "severity", "MEDIUM") or "MEDIUM").upper()
-
-
-class _SlideData:
+def build_pptx(plan: dict, timeout: int = 90) -> bytes:
     """
-    Lightweight wrapper so slide_data.attr always works regardless of whether
-    the upstream source was a Pydantic model, a plain dict, or a dataclass.
-    """
-    __slots__ = (
-        "slide_number", "slide_type", "title", "bullets", "speaker_notes",
-        "estimated_duration_seconds", "said_vs_meant", "commitments", "watch_items",
-    )
+    Convert a SlidePlan dict into raw PPTX bytes.
 
-    def __init__(self, src):
-        self.slide_number   = int(_get(src, "slide_number", 1))
-        self.slide_type      = str(_get(src, "slide_type") or "content")
-        self.title            = str(_get(src, "title", "Slide"))
-        raw_bullets           = _get(src, "bullets") or []
-        self.bullets          = [str(b) for b in raw_bullets if b]
-        self.speaker_notes    = str(_get(src, "speaker_notes") or "")
-        self.estimated_duration_seconds = int(
-            _get(src, "estimated_duration_seconds") or 90
+    Args:
+        plan    : dict produced by SlideArchitectAgent.plan()
+        timeout : seconds to wait for Node.js process (default 90)
+
+    Returns:
+        bytes — the complete .pptx file content
+
+    Raises:
+        RuntimeError  — if Node.js exits non-zero
+        FileNotFoundError — if Node.js is not installed
+        subprocess.TimeoutExpired — if generation takes too long
+
+    DSA: O(S × C) + Node.js startup overhead (~1–3 s)
+         S = slides, C = max content items per slide
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        plan_path = os.path.join(tmp, "plan.json")
+        js_path   = os.path.join(tmp, "gen.js")
+        out_path  = os.path.join(tmp, "output.pptx")
+
+        # Write plan as JSON
+        with open(plan_path, "w", encoding="utf-8") as f:
+            json.dump(plan, f, ensure_ascii=False)
+
+        # Inject paths into JS template
+        script = (
+            _JS
+            .replace("__PLAN_PATH__", plan_path)
+            .replace("__OUT_PATH__",  out_path)
         )
-        self.said_vs_meant = [_SaidVsMeantData(x) for x in (_get(src, "said_vs_meant") or [])]
-        self.commitments   = [_CommitmentData(x) for x in (_get(src, "commitments") or [])]
-        self.watch_items    = [_WatchItemData(x) for x in (_get(src, "watch_items") or [])]
-
-
-class _Plan:
-    """
-    Normalised presentation plan — accepts a PresentationPlan Pydantic model,
-    a plain dict (JSON round-trip), or any object with the right attributes.
-    """
-    def __init__(self, src):
-        self.meeting_title     = str(_get(src, "meeting_title") or "Meeting")
-        self.status_flag        = str(_get(src, "status_flag") or "ON_TRACK").upper()
-        self.meeting_context    = str(_get(src, "meeting_context") or "")
-        self.executive_summary  = str(_get(src, "executive_summary") or "")
-        self.language            = str(_get(src, "language") or "en")
-        raw_slides               = _get(src, "slides") or []
-        self.slides              = [_SlideData(s) for s in raw_slides]
-        self.total_slides        = len(self.slides)
-
-
-# ── Low-level drawing helpers ─────────────────────────────────────────────────
-
-def _bg(slide, color):
-    fill = slide.background.fill
-    fill.solid()
-    fill.fore_color.rgb = color
-
-
-def _tb(slide, l, t, w, h):
-    shape = slide.shapes.add_textbox(Inches(l), Inches(t), Inches(w), Inches(h))
-    tf = shape.text_frame
-    tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = 0
-    tf.word_wrap = True
-    return tf
-
-
-def _run(tf, text, size, color, font="Calibri", bold=False, italic=False,
-         align=PP_ALIGN.LEFT):
-    p = tf.paragraphs[0]
-    p.alignment = align
-    r = p.add_run()
-    r.text = text
-    r.font.size = Pt(size)
-    r.font.color.rgb = color
-    r.font.name = font
-    r.font.bold = bold
-    r.font.italic = italic
-    return r
-
-
-def _strip_theme_style(shape):
-    """Remove <p:style> so LibreOffice doesn't apply phantom drop-shadows."""
-    sp = shape._element
-    style = sp.find(_PML_NS + "style")
-    if style is not None:
-        sp.remove(style)
-
-
-def _rect(slide, l, t, w, h, color):
-    s = slide.shapes.add_shape(1, Inches(l), Inches(t), Inches(w), Inches(h))
-    s.fill.solid()
-    s.fill.fore_color.rgb = color
-    s.line.fill.background()
-    s.shadow.inherit = False
-    _strip_theme_style(s)
-    return s
-
-
-def _circle(slide, l, t, d, color):
-    s = slide.shapes.add_shape(9, Inches(l), Inches(t), Inches(d), Inches(d))
-    s.fill.solid()
-    s.fill.fore_color.rgb = color
-    s.line.fill.background()
-    s.shadow.inherit = False
-    _strip_theme_style(s)
-    return s
-
-
-def _num_in_circle(slide, number, l, t, d=0.44, bg=None, fg=None):
-    if bg is None:
-        bg = DARK_BG
-    if fg is None:
-        fg = WHITE
-    _circle(slide, l, t, d, bg)
-    tf = _tb(slide, l, t + 0.02, d, d - 0.04)
-    tf.paragraphs[0].alignment = PP_ALIGN.CENTER
-    r = tf.paragraphs[0].add_run()
-    r.text = str(number)
-    r.font.size = Pt(13)
-    r.font.bold = True
-    r.font.color.rgb = fg
-    r.font.name = "Calibri"
-
-
-def _slide_num(slide, n, total, fg=None):
-    if fg is None:
-        fg = SOFT_TEXT
-    tf = _tb(slide, 12.3, 7.1, 0.9, 0.3)
-    tf.paragraphs[0].alignment = PP_ALIGN.RIGHT
-    r = tf.paragraphs[0].add_run()
-    r.text = f"{n} / {total}"
-    r.font.size = Pt(9)
-    r.font.color.rgb = fg
-    r.font.name = "Calibri"
-
-
-def _section_header(slide, title):
-    """Dark title bar used by content-heavy slides (said_vs_meant, risk_watch)."""
-    _rect(slide, 0.4, 0.3, 12.53, 0.95, DARK_BG)
-    tf_t = _tb(slide, 0.7, 0.52, 11.9, 0.6)
-    _run(tf_t, title, 24, WHITE, font="Cambria", bold=True)
-
-
-def _light_header(slide, title):
-    """Light underlined title used by data-table slides (decisions, bottom_line)."""
-    tf_t = _tb(slide, 0.4, 0.22, 12.5, 0.9)
-    _run(tf_t, title, 30, NAVY_TEXT, font="Cambria", bold=True)
-    _rect(slide, 0.4, 1.18, 12.5, 0.04, RGBColor(0xCC, 0xD4, 0xF0))
-
-
-def _row_layout(start_y, band_h, n, ideal_row_h=1.6, min_row_h=0.9):
-    row_h = max(min_row_h, min(ideal_row_h, band_h / max(n, 1)))
-    content_h = row_h * n
-    if content_h < band_h:
-        start_y = start_y + (band_h - content_h) / 2
-    else:
-        row_h = band_h / n
-    return start_y, row_h
-
-
-def _sev_color(severity):
-    return {"HIGH": SEV_HIGH, "MEDIUM": SEV_MEDIUM, "LOW": SEV_LOW}.get(
-        (severity or "MEDIUM").upper(), SEV_MEDIUM
-    )
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# COVER — dark, with status badge + meeting context
-# ══════════════════════════════════════════════════════════════════════════════
-def _cover_slide(prs, plan):
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-    _bg(slide, DARK_BG)
-    _rect(slide, 7.8, 0, 5.53, 7.5, DARK_CARD)
-
-    tf = _tb(slide, 0.5, 0.38, 5.4, 0.3)
-    _run(tf, "TRANSCRIPTAI  ·  MEETING INTELLIGENCE", 8, ICE_BLUE, bold=True)
-
-    # Status badge — top right of the light column, computed deterministically
-    # upstream so it can never disagree with the Risk & Watch slide.
-    label, color = STATUS_BADGE.get(plan.status_flag, STATUS_BADGE["ON_TRACK"])
-    badge_w = max(1.5, 0.09 * len(label) + 0.5)
-    _rect(slide, 7.8 - badge_w - 0.25, 0.36, badge_w, 0.36, color)
-    tf_s = _tb(slide, 7.8 - badge_w - 0.25, 0.43, badge_w, 0.25)
-    _run(tf_s, label, 9, WHITE, bold=True, align=PP_ALIGN.CENTER)
-
-    # Main title
-    tf_t = _tb(slide, 0.5, 0.85, 7.0, 1.8)
-    r = tf_t.paragraphs[0].add_run()
-    r.text = plan.meeting_title
-    r.font.size = Pt(36)
-    r.font.bold = True
-    r.font.color.rgb = WHITE
-    r.font.name = "Cambria"
-
-    # Meeting context — who was there, why it mattered
-    y = 2.75
-    if plan.meeting_context:
-        tf_ctx = _tb(slide, 0.5, y, 7.0, 0.8)
-        _run(tf_ctx, plan.meeting_context, 13, ICE_BLUE, italic=True)
-        y += 0.9
-
-    # Executive summary
-    if plan.executive_summary:
-        tf_e = _tb(slide, 0.5, y, 7.0, 1.3)
-        _run(tf_e, plan.executive_summary[:220], 14, WHITE)
-        y += 1.0
-
-    # Stats row
-    dur_sec = sum(s.estimated_duration_seconds for s in plan.slides)
-    dur_min = max(1, dur_sec // 60)
-    stats = [
-        (str(plan.total_slides), "SLIDES"),
-        (f"{dur_min}m", "DURATION"),
-        (plan.language.upper()[:5], "LANGUAGE"),
-    ]
-    stat_y = 6.2
-    for i, (val, lbl) in enumerate(stats):
-        x = 0.5 + i * 2.2
-        tf_v = _tb(slide, x, stat_y, 2.0, 0.55)
-        _run(tf_v, val, 24, WHITE, font="Cambria", bold=True)
-        tf_l = _tb(slide, x, stat_y + 0.55, 2.0, 0.3)
-        _run(tf_l, lbl, 8, SOFT_TEXT, bold=True)
-
-    # Right panel decorative
-    tf_w = _tb(slide, 7.95, 1.2, 5.2, 5.0)
-    r_w = tf_w.paragraphs[0].add_run()
-    r_w.text = plan.meeting_title
-    r_w.font.size = Pt(28)
-    r_w.font.bold = True
-    r_w.font.color.rgb = RGBColor(0x38, 0x45, 0x90)
-    r_w.font.name = "Cambria"
-
-    tf_d = _tb(slide, 7.95, 6.5, 5.0, 0.4)
-    _run(tf_d, datetime.now().strftime("%B %d, %Y"), 11, SOFT_TEXT)
-
-    _slide_num(slide, 1, plan.total_slides, fg=SOFT_TEXT)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# BOTTOM LINE — light, numbered rows
-# ══════════════════════════════════════════════════════════════════════════════
-def _bottom_line_slide(prs, slide_data, plan):
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-    _bg(slide, OFF_WHITE)
-    _light_header(slide, slide_data.title)
-
-    bullets = (slide_data.bullets or ["Details unavailable."])[:4]
-    n = len(bullets)
-    font_sz = {1: 22, 2: 19, 3: 17, 4: 16}.get(n, 15)
-    start_y, row_h = _row_layout(1.5, 5.1, n, ideal_row_h=1.6)
-
-    for idx, b in enumerate(bullets):
-        y = start_y + idx * row_h
-        _num_in_circle(slide, idx + 1, 0.5, y + 0.05, 0.42, DARK_BG, WHITE)
-        tf_b = _tb(slide, 1.1, y, 11.2, row_h - 0.1)
-        _run(tf_b, b, font_sz, NAVY_TEXT)
-
-    if slide_data.speaker_notes:
-        tf_note = _tb(slide, 0.5, 6.78, 12.3, 0.55)
-        _run(tf_note, slide_data.speaker_notes[:170], 10, MID_TEXT, italic=True)
-
-    _slide_num(slide, slide_data.slide_number, plan.total_slides)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# SAID VS MEANT — two-column table, severity-coded
-# ══════════════════════════════════════════════════════════════════════════════
-def _said_vs_meant_slide(prs, slide_data, plan):
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-    _bg(slide, WHITE)
-    _section_header(slide, slide_data.title)
-
-    tf_h1 = _tb(slide, 0.5, 1.45, 5.6, 0.3)
-    _run(tf_h1, "WHAT WAS SAID", 9, SOFT_TEXT, bold=True)
-    tf_h2 = _tb(slide, 6.5, 1.45, 6.3, 0.3)
-    _run(tf_h2, "WHAT IT MEANT", 9, SOFT_TEXT, bold=True)
-    _rect(slide, 0.5, 1.78, 12.3, 0.02, RGBColor(0xCC, 0xD4, 0xF0))
-
-    items = (slide_data.said_vs_meant or [])[:4]
-    n = len(items) or 1
-    start_y, row_h = _row_layout(1.95, 4.95, n, ideal_row_h=1.55, min_row_h=1.05)
-
-    for idx, item in enumerate(items):
-        y = start_y + idx * row_h
-        color = _sev_color(item.severity)
-        _rect(slide, 0.5, y, 0.07, row_h - 0.18, color)
-
-        tf_spk = _tb(slide, 0.7, y, 5.3, 0.28)
-        _run(tf_spk, item.speaker.upper(), 9, MID_TEXT, bold=True)
-
-        tf_said = _tb(slide, 0.7, y + 0.3, 5.3, row_h - 0.45)
-        p = tf_said.paragraphs[0]
-        r = p.add_run()
-        r.text = item.said or "\u2014"
-        r.font.size = Pt(14)
-        r.font.bold = True
-        r.font.color.rgb = NAVY_TEXT
-        r.font.name = "Calibri"
-        if item.reading:
-            p2 = tf_said.add_paragraph()
-            r2 = p2.add_run()
-            r2.text = f"\u201c{item.reading}\u201d"
-            r2.font.size = Pt(10)
-            r2.font.italic = True
-            r2.font.color.rgb = SOFT_TEXT
-
-        tf_meant = _tb(slide, 6.5, y, 6.3, row_h - 0.18)
-        _run(tf_meant, item.meant or "\u2014", 12, NAVY_TEXT)
-
-    _slide_num(slide, slide_data.slide_number, plan.total_slides)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# DECISIONS & COMMITMENTS — side-badged rows
-# ══════════════════════════════════════════════════════════════════════════════
-def _decisions_slide(prs, slide_data, plan):
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-    _bg(slide, OFF_WHITE)
-    _light_header(slide, slide_data.title)
-
-    items = (slide_data.commitments or [])[:4]
-    n = len(items) or 1
-    start_y, row_h = _row_layout(1.4, 5.5, n, ideal_row_h=1.55, min_row_h=1.0)
-
-    for idx, item in enumerate(items):
-        y = start_y + idx * row_h
-        _rect(slide, 0.4, y, 12.5, row_h - 0.15, CARD_BG)
-
-        color = SIDE_COLORS.get(item.side, SOFT_TEXT)
-        badge_w = max(1.3, 0.09 * len(item.side) + 0.4)
-        _rect(slide, 0.6, y + 0.14, badge_w, 0.32, color)
-        tf_badge = _tb(slide, 0.6, y + 0.2, badge_w, 0.22)
-        _run(tf_badge, item.side.upper(), 8, WHITE, bold=True, align=PP_ALIGN.CENTER)
-
-        tf_txt = _tb(slide, 0.6, y + 0.56, 9.6, row_h - 0.72)
-        _run(tf_txt, item.text or "\u2014", 14, NAVY_TEXT)
-
-        meta = " \u00b7 ".join(filter(None, [item.owner, item.deadline]))
-        if meta:
-            tf_meta = _tb(slide, 10.3, y + 0.16, 2.3, 0.3)
-            _run(tf_meta, meta, 9, MID_TEXT, align=PP_ALIGN.RIGHT)
-
-    _slide_num(slide, slide_data.slide_number, plan.total_slides)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# RISK & WATCH ITEMS — severity-coded register
-# ══════════════════════════════════════════════════════════════════════════════
-def _risk_watch_slide(prs, slide_data, plan):
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-    _bg(slide, WHITE)
-    _section_header(slide, slide_data.title)
-
-    items = (slide_data.watch_items or [])[:4]
-    n = len(items) or 1
-    start_y, row_h = _row_layout(1.45, 5.6, n, ideal_row_h=1.6, min_row_h=1.0)
-
-    for idx, item in enumerate(items):
-        y = start_y + idx * row_h
-        color = _sev_color(item.severity)
-        if idx % 2 == 0:
-            _rect(slide, 0.3, y + 0.04, 12.7, row_h - 0.08, RGBColor(0xF4, 0xF6, 0xFF))
-        _rect(slide, 0.45, y + 0.12, 0.1, row_h - 0.34, color)
-
-        tf_flag = _tb(slide, 0.78, y + 0.1, 11.8, 0.4)
-        _run(tf_flag, item.flag or "Flagged", 15, NAVY_TEXT, bold=True)
-        tf_detail = _tb(slide, 0.78, y + 0.52, 11.6, row_h - 0.65)
-        _run(tf_detail, item.detail or "", 12, MID_TEXT)
-
-    _slide_num(slide, slide_data.slide_number, plan.total_slides)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# FALLBACKS — generic content layouts for unrecognized/legacy slide_type
-# ══════════════════════════════════════════════════════════════════════════════
-def _two_col_slide(prs, slide_data, plan):
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-    _bg(slide, OFF_WHITE)
-    _light_header(slide, slide_data.title)
-
-    bullets = (slide_data.bullets or ["Details in transcript"])[:4]
-    n = len(bullets)
-    font_sz = {1: 22, 2: 19, 3: 16, 4: 15}.get(n, 15)
-
-    start_y, row_h = _row_layout(1.4, 5.5, n, ideal_row_h=1.7)
-    for b_idx, bullet in enumerate(bullets):
-        y = start_y + b_idx * row_h
-        _num_in_circle(slide, b_idx + 1, 0.4, y + 0.05, 0.42, DARK_BG, WHITE)
-        tf_b = _tb(slide, 0.98, y, 6.8, row_h - 0.1)
-        _run(tf_b, bullet, font_sz, NAVY_TEXT)
-
-    _rect(slide, 7.8, 1.35, 5.1, 5.7, CARD_BG)
-    tf_big = _tb(slide, 8.0, 1.55, 4.7, 1.6)
-    _run(tf_big, f"0{slide_data.slide_number}", 72, DARK_BG,
-         font="Cambria", bold=True, align=PP_ALIGN.CENTER)
-
-    tf_sub = _tb(slide, 8.0, 3.1, 4.7, 0.5)
-    _run(tf_sub, slide_data.title.upper()[:50], 9, SOFT_TEXT,
-         bold=True, align=PP_ALIGN.CENTER)
-
-    notes_preview = slide_data.speaker_notes[:140] if slide_data.speaker_notes else ""
-    if notes_preview:
-        tf_np = _tb(slide, 8.1, 3.75, 4.6, 2.8)
-        _run(tf_np, f'"{notes_preview}"', 11, MID_TEXT, italic=True)
-
-    _slide_num(slide, slide_data.slide_number, plan.total_slides)
-
-
-def _icon_row_slide(prs, slide_data, plan):
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-    _bg(slide, WHITE)
-    _section_header(slide, slide_data.title)
-
-    bullets = (slide_data.bullets or ["Details in transcript"])[:5]
-    n = len(bullets)
-    font_sz = {1: 20, 2: 18, 3: 16, 4: 15, 5: 14}.get(n, 14)
-    ICON_CHARS = ["\u25c6", "\u25b8", "\u25cf", "\u2605", "\u25c9"]
-
-    start_y, row_h = _row_layout(1.45, 5.6, n, ideal_row_h=1.6)
-    for b_idx, bullet in enumerate(bullets):
-        y = start_y + b_idx * row_h
-        if b_idx % 2 == 0:
-            _rect(slide, 0.3, y + 0.04, 12.7, row_h - 0.08, RGBColor(0xF4, 0xF6, 0xFF))
-        _num_in_circle(slide, b_idx + 1, 0.45, y + (row_h - 0.44) / 2,
-                       0.44, DARK_BG, ICE_BLUE)
-        tf_ic = _tb(slide, 1.05, y + (row_h - 0.44) / 2, 0.44, 0.44)
-        _run(tf_ic, ICON_CHARS[b_idx % len(ICON_CHARS)], 14,
-             ICE_BLUE, align=PP_ALIGN.CENTER)
-        tf_b = _tb(slide, 1.55, y + (row_h - 0.55) / 2, 11.4, row_h * 0.85)
-        _run(tf_b, bullet, font_sz, NAVY_TEXT)
-
-    _slide_num(slide, slide_data.slide_number, plan.total_slides)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# CLOSING — dark, next steps as numbered pills
-# ══════════════════════════════════════════════════════════════════════════════
-def _closing_slide(prs, slide_data, plan):
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-    _bg(slide, DARK_BG)
-    _rect(slide, 8.5, 0, 4.83, 7.5, DARK_CARD)
-
-    tf_t = _tb(slide, 0.5, 0.35, 7.7, 1.0)
-    _run(tf_t, slide_data.title, 32, WHITE, font="Cambria", bold=True)
-    tf_s = _tb(slide, 0.5, 1.35, 7.7, 0.4)
-    _run(tf_s, "NEXT STEPS  \u00b7  ACTION REQUIRED", 9, ICE_BLUE, bold=True)
-
-    bullets = (slide_data.bullets or ["Follow up with all stakeholders"])[:5]
-    n = len(bullets)
-    font_sz = {1: 20, 2: 18, 3: 15, 4: 14, 5: 13}.get(n, 13)
-
-    start_y, row_h = _row_layout(1.9, 4.8, n, ideal_row_h=1.5, min_row_h=0.85)
-    for b_idx, bullet in enumerate(bullets):
-        y = start_y + b_idx * row_h
-        _rect(slide, 0.5, y, 7.7, row_h - 0.12, RGBColor(0x28, 0x33, 0x78))
-        _num_in_circle(slide, b_idx + 1, 0.6, y + 0.06, 0.42, ICE_BLUE, DARK_BG)
-        tf_b = _tb(slide, 1.18, y + 0.06, 6.8, row_h - 0.18)
-        _run(tf_b, bullet, font_sz, WHITE)
-
-    # Right panel brand
-    tf_br = _tb(slide, 8.65, 0.6, 4.5, 1.2)
-    _run(tf_br, "TranscriptAI", 24, ICE_BLUE, font="Cambria",
-         bold=True, align=PP_ALIGN.CENTER)
-    tf_bl = _tb(slide, 8.65, 1.75, 4.5, 0.35)
-    _run(tf_bl, "Meeting Intelligence Platform", 10, SOFT_TEXT,
-         align=PP_ALIGN.CENTER)
-    tf_g = _tb(slide, 8.65, 6.88, 4.5, 0.35)
-    _run(tf_g, "github.com/aiKunalBisht/Transcript-ai", 8,
-         SOFT_TEXT, align=PP_ALIGN.CENTER)
-
-    _slide_num(slide, slide_data.slide_number, plan.total_slides, fg=SOFT_TEXT)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# PUBLIC API
-# ══════════════════════════════════════════════════════════════════════════════
-_RENDERERS = {
-    "bottom_line":     _bottom_line_slide,
-    "said_vs_meant":   _said_vs_meant_slide,
-    "decisions":       _decisions_slide,
-    "risk_watch":      _risk_watch_slide,
-    "closing":         _closing_slide,
-}
-
-
-def build_pptx(plan_input) -> bytes:
-    """
-    Builds enterprise PPTX from a PresentationPlan, plain dict, or any object
-    with the expected attributes. Normalises input through _Plan so that JSON
-    round-trips, Pydantic models, and raw dicts all work identically.
-
-    Slides are dispatched by slide.slide_type. "cover" is handled specially
-    (it reads from `plan`, not `slide_data`). Any unrecognized slide_type
-    (e.g. a legacy plan without slide_type, or "content") falls back to
-    _two_col_slide for the first such slide and _icon_row_slide thereafter,
-    matching the original v1 layout behavior.
-
-    Returns raw bytes. Never raises — returns a minimal error slide on failure.
-    """
-    try:
-        plan = _Plan(plan_input)
-
-        if plan.total_slides == 0:
-            raise ValueError("PresentationPlan has no slides to render.")
-
-        prs = Presentation()
-        prs.slide_width  = SLIDE_W
-        prs.slide_height = SLIDE_H
-
-        fallback_used = 0
-        for slide_data in plan.slides:
-            stype = slide_data.slide_type
-
-            if stype == "cover":
-                _cover_slide(prs, plan)
-            elif stype in _RENDERERS:
-                _RENDERERS[stype](prs, slide_data, plan)
-            else:
-                if fallback_used == 0:
-                    _two_col_slide(prs, slide_data, plan)
-                else:
-                    _icon_row_slide(prs, slide_data, plan)
-                fallback_used += 1
-
-            # Speaker notes
-            try:
-                notes_slide = prs.slides[-1].notes_slide
-                notes_slide.notes_text_frame.text = slide_data.speaker_notes or ""
-            except Exception:
-                pass
-
-        buf = io.BytesIO()
-        prs.save(buf)
-        buf.seek(0)
-        return buf.read()
-
-    except Exception as e:
-        log.error("pptx_builder failed: %s", e, exc_info=True)
-        try:
-            prs = Presentation()
-            prs.slide_width  = SLIDE_W
-            prs.slide_height = SLIDE_H
-            slide = prs.slides.add_slide(prs.slide_layouts[6])
-            slide.background.fill.solid()
-            slide.background.fill.fore_color.rgb = DARK_BG
-            tb = slide.shapes.add_textbox(
-                Inches(0.5), Inches(2.5), Inches(12), Inches(2)
+        with open(js_path, "w", encoding="utf-8") as f:
+            f.write(script)
+
+        # Execute
+        proc = subprocess.run(
+            ["node", js_path],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"pptxgenjs exited {proc.returncode}.\n"
+                f"stderr: {proc.stderr.strip()}\n"
+                f"stdout: {proc.stdout.strip()}"
             )
-            p = tb.text_frame.paragraphs[0]
-            r = p.add_run()
-            r.text = (
-                f"TranscriptAI — PPTX generation error.\n"
-                f"Details: {str(e)[:300]}\n"
-                f"Please try exporting again or use the JSON export."
-            )
-            r.font.size = Pt(16)
-            r.font.color.rgb = WHITE
-            r.font.name = "Calibri"
-            buf = io.BytesIO()
-            prs.save(buf)
-            buf.seek(0)
-            return buf.read()
-        except Exception:
-            return b""
+
+        # Read and return bytes
+        with open(out_path, "rb") as f:
+            return f.read()
+
+
+# ── Self-test ─────────────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+    from agents.slide_architect import SlideArchitectAgent
+
+    mock = {
+        "meeting_title": "Q3 Budget Review — Acme Corp",
+        "summary": [
+            "Q3 budget exceeded by 12% due to unplanned engineering hires.",
+            "Client raised concerns about delivery timeline and system stability.",
+            "Team committed to written response within 2 hours.",
+        ],
+        "action_items": [
+            {"task": "Send revised budget report", "description": "Send revised budget report",
+             "owner": "Alice", "deadline": "by Friday", "urgency_tier": "this_week"},
+            {"task": "Provide written response", "description": "Provide written response",
+             "owner": "Kenji", "deadline": "within 2 hours", "urgency_tier": "immediate"},
+            {"task": "Schedule follow-up review", "description": "Schedule follow-up review",
+             "owner": "Alice", "deadline": "by next week", "urgency_tier": "standard"},
+        ],
+        "speakers": [
+            {"name": "Alice",  "talk_time_pct": 45, "tone": "assertive"},
+            {"name": "Kenji",  "talk_time_pct": 35, "tone": "deferential"},
+            {"name": "Client", "talk_time_pct": 20, "tone": "concerned"},
+        ],
+        "sentiment": [
+            {"speaker": "Alice",  "score": "PROFESSIONAL", "note": "Direct and solution-focused"},
+            {"speaker": "Kenji",  "score": "DEFENSIVE",    "note": "Escalation + relationship preservation"},
+            {"speaker": "Client", "score": "CONCERNED",    "note": "Trust fragile but recoverable"},
+        ],
+        "soft_rejections": {
+            "risk_level": "HIGH", "total_signals": 3,
+            "signals": [
+                {"phrase": "上司に相談します", "english": "Need to consult manager", "speaker": "Kenji"},
+            ],
+            "cultural_note": "Escalation phrase signals authority deferral, not nemawashi.",
+        },
+        "_detected_language": "ja",
+    }
+
+    agent = SlideArchitectAgent()
+    plan  = agent.plan(mock, lang="ja")
+
+    print(f"Building PPTX for {len(plan['slides'])} slides...")
+    pptx_bytes = build_pptx(plan)
+
+    out = "/tmp/transcriptai_test.pptx"
+    with open(out, "wb") as f:
+        f.write(pptx_bytes)
+
+    print(f"Written: {out}  ({len(pptx_bytes):,} bytes)")
+    print("Run: python /mnt/skills/public/pptx/scripts/office/validate.py", out)
