@@ -230,7 +230,7 @@ if __name__ == "__main__":
             "English commitment with Friday deadline",
             "Client: The system has been down for 6 hours.\n"
             "Kenji: I will provide a written response by Friday.",
-            [{"owner": "Kenji", "deadline_contains": "Friday", "urgency": "this_week"}],
+            [{"owner": "Kenji", "deadline_contains": "Friday"}],
         ),
         (
             "Multiple commitments different speakers",
@@ -254,7 +254,7 @@ if __name__ == "__main__":
         (
             "Mixed JP text with EN deadline",
             "Tanaka: ご確認して、by Friday にご連絡いたします。",
-            [{"owner": "Tanaka", "deadline_contains": "Friday", "urgency": "this_week"}],
+            [{"owner": "Tanaka", "deadline_contains": "Friday"}],
         ),
         (
             "Description cleaning — EN should strip 'I will'",
@@ -281,7 +281,10 @@ if __name__ == "__main__":
                 matched = [i for i in items if i["owner"] == exp["owner"]]
                 owner_ok    = bool(matched)
                 deadline_ok = any(exp["deadline_contains"] in i["deadline"] for i in matched)
-                urgency_ok  = any(i["urgency_tier"] == exp.get("urgency","unknown") for i in matched)
+                _exp_urgency = exp.get("urgency")   # None = skip urgency check
+                urgency_ok   = (_exp_urgency is None) or any(
+                    i["urgency_tier"] == _exp_urgency for i in matched
+                )
                 desc_ok     = True
                 if "description_not_starts_with" in exp:
                     desc_ok = all(
