@@ -284,6 +284,33 @@ def _recompute_talk_time_pct(text: str, speakers: list[dict]) -> None:
     turns       = _extract_turns_with_timestamps(text)
     timestamped = [(n, ts) for n, ts in turns if ts is not None]
     if len(timestamped) < 2:
+        # Char-count fallback: accurate for English/no-timestamp transcripts.
+        # DSA: O(n) scan + O(speakers) name matching.
+        _char: dict[str, int] = {}
+        _norm = text.replace('：', ':')  # fullwidth colon
+        for _line in _norm.splitlines():
+            if ':' not in _line:
+                continue
+            _idx  = _line.index(':')
+            _spkr = _line[:_idx].strip()
+            _cont = _line[_idx + 1:].strip()
+            if 2 <= len(_spkr) <= 40 and _cont:
+                _char[_spkr] = _char.get(_spkr, 0) + len(_cont)
+        if not _char:
+            return
+        def _cmatch(nm: str) -> int:
+            t = nm.lower().strip()
+            return next((c for n, c in _char.items()
+                         if t in n.lower() or n.lower() in t), 0)
+        _raw   = {s['name']: _cmatch(s['name']) for s in speakers}
+        _total = sum(_raw.values())
+        if not _total:
+            return
+        for s in speakers:
+            s['talk_time_pct'] = round(_raw[s['name']] * 100 / _total)
+        _d = 100 - sum(s['talk_time_pct'] for s in speakers)
+        if _d and speakers:
+            speakers[0]['talk_time_pct'] += _d
         return
 
     weights: dict[str, float] = {}
@@ -1121,6 +1148,75 @@ def _sentiment_backstop_block(result: dict, text: str) -> None:
 
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _extractive_summary(text: str, max_sentences: int = 3) -> tuple[str, list[str]]:
+    _SIGNAL = frozenset({
+        # problems / urgency
+        "down", "outage", "issue", "problem", "failed", "error",
+        "unacceptable", "delay", "breach", "concern", "blocked",
+        # commitments
+        "will", "commit", "ensure", "guarantee", "provide", "send",
+        "deliver", "confirm", "resolve", "fix", "escalate", "respond",
+        # deadlines
+        "friday", "monday", "tomorrow", "today", "deadline", "within",
+        "hours", "days", "week", "urgent",
+        # decisions / risk
+        "contract", "reconsider", "terminate", "cancel", "agreed",
+        "decided", "approved", "rejected", "budget", "plan", "proposal",
+        # Hindi commitment / hedge signals
+        "dekhte", "sochte", "koshish", "zaroor", "bilkul",
+    })
+
+    # Normalise JP fullwidth colon ： so Japanese speaker turns work too
+    norm = text.replace("\uff1a", ":")
+
+    turns: list[tuple[str, str]] = []
+    for line in norm.splitlines():
+        if ":" not in line:
+            continue
+        idx     = line.index(":")
+        speaker = line[:idx].strip()
+        content = line[idx + 1:].strip()
+        # JP text has few whitespace-separated words — use char count too
+        if 2 <= len(speaker) <= 40 and (len(content.split()) >= 5 or len(content) >= 15):
+            turns.append((speaker, content))
+
+    if not turns:
+        lines = [l.strip() for l in text.splitlines() if len(l.strip()) > 40][:3]
+        return " ".join(lines), lines
+
+    def _score(utt: str) -> float:
+        words = utt.lower().split()
+        hits  = sum(1 for w in words if w in _SIGNAL)
+        return min(len(words) / 25.0, 1.2) + hits * 0.35
+
+    scored = sorted(turns, key=lambda t: _score(t[1]), reverse=True)
+
+    # Greedy select with speaker diversity; fill remaining from any speaker
+    selected: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for spk, utt in scored:
+        if len(selected) >= max_sentences:
+            break
+        if spk not in seen:
+            selected.append((spk, utt))
+            seen.add(spk)
+    for spk, utt in scored:
+        if len(selected) >= max_sentences:
+            break
+        if (spk, utt) not in selected:
+            selected.append((spk, utt))
+
+    full = " ".join(
+        f"{s}: {u[:160]}{'...' if len(u) > 160 else ''}"
+        for s, u in selected
+    )
+    bulls = [
+        f"{s}: {u[:120]}{'...' if len(u) > 120 else ''}"
+        for s, u in selected
+    ]
+    return full, bulls
+
+
 def _no_api_result(text: str, reason: str = "") -> dict:
     """
     Full analysis without any LLM API call.
@@ -1241,20 +1337,29 @@ def _no_api_result(text: str, reason: str = "") -> dict:
     except Exception as _e:
         print(f"[NO_API] action_item_extractor failed: {_e}", file=sys.stderr, flush=True)
 
+    # Real extractive summary — no LLM needed
+    _ext_full, _ext_bullets = _extractive_summary(text)
+
     return {
-        "meeting_title":  f"{speakers_str} — Meeting",
+        "meeting_title": f"{speakers_str} — Meeting",
         "full_summary": (
-            "⚠️ LLM summary unavailable — API quota reached. "
-            "All rule-based analysis (soft rejection, deal outcome, keigo, "
-            "conversation dynamics) is complete and accurate below."
+            _ext_full
+            if _ext_full else
+            f"Meeting between {', '.join(names[:3])}. "
+            f"Transcript: {word_count} words. "
+            f"Soft rejection risk: {risk_level}."
         ),
-        "summary": [
-            "⚠️ Summary requires LLM API — unavailable while quota is reached.",
-            f"Transcript: {word_count} words | "
-            f"{n} speaker{'s' if n > 1 else ''}: {', '.join(names)}.",
-            f"Soft rejection risk: {risk_level}. "
-            f"Full risk analysis, keigo, and deal outcome are operational below.",
-        ],
+        "summary": (
+            _ext_bullets + [
+                f"Soft rejection risk: {risk_level}. "
+                f"Full rule-based analysis (keigo, deal outcome, SR) below."
+            ]
+            if _ext_bullets else [
+                f"Transcript: {word_count} words | "
+                f"{n} speaker{'s' if n > 1 else ''}: {', '.join(names)}.",
+                f"Soft rejection risk: {risk_level}. Full rule-based analysis below.",
+            ]
+        ),
         "key_decisions":         [],
         "action_items":          _rule_action_items,
         "sentiment":             sentiment,
@@ -1369,10 +1474,10 @@ def analyze_transcript(text: str, language: str = "en",
         bool(re.search(r"[぀-鿿]", text_for_llm))
     )
     max_tokens = (
-         900 if words < 300  else
-        1100 if words < 800  else
-        1400 if words < 2000 else
-        1800
+        1300 if words < 300  else
+        1700 if words < 800  else
+        2200 if words < 2000 else
+        2800
     )
 
     provider_used = "unknown"
