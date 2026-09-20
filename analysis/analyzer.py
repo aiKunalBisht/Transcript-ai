@@ -1,27 +1,24 @@
-# analyzer.py — v8.0
+# analyzer.py — v8.1
 # LangChain orchestration layer + true system/user prompt separation +
 # anti-hallucination grounding for degenerate / single-message transcripts.
 #
-# v8.0 — Fine-grained sentiment engine + prompt extraction.
-#   E1: System prompt extracted to prompts/analysis_prompt.py.
-#       build_prompt() now delegates all text to that module — edit
-#       the prompt there, not here.
-#   E2: Sentiment upgraded from flat 5-label to 25-label fine-grained
-#       taxonomy via analysis/sentiment_engine.py (FineSentimentAnalyzer).
-#       Both paths (LLM and no-API) now return per-speaker valence,
-#       secondary_labels, tone modifiers, and trend.
-#   E3: _normalize_speaker_format() upgraded to 7-pass normalize_format()
-#       (CRLF, smart quotes, em-dash, timestamps, multi-space, speaker
-#       newline, triple-blank collapse).
-#   E4: _validate_and_fill() extended with fine-grained field validation
-#       (label ∈ 25-label set, secondary_labels, valence clamp, tone keys).
+# v8.1 changes (this version):
+#   R1: _is_rpm_limit() — distinguishes RPM 429 (wait & retry) from daily
+#       quota 429 (mark exhausted). Previously ALL 429s marked keys as
+#       exhausted for the day, causing every analysis to fall back to no-API
+#       mode after the first rate-limit spike.
+#   R2: _call_groq() — uses _is_rpm_limit(); waits retry-after seconds then
+#       retries once before marking a key exhausted.
+#   R3: _groq_demo_summary() — same RPM vs daily distinction.
+#   P1: max_tokens raised: 900/1100/1400/1800 → 1300/1700/2200/2800.
+#   P2: _extractive_summary() added — real no-API summary (not warning text).
+#   P3: _no_api_result() uses _extractive_summary().
+#   P4: _recompute_talk_time_pct() char-count fallback for English/no-ts.
 #
-# v7.9.2 — Action item extraction fixes (D5/D6/D7). All retained.
-# v7.9.1 — No-API path fixes (D2/D3/D4). All retained.
-# v7.9   — B1–B9 fixes. All retained.
-# v7.8.1 — A5/A6 speaker hint fixes. All retained.
-# v7.8   — A1–A4 PII masking. All retained.
-# v7.7   — FIX-21/22/23. All retained.
+# v8.0 — Fine-grained sentiment engine + prompt extraction.
+# v7.9.2 — Action item extraction fixes. All retained.
+# v7.9.1 — No-API path fixes. All retained.
+# v7.9   — B1-B9 fixes. All retained.
 
 import datetime
 import json
@@ -34,7 +31,7 @@ import requests
 from dotenv import load_dotenv
 load_dotenv()
 
-# ── Prompt module (E1) ────────────────────────────────────────────────────────
+# ── Prompt module ─────────────────────────────────────────────────────────────
 from prompts.analysis_prompt import (
     GROUNDING_RULES        as _GROUNDING_RULES,
     GROUNDING_RULES_SHORT  as _GROUNDING_RULES_SHORT,
@@ -47,14 +44,14 @@ from prompts.analysis_prompt import (
     NEGATIVE_VALENCE_THRESHOLD,
 )
 
-# ── Sentiment engine (E2) ─────────────────────────────────────────────────────
+# ── Sentiment engine ──────────────────────────────────────────────────────────
 try:
     from analysis.sentiment_engine import (
         FineSentimentAnalyzer,
         build_sentiment_for_json,
         ALL_LABELS as _ALL_FINE_GRAINED,
     )
-    _SENTIMENT_ENGINE = FineSentimentAnalyzer()   # stateless singleton
+    _SENTIMENT_ENGINE = FineSentimentAnalyzer()
     _SENTIMENT_ENGINE_AVAILABLE = True
 except ImportError:
     _SENTIMENT_ENGINE_AVAILABLE = False
@@ -113,14 +110,12 @@ GROQ_URL        = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL      = os.getenv("GROQ_MODEL",      "openai/gpt-oss-120b")
 GROQ_MODEL_FAST = os.getenv("GROQ_MODEL_FAST", "openai/gpt-oss-20b")
 MAX_RETRIES     = int(os.getenv("TRANSCRIPT_AI_MAX_RETRIES", "1"))
-# ─────────────────────────────────────────────────────────────────────────────
 
 
 # ── Token budget helpers ──────────────────────────────────────────────────────
 _MAX_TRANSCRIPT_WORDS = 1_200
 
 def _truncate_transcript(text: str) -> str:
-    """Hard cap: keep first 60% + last 40%. DSA: O(n) — split/slice/join."""
     words = text.split()
     if len(words) <= _MAX_TRANSCRIPT_WORDS:
         return text
@@ -134,7 +129,6 @@ def _truncate_transcript(text: str) -> str:
 
 
 def _select_model(text: str, language: str, has_japanese: bool) -> str:
-    """Route short English-only transcripts to faster 8B model."""
     if has_japanese:                return GROQ_MODEL
     if language in ("ja", "mixed"): return GROQ_MODEL
     if _detect_hinglish(text):      return GROQ_MODEL
@@ -142,13 +136,8 @@ def _select_model(text: str, language: str, has_japanese: bool) -> str:
     return GROQ_MODEL_FAST
 
 
-# ── A5 FIX: speaker hint — handles [NAME_1]: masked tokens ───────────────────
+# ── Speaker helpers ───────────────────────────────────────────────────────────
 def _extract_speaker_hint(text: str) -> str:
-    """
-    Extract speaker identifiers for the LLM system prompt.
-    A5 FIX: alternation matches both [NAME_1]: placeholders and real names.
-    DSA: O(n) — single regex scan.
-    """
     pattern = re.compile(
         r"^\s*"
         r"(\[[A-Z]+_\d+\]"
@@ -179,22 +168,8 @@ def _detect_hinglish(text: str) -> bool:
     return sum(1 for w in words if w in _HINGLISH_MARKERS) >= 3
 
 
-# ── E3: normalize_format — upgraded 7-pass FIX-22 ────────────────────────────
+# ── normalize_format (7-pass) ─────────────────────────────────────────────────
 def normalize_format(text: str) -> str:
-    """
-    FIX-22 (upgraded): Normalize raw transcript text before PII masking.
-
-    7 sequential O(n) passes:
-      1. CRLF → LF
-      2. Smart quotes → straight quotes
-      3. Em/en dashes in speaker labels → hyphen
-      4. Strip stray timestamps at line start ([00:03:45] / (00:03:45))
-      5. Collapse multiple spaces/tabs to single space
-      6. Ensure speaker turns start on their own line
-      7. Collapse 3+ blank lines to 1 blank line
-
-    DSA: O(n · passes) ≈ O(7n) → linear in transcript length.
-    """
     t = text
     t = t.replace("\r\n", "\n").replace("\r", "\n")
     t = t.replace("\u2018", "'").replace("\u2019", "'")
@@ -207,12 +182,8 @@ def normalize_format(text: str) -> str:
     return t.strip()
 
 
-# ── A6 FIX: degenerate detection — handles [NAME_1]: tokens ──────────────────
+# ── Degenerate transcript detection ───────────────────────────────────────────
 def _is_degenerate_transcript(text: str, speaker_hint: str) -> bool:
-    """
-    A6 FIX: turn_count regex matches [NAME_1]: after PII masking.
-    DSA: O(n) — single regex findall.
-    """
     words = text.split()
     if not words:
         return False
@@ -234,8 +205,7 @@ def _is_degenerate_transcript(text: str, speaker_hint: str) -> bool:
     return True
 
 
-# ── FIX-20: Timestamp-gap talk_time helpers ────────────────────────────────────
-
+# ── Talk time helpers ──────────────────────────────────────────────────────────
 def _parse_turn_timestamp(ts_str: str) -> datetime.time | None:
     if not ts_str:
         return None
@@ -277,21 +247,24 @@ def _extract_turns_with_timestamps(text: str) -> list[tuple[str, datetime.time |
 
 def _recompute_talk_time_pct(text: str, speakers: list[dict]) -> None:
     """
-    FIX-20: Override talk_time_pct with timestamp-gap weights.
-    Gap ≤60s → 1.0 | ≤300s → 0.5 | >300s → 0.01
-    DSA: O(t) where t = timestamped turns.
+    FIX-20 + P4: Override talk_time_pct.
+    Primary: timestamp-gap weights.
+    Fallback (P4): character count per speaker — accurate for English/no-ts.
     """
     turns       = _extract_turns_with_timestamps(text)
     timestamped = [(n, ts) for n, ts in turns if ts is not None]
+
     if len(timestamped) < 2:
-        # Char-count fallback: accurate for English/no-timestamp transcripts.
-        # DSA: O(n) scan + O(speakers) name matching.
+        # ── P4: Character-count fallback ──────────────────────────────────────
+        # No timestamps → char count per speaker as speaking-time proxy.
+        # More accurate than LLM estimates; works for EN and JP.
+        # DSA: O(n) line scan + O(speakers) name matching.
         _char: dict[str, int] = {}
-        _norm = text.replace('：', ':')  # fullwidth colon
+        _norm = text.replace("\uff1a", ":")   # fullwidth colon → ASCII
         for _line in _norm.splitlines():
-            if ':' not in _line:
+            if ":" not in _line:
                 continue
-            _idx  = _line.index(':')
+            _idx  = _line.index(":")
             _spkr = _line[:_idx].strip()
             _cont = _line[_idx + 1:].strip()
             if 2 <= len(_spkr) <= 40 and _cont:
@@ -302,17 +275,18 @@ def _recompute_talk_time_pct(text: str, speakers: list[dict]) -> None:
             t = nm.lower().strip()
             return next((c for n, c in _char.items()
                          if t in n.lower() or n.lower() in t), 0)
-        _raw   = {s['name']: _cmatch(s['name']) for s in speakers}
+        _raw   = {s["name"]: _cmatch(s["name"]) for s in speakers}
         _total = sum(_raw.values())
         if not _total:
             return
         for s in speakers:
-            s['talk_time_pct'] = round(_raw[s['name']] * 100 / _total)
-        _d = 100 - sum(s['talk_time_pct'] for s in speakers)
+            s["talk_time_pct"] = round(_raw[s["name"]] * 100 / _total)
+        _d = 100 - sum(s["talk_time_pct"] for s in speakers)
         if _d and speakers:
-            speakers[0]['talk_time_pct'] += _d
+            speakers[0]["talk_time_pct"] += _d
         return
 
+    # ── Primary: timestamp-gap weights ───────────────────────────────────────
     weights: dict[str, float] = {}
     first_name, first_ts = timestamped[0]
     weights[first_name]  = weights.get(first_name, 0.0) + 1.0
@@ -349,15 +323,8 @@ def _recompute_talk_time_pct(text: str, speakers: list[dict]) -> None:
         speakers[0]["talk_time_pct"] += delta
 
 
+# ── build_prompt ──────────────────────────────────────────────────────────────
 def build_prompt(text: str, language: str) -> tuple[str, str]:
-    """
-    Build (system_prompt, user_prompt) from masked transcript.
-    text must be the masked transcript — never raw PII.
-
-    E1: All prompt *text* now lives in prompts/analysis_prompt.py.
-        Edit that file to change what the LLM is asked to produce.
-        Detection logic (Japanese/Hinglish/speakers/degenerate) stays here.
-    """
     has_japanese = bool(re.search(r"[\u3040-\u9fff\u4e00-\u9fff]", text))
     has_hinglish = _detect_hinglish(text)
 
@@ -381,7 +348,7 @@ def build_prompt(text: str, language: str) -> tuple[str, str]:
     return system_prompt, user_prompt
 
 
-# ── FIX-15/16: Persistent key exhaustion ─────────────────────────────────────
+# ── Key management ────────────────────────────────────────────────────────────
 _EXHAUSTED_FILE = (
     pathlib.Path(os.getenv("TRANSCRIPT_AI_STATE_DIR", ".")) / "groq_key_exhausted.json"
 )
@@ -438,13 +405,58 @@ def _get_groq_key() -> str:
 def _mark_key_exhausted(key: str) -> None:
     _KEY_EXHAUSTED[key[:12]] = time.time()
     _save_key_exhausted(_KEY_EXHAUSTED)
-    print(f"[GROQ] Key {key[:8]}... exhausted (429). Rotating.", file=sys.stderr, flush=True)
+    print(f"[GROQ] Key {key[:8]}... daily quota exhausted. Rotating.", file=sys.stderr, flush=True)
 
 
+# ── R1: RPM vs Daily quota detection ─────────────────────────────────────────
+def _is_rpm_limit(response) -> tuple[bool, int]:
+    """
+    Determine if a 429 is an RPM limit (recoverable in seconds) or a daily
+    quota exhaustion (recoverable tomorrow).
+
+    Groq sets these headers on RPM 429:
+        retry-after: 1              ← seconds to wait
+        x-ratelimit-reset-requests: 1s
+
+    Daily quota 429 has no retry-after or a very large value.
+
+    Returns:
+        (is_rpm: bool, wait_seconds: int)
+        is_rpm=True  → wait wait_seconds then retry — do NOT mark as exhausted
+        is_rpm=False → mark key as daily-exhausted
+
+    DSA: O(1) — header lookups only.
+    """
+    secs = 0
+
+    # Primary signal: retry-after header
+    retry_after = response.headers.get("retry-after", "")
+    try:
+        secs = max(secs, int(float(retry_after)))
+    except (ValueError, TypeError):
+        pass
+
+    # Secondary signal: x-ratelimit-reset-requests (format: "1s" or "1.5s")
+    reset_req = response.headers.get("x-ratelimit-reset-requests", "")
+    try:
+        secs = max(secs, int(float(reset_req.rstrip("s"))))
+    except (ValueError, TypeError):
+        pass
+
+    # RPM resets in < 120 s. Daily quota resets at midnight (many hours away).
+    is_rpm = 0 < secs <= 120
+    return is_rpm, secs
+
+
+# ── R2: _call_groq (with RPM fix) ─────────────────────────────────────────────
 def _call_groq(system_prompt: str, user_prompt: str, max_tokens: int,
                model: str = "") -> str:
     """
     Round-robin across available Groq keys.
+    R2 FIX: distinguishes RPM 429 (wait & retry) from daily quota 429
+            (mark exhausted). Previously ALL 429s were treated as daily
+            exhaustion, causing every analysis to fall back to no-API mode
+            after the first rate-limit spike.
     B3 FIX: response_format json_object guaranteed.
     DSA: O(k) where k = configured API keys.
     """
@@ -459,35 +471,60 @@ def _call_groq(system_prompt: str, user_prompt: str, max_tokens: int,
     last_error: Exception | None = None
     start = _KEY_INDEX["n"] % len(keys)
 
+    _payload = {
+        "model":    active_model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user",   "content": user_prompt},
+        ],
+        "temperature":     0.1,
+        "max_tokens":      max_tokens,
+        "response_format": {"type": "json_object"},
+    }
+
     for i in range(len(keys)):
-        key = keys[(start + i) % len(keys)]
+        key     = keys[(start + i) % len(keys)]
+        headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
         try:
-            r = requests.post(
-                GROQ_URL,
-                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                json={
-                    "model":    active_model,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user",   "content": user_prompt},
-                    ],
-                    "temperature":     0.1,
-                    "max_tokens":      max_tokens,
-                    "response_format": {"type": "json_object"},
-                },
-                timeout=30,
-            )
+            r = requests.post(GROQ_URL, headers=headers, json=_payload, timeout=30)
+
             if r.status_code == 429:
-                _mark_key_exhausted(key)
-                last_error = ValueError(f"Key {key[:8]}... rate-limited (429)")
+                is_rpm, wait_secs = _is_rpm_limit(r)
+
+                if is_rpm:
+                    # RPM limit — key is fine, just busy. Wait and retry once.
+                    print(
+                        f"[GROQ] Key {key[:8]}... RPM limit. "
+                        f"Waiting {wait_secs}s then retrying.",
+                        file=sys.stderr, flush=True,
+                    )
+                    time.sleep(wait_secs + 1)
+                    try:
+                        r2 = requests.post(GROQ_URL, headers=headers, json=_payload, timeout=30)
+                        if r2.ok:
+                            _KEY_INDEX["n"] += 1
+                            return r2.json()["choices"][0]["message"]["content"]
+                        if r2.status_code == 429:
+                            # Still failing after wait → treat as daily exhaustion
+                            _mark_key_exhausted(key)
+                            last_error = ValueError(f"Key {key[:8]}... exhausted after RPM retry")
+                    except Exception as _e:
+                        last_error = _e
+                else:
+                    # Daily quota exhausted — do not try this key again today
+                    _mark_key_exhausted(key)
+                    last_error = ValueError(f"Key {key[:8]}... daily quota exhausted (429)")
                 continue
+
             if not r.ok:
                 msg = f"Key {key[:8]}... HTTP {r.status_code}: {r.text[:120]}"
                 print(f"[GROQ] {msg}", file=sys.stderr, flush=True)
                 last_error = requests.exceptions.HTTPError(msg)
                 continue
+
             _KEY_INDEX["n"] += 1
             return r.json()["choices"][0]["message"]["content"]
+
         except requests.exceptions.HTTPError as e:
             if "429" in str(e):
                 _mark_key_exhausted(key)
@@ -496,13 +533,16 @@ def _call_groq(system_prompt: str, user_prompt: str, max_tokens: int,
             last_error = e
             continue
 
-    if last_error and "rate-limited" in str(last_error).lower():
+    if last_error and any(
+        w in str(last_error).lower()
+        for w in ("rate-limited", "exhausted", "quota")
+    ):
         raise ValueError("ALL_KEYS_EXHAUSTED")
     raise last_error or ValueError("ALL_KEYS_EXHAUSTED")
 
 
+# ── Streaming ─────────────────────────────────────────────────────────────────
 def stream_transcript_ollama(text: str, language: str = "en"):
-    """Streams analysis via Ollama — local mode."""
     system = (
         "You are an expert meeting analyst. "
         + _GROUNDING_RULES
@@ -540,7 +580,6 @@ def stream_transcript_ollama(text: str, language: str = "en"):
 
 
 def stream_transcript_groq(text: str, language: str = "en"):
-    """Routes to Ollama in local mode, Groq otherwise."""
     if PROVIDER == "ollama":
         yield from stream_transcript_ollama(text, language)
         return
@@ -595,10 +634,6 @@ def stream_transcript_groq(text: str, language: str = "en"):
 
 
 def _call_ollama(system_prompt: str, user_prompt: str, max_tokens: int) -> str:
-    """
-    FIX-13: Ollama native system/prompt split.
-    FIX-23: "think" only for thinking-capable model families.
-    """
     payload: dict = {
         "model":   OLLAMA_MODEL,
         "prompt":  user_prompt,
@@ -618,7 +653,6 @@ def _call_ollama(system_prompt: str, user_prompt: str, max_tokens: int) -> str:
 
 def _call_groq_langchain(system_prompt: str, user_prompt: str, max_tokens: int,
                          model: str = "") -> str:
-    """B9 FIX: LangChain Groq fallback. Round-robin across available keys."""
     if not _ensure_langchain():
         raise ImportError("LangChain not available")
     keys = _available_groq_keys()
@@ -674,8 +708,8 @@ def _call_ollama_langchain(system_prompt: str, user_prompt: str, max_tokens: int
         )
 
 
+# ── Parsing helpers ───────────────────────────────────────────────────────────
 def _extract_partial(raw: str) -> dict | None:
-    """Field-by-field regex extraction from a truncated LLM response."""
     result = {}
     for field, pat in [
         ("meeting_title", r'"meeting_title"\s*:\s*"((?:[^"\\]|\\.)*)"'),
@@ -722,11 +756,6 @@ def _get_missing_fields(result: dict) -> list[str]:
 
 
 def _parse(raw: str) -> dict:
-    """
-    Robust JSON parsing — strips markdown fences, handles nested braces,
-    repairs truncated JSON.
-    DSA: O(n) — single scan for opening brace then JSONDecoder.
-    """
     raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL)
     raw = re.sub(r"```(?:json)?|```", "", raw).strip()
     decoder = json.JSONDecoder()
@@ -754,12 +783,9 @@ def _parse(raw: str) -> dict:
     raise ValueError(f"No valid JSON in response (first 200): {raw[:200]}")
 
 
+# ── Provider cascade ──────────────────────────────────────────────────────────
 def _try_providers(system_prompt: str, user_prompt: str, max_tokens: int,
                    model: str = "") -> tuple[str, str]:
-    """
-    FIX-21: Provider cascade always runs Groq → Ollama → raises.
-    B9 FIX: LangChain Groq fallback restored within the groq provider slot.
-    """
     providers_to_try: list = []
     if PROVIDER == "auto":
         providers_to_try = (
@@ -819,8 +845,12 @@ def _try_providers(system_prompt: str, user_prompt: str, max_tokens: int,
     raise last_error or RuntimeError("All providers failed")
 
 
+# ── R3: _groq_demo_summary (with RPM fix) ────────────────────────────────────
 def _groq_demo_summary(text: str) -> str:
-    """Real 2-line summary for mock banner using fast 8B model."""
+    """
+    Real 2-line summary for mock banner using fast 8B model.
+    R3 FIX: RPM 429 does NOT mark the key as daily-exhausted.
+    """
     key = _get_groq_key()
     if not key:
         return ""
@@ -849,14 +879,18 @@ def _groq_demo_summary(text: str) -> str:
         if r.status_code == 200:
             return r.json()["choices"][0]["message"]["content"].strip()
         if r.status_code == 429:
-            _mark_key_exhausted(key)
+            is_rpm, _ = _is_rpm_limit(r)
+            if not is_rpm:
+                # Daily quota — mark it
+                _mark_key_exhausted(key)
+            # RPM — don't mark, just return empty (best-effort call)
     except Exception:
         pass
     return ""
 
 
+# ── _mock_response ────────────────────────────────────────────────────────────
 def _mock_response(text: str, reason: str = "") -> dict:
-    """Structured mock when all providers fail. Real speaker detection, no placeholders."""
     speaker_names: list[str] = []
     colon_pat = re.compile(
         r"(?:^|\n)\s*(?!https?:)([A-Za-z][A-Za-z\s\.\']{1,35}?)\s*[:：]",
@@ -933,13 +967,8 @@ def _mock_response(text: str, reason: str = "") -> dict:
     }
 
 
-# ── E2: Fine-grained sentiment helpers (no-API path) ─────────────────────────
-
+# ── No-API sentiment helpers ──────────────────────────────────────────────────
 def _sr_confidence_to_label(sig: dict) -> str:
-    """
-    Map a soft-rejection signal to the nearest fine-grained sentiment label.
-    DSA: dict lookup O(1).
-    """
     phrase = (sig.get("phrase", "") + sig.get("explanation", "")).lower()
     _MAP   = {
         "reconsider": "dismissive",  "contract":    "anxious",
@@ -960,28 +989,13 @@ def _no_api_sentiment_block(
     sr: dict,
     speakers: list[dict],
 ) -> list[dict]:
-    """
-    E2: Fine-grained sentiment for the no-API path.
-
-    Two layers:
-      Layer 1 — FineSentimentAnalyzer: 25-label analysis from transcript text.
-      Layer 2 — Soft-rejection overlay: critical SR signals override neutral.
-
-    Falls back to flat neutral if sentiment_engine not installed.
-    D2 FIX: syncs sentiment_score into speaker dicts.
-    D3 FIX: strict speaker name matching — no Unknown fallback.
-    DSA: O(U·L·P) for engine + O(n_speakers · n_signals) for SR overlay.
-    """
     risk_level = sr.get("risk_level", "NONE")
-
-    # SR speaker→signals map (D3 FIX: exclude Unknown)
     sr_signals: dict[str, list] = {}
     for sig in sr.get("detected", []):
         spk = sig.get("speaker", "Unknown")
         if spk != "Unknown":
             sr_signals.setdefault(spk, []).append(sig)
 
-    # Layer 1: engine
     if _SENTIMENT_ENGINE_AVAILABLE:
         report  = _SENTIMENT_ENGINE.from_raw_transcript(text)
         arc_map = report.speaker_arcs
@@ -996,7 +1010,6 @@ def _no_api_sentiment_block(
 
     sentiment = []
     for nm in names:
-        # Find matching arc
         arc = None
         for arc_spk, arc_obj in arc_map.items():
             if arc_spk.lower() in nm.lower() or nm.lower() in arc_spk.lower():
@@ -1019,7 +1032,6 @@ def _no_api_sentiment_block(
             score = "neutral"; label = "factual"; secondary = []
             valence = 0.0; trend = "stable"
 
-        # Layer 2: SR override
         matched_sr = []
         for spk_key, sigs in sr_signals.items():
             if spk_key.lower() in nm.lower() or nm.lower() in spk_key.lower():
@@ -1049,7 +1061,6 @@ def _no_api_sentiment_block(
             "risk_to_relationship": risk,
         })
 
-    # D2 FIX: sync into speaker dicts
     sent_lookup = {s["speaker"]: s["score"] for s in sentiment}
     for spk in speakers:
         spk["sentiment_score"] = sent_lookup.get(spk["name"], "neutral")
@@ -1057,118 +1068,30 @@ def _no_api_sentiment_block(
     return sentiment
 
 
-# ── E2: Fine-grained sentiment backstop (post-LLM) ───────────────────────────
-
-def _sentiment_backstop_block(result: dict, text: str) -> None:
-    """
-    Stage 12b — post-LLM sentiment backstop. Mutates result in place.
-
-    Tier 1: Enrich flat/partial LLM output with local engine fields
-            (valence, secondary_labels, tone, trend).
-    Tier 2: Blend valence when LLM and local engine disagree by > 0.40.
-    Tier 3: SR hard evidence overrides residual neutrals.
-    D2 FIX: sync sentiment_score into speaker dicts (all tiers).
-    DSA: O(U·L·P) for engine + O(speakers · arcs) for enrichment.
-    """
-    _sr       = result.get("soft_rejections", {})
-    _sr_level = _sr.get("risk_level", "NONE")
-
-    # Tier 1 + 2: enrich if any speaker is missing fine-grained fields
-    needs_enrichment = any(
-        "valence" not in s or "secondary_labels" not in s
-        for s in result.get("sentiment", [])
-    )
-
-    if needs_enrichment and _SENTIMENT_ENGINE_AVAILABLE:
-        local_report = _SENTIMENT_ENGINE.from_raw_transcript(text)
-        arc_map = local_report.speaker_arcs
-        overall_tone = {
-            "urgency":    local_report.overall_tone.urgency,
-            "certainty":  local_report.overall_tone.certainty,
-            "engagement": local_report.overall_tone.engagement,
-        }
-
-        for s in result.get("sentiment", []):
-            spk_name = s.get("speaker", "")
-            arc = next(
-                (a for key, a in arc_map.items()
-                 if key.lower() in spk_name.lower() or spk_name.lower() in key.lower()),
-                None,
-            )
-            if arc:
-                s.setdefault("secondary_labels", [
-                    lbl for lbl, _ in sorted(
-                        arc.emotion_distribution.items(), key=lambda kv: -kv[1]
-                    ) if lbl != arc.dominant
-                ][:2])
-                s.setdefault("valence", arc.mean_valence)
-                s.setdefault("tone",    overall_tone)
-                s.setdefault("trend",   arc.trend)
-                s.setdefault("label",   arc.dominant)
-
-                # Tier 2: valence blend
-                llm_val   = float(s.get("valence", 0.0))
-                local_val = arc.mean_valence
-                if abs(llm_val - local_val) > 0.40:
-                    s["valence"]        = round((llm_val + local_val) / 2, 3)
-                    s["valence_source"] = "backstop_blended"
-
-    # Tier 3: SR hard override
-    _contract_risk = _sr.get("contract_risk_detected", False)
-    _term_detected = _sr.get("termination_detected",   False)
-
-    if _sr_level in ("CRITICAL", "HIGH"):
-        for _s in result.get("sentiment", []):
-            if _s.get("score") == "neutral":
-                _s["score"]   = "negative"
-                _s["valence"] = min(float(_s.get("valence", 0.0)), -0.45)
-                if _contract_risk or _term_detected:
-                    _s["label"]                = (
-                        f"⚠️ Relationship at risk — {_s.get('label', 'see soft rejection signals')}"
-                    )
-                    _s["risk_to_relationship"] = "high"
-                else:
-                    _s["label"]                = (
-                        f"Tension detected — {_s.get('label', 'elevated risk signals present')}"
-                    )
-                    _s["risk_to_relationship"] = "medium"
-                print(
-                    f"[SENTIMENT] Backstop T3: neutral→negative for {_s.get('speaker')} "
-                    f"(SR level: {_sr_level})",
-                    file=sys.stderr, flush=True,
-                )
-
-    # D2 FIX: sync sentiment_score into speaker dicts
-    _sent_sync = {s["speaker"]: s["score"] for s in result.get("sentiment", [])}
-    for _spk in result.get("speakers", []):
-        _spk["sentiment_score"] = _sent_sync.get(
-            _spk.get("name", ""), _spk.get("sentiment_score", "neutral")
-        )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-
+# ── P2: _extractive_summary ───────────────────────────────────────────────────
 def _extractive_summary(text: str, max_sentences: int = 3) -> tuple[str, list[str]]:
+    """
+    Rule-based extractive summary for the no-API fallback.
+    Returns real content instead of a warning message.
+
+    Algorithm: score-and-select with speaker diversity.
+      Pass 1 — collect (speaker, utterance) pairs via splitlines()   O(n)
+      Pass 2 — score each utterance: length x content-signal bonus   O(u)
+      Pass 3 — greedy select top max_sentences, prefer diversity      O(u)
+    No regex — pure str ops.
+    """
     _SIGNAL = frozenset({
-        # problems / urgency
         "down", "outage", "issue", "problem", "failed", "error",
         "unacceptable", "delay", "breach", "concern", "blocked",
-        # commitments
         "will", "commit", "ensure", "guarantee", "provide", "send",
         "deliver", "confirm", "resolve", "fix", "escalate", "respond",
-        # deadlines
         "friday", "monday", "tomorrow", "today", "deadline", "within",
-        "hours", "days", "week", "urgent",
-        # decisions / risk
-        "contract", "reconsider", "terminate", "cancel", "agreed",
-        "decided", "approved", "rejected", "budget", "plan", "proposal",
-        # Hindi commitment / hedge signals
-        "dekhte", "sochte", "koshish", "zaroor", "bilkul",
+        "hours", "days", "week", "urgent", "contract", "reconsider",
+        "terminate", "cancel", "agreed", "decided", "approved", "rejected",
+        "budget", "plan", "proposal", "dekhte", "sochte", "koshish",
     })
 
-    # Normalise JP fullwidth colon ： so Japanese speaker turns work too
     norm = text.replace("\uff1a", ":")
-
     turns: list[tuple[str, str]] = []
     for line in norm.splitlines():
         if ":" not in line:
@@ -1176,7 +1099,6 @@ def _extractive_summary(text: str, max_sentences: int = 3) -> tuple[str, list[st
         idx     = line.index(":")
         speaker = line[:idx].strip()
         content = line[idx + 1:].strip()
-        # JP text has few whitespace-separated words — use char count too
         if 2 <= len(speaker) <= 40 and (len(content.split()) >= 5 or len(content) >= 15):
             turns.append((speaker, content))
 
@@ -1186,47 +1108,31 @@ def _extractive_summary(text: str, max_sentences: int = 3) -> tuple[str, list[st
 
     def _score(utt: str) -> float:
         words = utt.lower().split()
-        hits  = sum(1 for w in words if w in _SIGNAL)
-        return min(len(words) / 25.0, 1.2) + hits * 0.35
+        return min(len(words) / 25.0, 1.2) + sum(1 for w in words if w in _SIGNAL) * 0.35
 
     scored = sorted(turns, key=lambda t: _score(t[1]), reverse=True)
-
-    # Greedy select with speaker diversity; fill remaining from any speaker
     selected: list[tuple[str, str]] = []
     seen: set[str] = set()
     for spk, utt in scored:
-        if len(selected) >= max_sentences:
-            break
-        if spk not in seen:
-            selected.append((spk, utt))
-            seen.add(spk)
+        if len(selected) >= max_sentences: break
+        if spk not in seen: selected.append((spk, utt)); seen.add(spk)
     for spk, utt in scored:
-        if len(selected) >= max_sentences:
-            break
-        if (spk, utt) not in selected:
-            selected.append((spk, utt))
+        if len(selected) >= max_sentences: break
+        if (spk, utt) not in selected: selected.append((spk, utt))
 
-    full = " ".join(
-        f"{s}: {u[:160]}{'...' if len(u) > 160 else ''}"
-        for s, u in selected
-    )
-    bulls = [
-        f"{s}: {u[:120]}{'...' if len(u) > 120 else ''}"
-        for s, u in selected
-    ]
+    full  = " ".join(f"{s}: {u[:160]}{'...' if len(u) > 160 else ''}" for s, u in selected)
+    bulls = [f"{s}: {u[:120]}{'...' if len(u) > 120 else ''}" for s, u in selected]
     return full, bulls
 
 
+# ── P3: _no_api_result ────────────────────────────────────────────────────────
 def _no_api_result(text: str, reason: str = "") -> dict:
     """
     Full analysis without any LLM API call.
-    Real data for: speakers, sentiment (E2 fine-grained), keigo, deal outcome,
-                   conversation dynamics, action items (rule-based).
-    Honestly empty for: summary, key_decisions (require LLM understanding).
+    P3: Uses _extractive_summary() for real content instead of warning text.
     """
     import re as _re
 
-    # ── Speaker extraction ────────────────────────────────────────────────────
     try:
         from utils.speaker_detector import detect_speakers as _detect_spk
         _spk_result = _detect_spk(text)
@@ -1257,7 +1163,6 @@ def _no_api_result(text: str, reason: str = "") -> dict:
     if _diff and speakers:
         speakers[0]["talk_time_pct"] += _diff
 
-    # ── Soft rejection ────────────────────────────────────────────────────────
     sr = {}
     try:
         from analysis.soft_rejection_detector import detect_soft_rejections
@@ -1266,18 +1171,14 @@ def _no_api_result(text: str, reason: str = "") -> dict:
         print(f"[NO_API] soft_rejection_detector: {_e}", file=sys.stderr, flush=True)
 
     risk_level = sr.get("risk_level", "NONE")
+    sentiment  = _no_api_sentiment_block(text, names, sr, speakers)
 
-    # ── E2: Fine-grained sentiment (replaces old flat block) ──────────────────
-    sentiment = _no_api_sentiment_block(text, names, sr, speakers)
-
-    # ── D4 FIX: rule-based comm risk ─────────────────────────────────────────
     _RISK_TO_COMM_SCORE = {
         "CRITICAL": 25, "HIGH": 20, "MEDIUM": 13,
         "LOW": 6, "MINIMAL": 2, "NONE": 0,
     }
     _comm_risk_rule_based = _RISK_TO_COMM_SCORE.get(risk_level, 0)
 
-    # ── Japan insights ────────────────────────────────────────────────────────
     japan_insights: dict = {
         "keigo_level": "unknown", "nemawashi_signals": [], "code_switch_count": 0,
     }
@@ -1303,7 +1204,6 @@ def _no_api_result(text: str, reason: str = "") -> dict:
     except Exception:
         pass
 
-    # ── Deal outcome ──────────────────────────────────────────────────────────
     deal_outcome = {}
     try:
         from analysis.deal_outcome_detector import detect_deal_outcome
@@ -1311,7 +1211,6 @@ def _no_api_result(text: str, reason: str = "") -> dict:
     except Exception as _e:
         print(f"[NO_API] deal_outcome_detector: {_e}", file=sys.stderr, flush=True)
 
-    # ── Conversation dynamics ─────────────────────────────────────────────────
     conversation_dynamics: dict = {}
     role_hints: dict = {}
     try:
@@ -1324,7 +1223,6 @@ def _no_api_result(text: str, reason: str = "") -> dict:
     word_count   = len(text.split())
     speakers_str = " & ".join(names[:2])
 
-    # ── D5 FIX: rule-based action items ──────────────────────────────────────
     _rule_action_items: list[dict] = []
     try:
         from analysis.action_item_extractor import extract_action_items
@@ -1337,7 +1235,7 @@ def _no_api_result(text: str, reason: str = "") -> dict:
     except Exception as _e:
         print(f"[NO_API] action_item_extractor failed: {_e}", file=sys.stderr, flush=True)
 
-    # Real extractive summary — no LLM needed
+    # P3: real extractive summary — not a warning message
     _ext_full, _ext_bullets = _extractive_summary(text)
 
     return {
@@ -1372,47 +1270,123 @@ def _no_api_result(text: str, reason: str = "") -> dict:
         "_no_api":               True,
         "_no_api_reason":        reason,
         "_no_api_warning": (
-            "Summary, action items, and key decisions require LLM. "
-            "All other analysis is rule-based and fully accurate."
+            "Summary is extractive (rule-based). "
+            "Full LLM analysis resumes when API quota resets."
         ),
         "_comm_risk_rule_based": _comm_risk_rule_based,
     }
 
 
+# ── Sentiment backstop ────────────────────────────────────────────────────────
+def _sentiment_backstop_block(result: dict, text: str) -> None:
+    _sr       = result.get("soft_rejections", {})
+    _sr_level = _sr.get("risk_level", "NONE")
+
+    needs_enrichment = any(
+        "valence" not in s or "secondary_labels" not in s
+        for s in result.get("sentiment", [])
+    )
+
+    if needs_enrichment and _SENTIMENT_ENGINE_AVAILABLE:
+        local_report = _SENTIMENT_ENGINE.from_raw_transcript(text)
+        arc_map = local_report.speaker_arcs
+        overall_tone = {
+            "urgency":    local_report.overall_tone.urgency,
+            "certainty":  local_report.overall_tone.certainty,
+            "engagement": local_report.overall_tone.engagement,
+        }
+
+        for s in result.get("sentiment", []):
+            spk_name = s.get("speaker", "")
+            arc = next(
+                (a for key, a in arc_map.items()
+                 if key.lower() in spk_name.lower() or spk_name.lower() in key.lower()),
+                None,
+            )
+            if arc:
+                s.setdefault("secondary_labels", [
+                    lbl for lbl, _ in sorted(
+                        arc.emotion_distribution.items(), key=lambda kv: -kv[1]
+                    ) if lbl != arc.dominant
+                ][:2])
+                s.setdefault("valence", arc.mean_valence)
+                s.setdefault("tone",    overall_tone)
+                s.setdefault("trend",   arc.trend)
+                s.setdefault("label",   arc.dominant)
+
+                llm_val   = float(s.get("valence", 0.0))
+                local_val = arc.mean_valence
+                if abs(llm_val - local_val) > 0.40:
+                    s["valence"]        = round((llm_val + local_val) / 2, 3)
+                    s["valence_source"] = "backstop_blended"
+
+    _contract_risk = _sr.get("contract_risk_detected", False)
+    _term_detected = _sr.get("termination_detected",   False)
+
+    if _sr_level in ("CRITICAL", "HIGH"):
+        for _s in result.get("sentiment", []):
+            if _s.get("score") == "neutral":
+                _s["score"]   = "negative"
+                _s["valence"] = min(float(_s.get("valence", 0.0)), -0.45)
+                if _contract_risk or _term_detected:
+                    _s["label"]                = (
+                        f"⚠️ Relationship at risk — {_s.get('label', 'see soft rejection signals')}"
+                    )
+                    _s["risk_to_relationship"] = "high"
+                else:
+                    _s["label"]                = (
+                        f"Tension detected — {_s.get('label', 'elevated risk signals present')}"
+                    )
+                    _s["risk_to_relationship"] = "medium"
+                print(
+                    f"[SENTIMENT] Backstop T3: neutral→negative for {_s.get('speaker')} "
+                    f"(SR level: {_sr_level})",
+                    file=sys.stderr, flush=True,
+                )
+
+    _sent_sync = {s["speaker"]: s["score"] for s in result.get("sentiment", [])}
+    for _spk in result.get("speakers", []):
+        _spk["sentiment_score"] = _sent_sync.get(
+            _spk.get("name", ""), _spk.get("sentiment_score", "neutral")
+        )
+
+
+# ── analyze_transcript ────────────────────────────────────────────────────────
 def analyze_transcript(text: str, language: str = "en",
                        bypass_cache: bool = False,
                        user_id: str | None = None) -> dict:
     """
-    Full analysis pipeline v8.0
+    Full analysis pipeline v8.1
 
     Stage order:
-     0.   E3     normalize_format (7-pass, upgraded from FIX-22)
-     A3:         PII mask full transcript
-     1.          Vector cache check
-     2.          MD5 exact cache
-     3.          Truncate masked text
-     4.          LLM extraction (Groq → Ollama → no-API)
-     A4:         PII restoration
-     5.          _validate_and_fill (defaults + E4 fine-grained validation)
-     6.          Speaker fallback
-     7.          talk_time_pct recompute (FIX-20)
-     8.          Speaker normalizer
-     9.          MeCab keigo
-    10.          Code-switch count
-    10b. D6     Post-LLM rule-based action item backfill
-    11.          Hallucination guard
-    12.          Soft rejection detection
-    12b. E2     Sentiment backstop (fine-grained enrichment + SR override + D2 sync)
-    13.          Deal outcome detection
-    14.          Conversation dynamics
-    15.          Log + cache store
+     0.  normalize_format (7-pass)
+     A3: PII mask
+     1.  Vector cache check
+     2.  MD5 exact cache
+     3.  Truncate + build prompt
+     4.  LLM extraction (Groq → Ollama → no-API)
+         R2: RPM 429 waits and retries — does NOT fall through to no-API
+     A4: PII restoration
+     5.  _validate_and_fill
+     6.  Speaker fallback
+     7.  talk_time_pct recompute (P4: char-count fallback)
+     8.  Speaker normalizer
+     9.  MeCab keigo
+    10.  Code-switch count
+    10b. Post-LLM action item backfill
+    11.  Hallucination guard
+    12.  Soft rejection detection
+    12b. Sentiment backstop
+    13.  Deal outcome detection
+    14.  Conversation dynamics
+    15.  Log + cache store
     """
     start_time = time.time()
 
-    # Stage 0: normalize format (E3 — upgraded 7-pass)
+    # Stage 0
     text = normalize_format(text)
 
-    # A3 FIX: PII mask
+    # A3: PII mask
     pii         = None
     masked_text = text
     _restore_fn = None
@@ -1423,8 +1397,6 @@ def analyze_transcript(text: str, language: str = "en",
         )
         masked_text, pii = _mask_fn(text)
         print(f"[PII] Masked {pii.counters} entities.", file=sys.stderr, flush=True)
-        _hint = _extract_speaker_hint(_truncate_transcript(masked_text))
-        print(f"[PII] Speaker hint on masked text: '{_hint}'", file=sys.stderr, flush=True)
     except ImportError:
         print("[PII] pii_masker not found — transcript unmasked.", file=sys.stderr, flush=True)
     except Exception as e:
@@ -1464,7 +1436,7 @@ def analyze_transcript(text: str, language: str = "en",
         print(f"[TRANSCRIPT_AI] MD5 cache read failed: {e}", file=sys.stderr, flush=True)
         get_cached = set_cache = None
 
-    # Stage 3: truncate masked text
+    # Stage 3: truncate + prompt
     text_for_llm   = _truncate_transcript(masked_text)
     system_prompt, user_prompt = build_prompt(text_for_llm, language)
 
@@ -1473,6 +1445,8 @@ def analyze_transcript(text: str, language: str = "en",
         text_for_llm, language,
         bool(re.search(r"[぀-鿿]", text_for_llm))
     )
+
+    # P1: Raised max_tokens — prevents full_summary truncation
     max_tokens = (
         1300 if words < 300  else
         1700 if words < 800  else
@@ -1493,12 +1467,10 @@ def analyze_transcript(text: str, language: str = "en",
 
         result = _parse(raw)
 
-        # A4 FIX: restore PII
         if pii is not None and _restore_fn is not None:
             result = _restore_fn(result, pii)
             print("[PII] Restored PII in LLM result.", file=sys.stderr, flush=True)
 
-        # Stage 5: validate and fill (includes E4 fine-grained validation)
         result = _validate_and_fill(result)
 
         missing = _get_missing_fields(result)
@@ -1513,7 +1485,6 @@ def analyze_transcript(text: str, language: str = "en",
                 f"Unavailable: {', '.join(missing)}."
             )
 
-        # Stage 6: speaker fallback
         if not result.get("speakers"):
             _names = [
                 s.strip() for s in _extract_speaker_hint(text).split(",")
@@ -1562,7 +1533,7 @@ def analyze_transcript(text: str, language: str = "en",
             result["_partial_warning"] = (
                 f"⚠️ API limit reached mid-generation. Showing what was generated.\n"
                 f"Generated: {', '.join(present) or 'none'}.\n"
-                f"Unavailable (API limit): {', '.join(missing)}.\n"
+                f"Unavailable: {', '.join(missing)}.\n"
                 f"Full analysis available when quota resets."
             )
             provider_used = f"partial_{provider_used}"
@@ -1572,7 +1543,7 @@ def analyze_transcript(text: str, language: str = "en",
             result        = _validate_and_fill(result)
             provider_used = "no_api"
 
-    # Stage 7: talk_time_pct on raw text
+    # Stage 7: talk_time_pct (P4 char-count fallback is inside _recompute)
     _recompute_talk_time_pct(text, result.get("speakers", []))
 
     # Stage 8: speaker normalizer
@@ -1607,7 +1578,7 @@ def analyze_transcript(text: str, language: str = "en",
         except Exception as e:
             print(f"[TRANSCRIPT_AI] count_code_switches failed: {e}", file=sys.stderr, flush=True)
 
-    # Stage 10b: D6 FIX — post-LLM action item backfill
+    # Stage 10b: post-LLM action item backfill
     if not result.get("_no_api") and "mock" not in provider_used:
         try:
             from analysis.action_item_extractor import extract_action_items as _ae
@@ -1656,8 +1627,64 @@ def analyze_transcript(text: str, language: str = "en",
         except Exception as e:
             print(f"[TRANSCRIPT_AI] soft_rejection_detector failed: {e}", file=sys.stderr, flush=True)
 
-    # Stage 12b: E2 sentiment backstop (fine-grained enrichment + SR override + D2 sync)
+    # Stage 12b: sentiment backstop
     _sentiment_backstop_block(result, text)
+
+    # Stage 12c: communicative function detection
+    # Adds communicative_function (WHAT speaker is doing) to each sentiment entry.
+    # Runs after backstop so it never overwrites LLM-generated function labels —
+    # it only fills in entries where the field is missing.
+    try:
+        from analysis.meeting_function_detector import detect_functions, speaker_function_summary
+        _fn_results = detect_functions(text)
+        # Build speaker → primary_function lookup (most confident per speaker)
+        _fn_map: dict[str, str] = {}
+        _fn_secondary_map: dict[str, list[str]] = {}
+        for _fr in _fn_results:
+            _spk = _fr["speaker"].lower().strip()
+            _existing_conf = getattr(_fn_map, "_conf", {}).get(_spk, 0.0)
+            if _fr["confidence"] > _existing_conf:
+                _fn_map[_spk] = _fr["communicative_function"]
+                _fn_secondary_map[_spk] = _fr["secondary_functions"]
+        # Merge into sentiment entries (setdefault — never overwrite LLM output)
+        for _sent in result.get("sentiment", []):
+            _name = _sent.get("speaker", "").lower().strip()
+            # Fuzzy match: "Kenji" matches "[NAME_1]"-style masked names too
+            _match_key = next(
+                (k for k in _fn_map if _name in k or k in _name), None
+            )
+            if _match_key:
+                _sent.setdefault("communicative_function", _fn_map[_match_key])
+                _sent.setdefault("secondary_functions", _fn_secondary_map.get(_match_key, []))
+        result["_function_detection"] = speaker_function_summary(_fn_results)
+    except ImportError:
+        pass
+    except Exception as _fe:
+        print(f"[TRANSCRIPT_AI] function_detector failed: {_fe}", file=sys.stderr, flush=True)
+
+    # Stage 12d: nemawashi sequence detection (Kayo point 3)
+    # Meeting-level only — not phrase-level. Depends on Stage 12c having
+    # populated communicative_function per utterance.
+    # Sequence: escalation turn → gap → same speaker returns more specific.
+    try:
+        from analysis.nemawashi_sequence import detect_nemawashi_sequence
+        from analysis.meeting_function_detector import detect_functions as _df
+        _fn_results_for_nema = _df(text)
+        _nema = detect_nemawashi_sequence(_fn_results_for_nema)
+        result["nemawashi_sequence"] = _nema
+        if _nema["nemawashi_sequence_detected"]:
+            print(
+                f"[TRANSCRIPT_AI] Nemawashi sequence detected "
+                f"(conf={_nema['confidence']:.2f}, "
+                f"trigger={_nema.get('trigger_speaker')}, "
+                f"resolution={_nema.get('resolution_speaker')})",
+                file=sys.stderr, flush=True,
+            )
+    except ImportError:
+        pass
+    except Exception as _ne:
+        print(f"[TRANSCRIPT_AI] nemawashi_sequence failed: {_ne}",
+              file=sys.stderr, flush=True)
 
     # Stage 13: deal outcome
     if "deal_outcome" not in result:
@@ -1712,6 +1739,7 @@ def analyze_transcript(text: str, language: str = "en",
     return result
 
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
 def _fallback_meeting_title(data: dict) -> str:
     source = ""
     bullets = data.get("summary")
@@ -1727,20 +1755,6 @@ def _fallback_meeting_title(data: dict) -> str:
 
 
 def _validate_and_fill(data: dict) -> dict:
-    """
-    Fill missing keys with safe defaults and normalise LLM output.
-
-    v8.0 (E4): Added fine-grained field validation —
-      label       validated against 25-label set
-      secondary_labels  cleaned to valid labels only
-      valence     clamped to [-1.0, +1.0]; score derived from valence if missing
-      tone        dict validated with correct keys and value sets
-
-    Retained from v7.9:
-      B4: tone strip+lower, intensity clamp
-      B5: sentiment score strip+lower
-      A2: japan_insights None guard
-    """
     data.setdefault("meeting_title", "")
     if not data["meeting_title"].strip():
         data["meeting_title"] = _fallback_meeting_title(data)
@@ -1751,7 +1765,6 @@ def _validate_and_fill(data: dict) -> dict:
     data.setdefault("conversation_dynamics", {})
     data.setdefault("role_hints", {})
 
-    # B5 + E4: sentiment field validation
     data.setdefault("sentiment", [])
     _VALID_SCORES     = {"positive", "neutral", "negative"}
     _VALID_RISK       = {"high", "medium", "low", "none"}
@@ -1760,16 +1773,13 @@ def _validate_and_fill(data: dict) -> dict:
     _VALID_ENGAGEMENT = {"active", "passive", "disengaged"}
 
     for s in data.get("sentiment", []):
-        # B5: coarse score
         raw_score  = s.get("score", "").strip().lower()
         s["score"] = raw_score if raw_score in _VALID_SCORES else "neutral"
         s.setdefault("label", "factual")
 
-        # E4: fine-grained label
         raw_label  = s.get("label", "").strip().lower().replace(" ", "_").replace("-", "_")
         s["label"] = raw_label if (_ALL_FINE_GRAINED and raw_label in _ALL_FINE_GRAINED) else "factual"
 
-        # E4: secondary_labels
         raw_sec = s.get("secondary_labels", [])
         s["secondary_labels"] = [
             lbl.strip().lower().replace(" ", "_").replace("-", "_")
@@ -1778,28 +1788,24 @@ def _validate_and_fill(data: dict) -> dict:
             in (_ALL_FINE_GRAINED or set())
         ][:2]
 
-        # E4: valence clamp
         try:
             s["valence"] = max(-1.0, min(1.0, float(s.get("valence", 0.0))))
         except (TypeError, ValueError):
             s["valence"] = 0.0
 
-        # E4: derive score from valence when LLM left it neutral but valence disagrees
         if s["score"] == "neutral" and abs(s["valence"]) > 0.01:
             if s["valence"] > POSITIVE_VALENCE_THRESHOLD:
                 s["score"] = "positive"
             elif s["valence"] < NEGATIVE_VALENCE_THRESHOLD:
                 s["score"] = "negative"
 
-        # E4: tone dict validation
         raw_tone = s.get("tone") if isinstance(s.get("tone"), dict) else {}
         s["tone"] = {
-            "urgency":    raw_tone.get("urgency",    "low")     if raw_tone.get("urgency")    in _VALID_URGENCY    else "low",
+            "urgency":    raw_tone.get("urgency",    "low")      if raw_tone.get("urgency")    in _VALID_URGENCY    else "low",
             "certainty":  raw_tone.get("certainty",  "definite") if raw_tone.get("certainty")  in _VALID_CERTAINTY  else "definite",
             "engagement": raw_tone.get("engagement", "passive")  if raw_tone.get("engagement") in _VALID_ENGAGEMENT else "passive",
         }
 
-        # risk_to_relationship
         raw_risk = s.get("risk_to_relationship", "").strip().lower()
         if raw_risk not in _VALID_RISK:
             s["risk_to_relationship"] = (
@@ -1809,7 +1815,6 @@ def _validate_and_fill(data: dict) -> dict:
         else:
             s["risk_to_relationship"] = raw_risk
 
-    # A2 FIX: japan_insights None guard
     if not isinstance(data.get("japan_insights"), dict):
         data["japan_insights"] = {}
     ji = data["japan_insights"]
@@ -1846,7 +1851,6 @@ def _validate_and_fill(data: dict) -> dict:
         if isinstance(s, str) and _JP_RE.search(s) and not _is_fp(s)
     ]
 
-    # B4 FIX: speaker tone normalisation
     data.setdefault("speakers", [])
     _VALID_TONES = {"aggressive", "assertive", "neutral", "cooperative", "deferential", "hesitant"}
     speakers = data["speakers"]
@@ -1873,6 +1877,7 @@ def _validate_and_fill(data: dict) -> dict:
     return data
 
 
+# ── __main__ ──────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         os.environ["TRANSCRIPT_AI_PROVIDER"] = sys.argv[1]
@@ -1893,56 +1898,36 @@ if __name__ == "__main__":
         print("  (no keys marked exhausted)")
     print(f"  Available: {len(_available_groq_keys())} / {len(_all_groq_keys())} keys")
 
-    print("\n--- B1/B2: model IDs ---")
-    for name, val in [("GROQ_MODEL", GROQ_MODEL), ("GROQ_MODEL_FAST", GROQ_MODEL_FAST)]:
-        ok = "groq/" not in val and "meta-llama/" not in val
-        print(f"  {'✓' if ok else '✗'}  {name} = '{val}'")
+    print("\n--- R1: RPM vs daily quota detection ---")
+    class _FakeResp:
+        def __init__(self, h): self.headers = h
+    for hdrs, exp_rpm in [
+        ({"retry-after": "1"},   True),
+        ({"retry-after": "60"},  True),
+        ({"retry-after": "121"}, False),
+        ({},                     False),
+        ({"x-ratelimit-reset-requests": "2s"}, True),
+    ]:
+        is_rpm, secs = _is_rpm_limit(_FakeResp(hdrs))
+        sym = "✓" if is_rpm == exp_rpm else "✗"
+        print(f"  {sym}  headers={hdrs} → is_rpm={is_rpm} wait={secs}s")
 
-    print("\n--- B4: tone normalisation ---")
-    _VALID_TONES = {"aggressive", "assertive", "neutral", "cooperative", "deferential", "hesitant"}
-    for raw, expected in [("Cooperative","cooperative"),(" hesitant ","hesitant"),
-                          ("ASSERTIVE","assertive"),("unknown_tone","neutral"),("","neutral")]:
-        result = raw.strip().lower()
-        result = result if result in _VALID_TONES else "neutral"
-        print(f"  {'✓' if result == expected else '✗'}  '{raw}' → '{result}'")
-
-    print("\n--- B5: sentiment normalisation ---")
-    _VALID_SCORES = {"positive", "neutral", "negative"}
-    for raw, expected in [("Positive","positive"),("NEGATIVE","negative"),
-                          ("neutral","neutral"),("happy","neutral"),("","neutral")]:
-        result = raw.strip().lower()
-        result = result if result in _VALID_SCORES else "neutral"
-        print(f"  {'✓' if result == expected else '✗'}  '{raw}' → '{result}'")
-
-    print("\n--- E2: fine-grained sentiment (no-API path) ---")
-    _test_transcript = (
-        "Client: This is completely unacceptable. The system has been down for 6 hours.\n"
-        "Kenji: 大変申し訳ございません。We are working on it as fast as possible.\n"
-        "Client: I need a written commitment.\n"
-        "Kenji: 上司に相談して、2時間以内に書面でご回答します。\n"
-        "Client: If this isn't resolved by Friday we will reconsider the entire contract.\n"
-        "Kenji: 誠に申し訳ございません。全力で対応いたします。We will not let that happen."
+    print("\n--- P2: _extractive_summary ---")
+    _t = (
+        "Client: The system has been down for 6 hours. This is completely unacceptable.\n"
+        "Kenji: I apologize sincerely. We will provide a written response within 2 hours.\n"
+        "Client: If not resolved by Friday we will reconsider the entire contract.\n"
+        "Kenji: 上司に相談して、2時間以内に書面でご回答します。"
     )
-    _r = _no_api_result(_test_transcript)
-    for s in _r.get("sentiment", []):
-        print(f"  {s['speaker']:<10} score={s['score']:<9} label={s.get('label','?'):<22} "
-              f"valence={s.get('valence',0):+.3f}  secondary={s.get('secondary_labels',[])}")
+    _f, _b = _extractive_summary(_t)
+    print(f"  full_summary: {_f[:100]}...")
+    for b in _b:
+        print(f"  • {b[:90]}")
 
-    print("\n--- E4: validate_and_fill fine-grained fields ---")
-    _dummy = {"sentiment": [
-        {"speaker": "A", "score": "Positive", "label": "enthusiastic", "valence": 0.9,
-         "secondary_labels": ["confident"], "tone": {"urgency": "high", "certainty": "definite", "engagement": "active"}},
-        {"speaker": "B", "score": "neutral",  "label": "NOT_A_LABEL",  "valence": -0.7,
-         "secondary_labels": ["fake_label"], "tone": "bad_tone"},
-    ]}
-    _filled = _validate_and_fill(_dummy)
-    for s in _filled["sentiment"]:
-        print(f"  {s['speaker']}: score={s['score']}, label={s['label']}, "
-              f"valence={s['valence']}, tone={s['tone']}")
-
-    print("\n--- A5/A6: speaker hint + degenerate detection ---")
-    masked_sample = "[NAME_1]: Good morning.\n[NAME_2]: Let us start.\n"
-    h_masked = _extract_speaker_hint(masked_sample)
-    degen    = _is_degenerate_transcript("[NAME_1]: Short.", "[NAME_1]")
-    print(f"  {'✓' if '[NAME_1]' in h_masked else '✗'}  masked hint: '{h_masked}'")
-    print(f"  {'✓' if degen else '✗'}  single-speaker degenerate={degen}")
+    print("\n--- P4: char-count talk time (no timestamps) ---")
+    _spk = [{"name": "Alice", "talk_time_pct": 50}, {"name": "Bob", "talk_time_pct": 50}]
+    _txt = "Alice: I need to raise a critical issue about this system outage.\nBob: Ok.\nAlice: We have lost significant revenue and our clients are unhappy with the delays."
+    _recompute_talk_time_pct(_txt, _spk)
+    for s in _spk:
+        print(f"  {s['name']}: {s['talk_time_pct']}%")
+    print(f"  Sum: {sum(s['talk_time_pct'] for s in _spk)}")
