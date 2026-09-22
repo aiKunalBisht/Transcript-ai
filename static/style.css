@@ -465,6 +465,17 @@ html, body {
 @media (max-width: 900px) {
     .tai-hamburger { display: flex; }
 
+    /* Topbar on mobile: fixed top-right opposite hamburger */
+    .tai-topbar {
+        position: fixed;
+        top: 1rem;
+        right: 1rem;
+        width: auto;
+        padding: 0;
+        margin: 0;
+        z-index: 200;
+    }
+
     .tai-app { flex-direction: column; }
 
     /* Sidebar becomes a fixed off-canvas drawer */
@@ -694,4 +705,384 @@ html, body {
 /* Dim cards visually when no analysis is loaded */
 .tai-export-grid .card:has(button:disabled) {
     opacity: 0.72;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TOPBAR & PROFILE DROPDOWN (TOP RIGHT)
+   ═══════════════════════════════════════════════════════════════ */
+
+.tai-topbar {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    width: 100%;
+    margin-bottom: 0.75rem;
+    position: relative;
+    z-index: 50;
+}
+
+.tai-topbar-spacer {
+    flex: 1;
+}
+
+.tai-profile-dropdown {
+    position: relative;
+    display: inline-block;
+}
+
+/* Collapsed profile trigger button — showing only profile */
+.tai-profile-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    background: var(--surface);
+    border: 1.5px solid var(--border-mid);
+    padding: 0.4rem 0.85rem;
+    border-radius: 999px;
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: var(--shadow-sm);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    user-select: none;
+}
+
+.tai-profile-btn:hover {
+    border-color: var(--sakura);
+    background: var(--surface-warm);
+    box-shadow: 0 4px 14px rgba(219, 39, 119, 0.12);
+    transform: translateY(-1px);
+}
+
+.tai-profile-btn--active {
+    border-color: var(--sakura-deep);
+    background: var(--sakura-bg);
+    box-shadow: 0 0 0 3px var(--sakura-light);
+}
+
+.tai-profile-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--sakura-bg);
+    color: var(--sakura-deep);
+    border: 1px solid var(--sakura-light);
+    flex-shrink: 0;
+    transition: transform 0.2s ease;
+}
+
+.tai-profile-btn:hover .tai-profile-icon {
+    transform: scale(1.06);
+}
+
+.tai-profile-avatar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--sakura), var(--sakura-deep));
+    color: #fff;
+    font-size: 0.8rem;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.tai-profile-avatar--lg {
+    width: 40px;
+    height: 40px;
+    font-size: 1.05rem;
+}
+
+.tai-profile-icon--lg {
+    width: 40px;
+    height: 40px;
+}
+
+.tai-profile-label {
+    letter-spacing: -0.01em;
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tai-profile-caret {
+    color: var(--ink-faint);
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tai-profile-caret--rotate {
+    transform: rotate(180deg);
+}
+
+/* Expanded options menu */
+.tai-profile-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    width: 300px;
+    max-width: calc(100vw - 2rem);
+    background: rgba(255, 255, 255, 0.98);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    box-shadow: 0 16px 40px rgba(17, 24, 39, 0.12), 0 4px 12px rgba(0, 0, 0, 0.04);
+    padding: 0.75rem;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    animation: taiProfileSlide 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes taiProfileSlide {
+    from {
+        opacity: 0;
+        transform: translateY(-8px) scale(0.96);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.tai-profile-menu-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.5rem 0.6rem;
+    position: relative;
+}
+
+.tai-profile-menu-userinfo {
+    flex: 1;
+    min-width: 0;
+}
+
+.tai-profile-menu-name {
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: var(--ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tai-profile-menu-email {
+    font-size: 0.74rem;
+    color: var(--ink-soft);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tai-profile-badge-online {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 0 2px #fff, 0 0 8px rgba(5, 150, 105, 0.5);
+}
+
+.tai-menu-divider {
+    height: 1px;
+    background: var(--border);
+    margin: 0.25rem 0;
+}
+
+.tai-menu-links {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.tai-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.6rem 0.75rem;
+    border-radius: 10px;
+    text-decoration: none;
+    color: var(--ink);
+    font-size: 0.84rem;
+    font-weight: 500;
+    transition: all 0.18s ease;
+    cursor: pointer;
+}
+
+.tai-menu-item:hover {
+    background: var(--surface-warm);
+    color: var(--sakura-deep);
+    transform: translateX(2px);
+}
+
+.tai-menu-item.active {
+    background: var(--sakura-bg);
+    color: var(--sakura-deep);
+    font-weight: 600;
+}
+
+.tai-menu-item--login {
+    background: var(--sakura-bg);
+    border: 1px solid var(--sakura-light);
+}
+
+.tai-menu-item--login:hover {
+    background: var(--sakura-pale);
+    border-color: var(--sakura);
+}
+
+.tai-menu-item--logout:hover {
+    background: var(--red-bg);
+    color: var(--red);
+}
+
+.tai-menu-item-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: var(--washi);
+    color: var(--ink-mid);
+    flex-shrink: 0;
+    font-size: 0.95rem;
+    transition: all 0.2s;
+}
+
+.tai-menu-item:hover .tai-menu-item-icon {
+    background: var(--sakura-light);
+    color: var(--sakura-deep);
+}
+
+.tai-menu-item-icon--accent {
+    color: var(--sakura-deep);
+    background: var(--sakura-pale);
+}
+
+.tai-menu-item-content {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+}
+
+.tai-menu-item-title {
+    font-weight: 600;
+    font-size: 0.84rem;
+    color: var(--ink);
+    line-height: 1.25;
+}
+
+.tai-menu-item:hover .tai-menu-item-title {
+    color: var(--sakura-deep);
+}
+
+.tai-menu-item-desc {
+    font-size: 0.7rem;
+    color: var(--ink-soft);
+    line-height: 1.25;
+    margin-top: 1px;
+}
+
+.tai-menu-arrow {
+    color: var(--ink-faint);
+    flex-shrink: 0;
+    transition: transform 0.2s ease;
+}
+
+.tai-menu-item:hover .tai-menu-arrow {
+    transform: translateX(2px);
+    color: var(--sakura-deep);
+}
+
+.tai-menu-pill {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.2rem 0.45rem;
+    border-radius: 999px;
+    background: var(--washi);
+    color: var(--ink-mid);
+    border: 1px solid var(--border);
+}
+
+.tai-menu-pill--pink {
+    background: var(--sakura-bg);
+    color: var(--sakura-deep);
+    border-color: var(--sakura-light);
+}
+
+.tai-google-menu-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.55rem;
+    padding: 0.55rem 0.75rem;
+    border-radius: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border-mid);
+    color: var(--ink);
+    text-decoration: none;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.tai-google-menu-btn:hover {
+    border-color: var(--sakura);
+    background: var(--surface-warm);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-sm);
+}
+
+.tai-profile-menu-footer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.4rem 0.2rem 0.1rem;
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--green);
+}
+
+.tai-auth-user {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.4rem 0;
+}
+
+.tai-auth-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--sakura), var(--sakura-deep));
+    color: #fff;
+    font-size: 0.82rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   WARM-UP BANNER
+   ═══════════════════════════════════════════════════════════════ */
+
+#warm-banner {
+    overflow: hidden;
+    max-height: 60px;
 }

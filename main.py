@@ -1,15 +1,23 @@
-"""
-main.py - TranscriptAI v3.1
-FastAPI server. Run: uvicorn main:app --reload --port 7860
+# main.py - TranscriptAI v3.3
+# FastAPI server. Run: uvicorn main:app --reload --port 7860
+#
+# v3.3 changes:
+#   - slowapi rate limiting on /analyze-text (10/minute per IP)
+#   - Fixed double PII masking — analyzer.py handles masking internally
+#     main.py no longer masks before calling analyze_transcript()
+#   - Replaced local SQLite user storage with Firebase Firestore
+#     Users now persist across HuggingFace redeploys
+#   - Firebase fallback: if FIREBASE_SERVICE_ACCOUNT not set, silently skips
+#
+# v3.1/3.2 retained:
+#   - Google OAuth auth routes (/auth/login, /auth/callback, /auth/logout, /auth/me)
+#   - SessionMiddleware + aiosqlite removed (replaced by Firebase)
+#   - All export routes, health check, SEO routes unchanged
 
-v3.1 fixes (June 2026):
-  - Removed duplicate @app.post("/export/cultural-insights") route (caused 500 on gijiroku too)
-  - Added ensure_speaker_labels() call before analyze_transcript() for unlabeled transcripts
-  - Sentiment prompt now scores communicative register, not emotional valence
-  - Health score capped at 22 for explicit contract termination meetings
-  - CRITICAL risk level added to soft_rejection_detector output
-"""
-import asyncio, io, json as _json, os
+import asyncio
+import io
+import json as _json
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -21,28 +29,36 @@ from fastapi.templating import Jinja2Templates
 from dotenv import load_dotenv
 load_dotenv()
 
+# ── Rate limiting ─────────────────────────────────────────────────────────────
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
 # ── Optional Google OAuth ─────────────────────────────────────────────────────
 AUTH_ENABLED = os.getenv("AUTH_ENABLED", "0") == "1"
 _AUTH_AVAILABLE = False
 
-if AUTH_ENABLED:
-    try:
-        from starlette.middleware.sessions import SessionMiddleware
-        from authlib.integrations.starlette_client import OAuth
-        _AUTH_AVAILABLE = True
-    except ImportError:
-        print("[TRANSCRIPT_AI] authlib not installed — auth disabled. "
+try:
+    from authlib.integrations.starlette_client import OAuth
+    _AUTH_AVAILABLE = True
+except ImportError:
+    if AUTH_ENABLED:
+        print("[TRANSCRIPT_AI] authlib not installed — Google auth disabled. "
               "pip install authlib itsdangerous", flush=True)
-        AUTH_ENABLED = False
+    AUTH_ENABLED = False
 
 
 def _setup_auth(app):
-    """Attach session middleware and OAuth client to the app if auth is enabled."""
+    secret = os.getenv("SESSION_SECRET", "transcript-ai-secret-session-key-2026")
+    try:
+        from starlette.middleware.sessions import SessionMiddleware
+        app.add_middleware(SessionMiddleware, secret_key=secret,
+                           max_age=60 * 60 * 24 * 30)
+    except Exception as e:
+        print(f"[TRANSCRIPT_AI] SessionMiddleware error: {e}", flush=True)
+
     if not AUTH_ENABLED or not _AUTH_AVAILABLE:
         return None
-    secret = os.getenv("SESSION_SECRET", "change-me-in-production")
-    app.add_middleware(SessionMiddleware, secret_key=secret,
-                       max_age=60 * 60 * 24 * 30)
     oauth = OAuth()
     oauth.register(
         name="google",
@@ -57,17 +73,29 @@ def _setup_auth(app):
 
 
 def get_current_user(request: Request) -> str | None:
-    """
-    Returns the authenticated user_id (Google sub) for this request.
-    Returns None when auth is disabled or the user is not logged in.
-    """
-    if not AUTH_ENABLED:
+    try:
+        return request.session.get("user_id")
+    except Exception:
         return None
-    return request.session.get("user_id")
+
 
 from analysis.analyzer import analyze_transcript
 from utils import detect_language, clean_text, parse_uploaded_file
 from utils.html_renderer import build_results_html
+
+# ── Firebase user storage ─────────────────────────────────────────────────────
+try:
+    from utils.firebase_client import upsert_user_firebase as _upsert_user_fb
+    _FIREBASE_AVAILABLE = True
+except ImportError:
+    _FIREBASE_AVAILABLE = False
+    print("[TRANSCRIPT_AI] firebase_client not found — user storage disabled.", flush=True)
+
+
+async def _upsert_user(user_id: str, email: str, name: str) -> None:
+    if _FIREBASE_AVAILABLE:
+        await _upsert_user_fb(user_id, email, name)
+
 
 # ── Optional modules ──────────────────────────────────────────────────────────
 try:
@@ -139,24 +167,25 @@ try:
 except ImportError:
     HINDI_NLP_AVAILABLE = False
     LANGUAGE_INTEL_AVAILABLE = False
+
     def get_features(lang):
         has_ja = lang in ("ja", "mixed")
         return {
-            "show_japan_insights": has_ja,
-            "show_hindi_insights": lang == "hi",
-            "show_english_insights": lang == "en",
-            "show_bilingual_insights": lang == "mixed" and not has_ja,
-            "show_code_switch": has_ja,
+            "show_japan_insights":      has_ja,
+            "show_hindi_insights":      lang == "hi",
+            "show_english_insights":    lang == "en",
+            "show_bilingual_insights":  lang == "mixed" and not has_ja,
+            "show_code_switch":         has_ja,
             "insight_tab_label": (
                 "🔍 Communication Intelligence" if has_ja else
                 "💬 English Analysis"           if lang == "en" else
-                "🗣️ Hindi Analysis"        if lang == "hi" else
+                "🗣️ Hindi Analysis"             if lang == "hi" else
                 "🌐 Insights"
             ),
             "insight_tab_enabled": True,
         }
 
-# ── Evaluation module ──────────────────────────────────────────────────────────
+# ── Evaluation module ─────────────────────────────────────────────────────────
 try:
     from utils.evaluator import evaluate, MLFLOW_AVAILABLE
     from tests.test_data import TEST_CASES
@@ -171,9 +200,14 @@ AUDIO_EXT = {".mp3", ".wav", ".m4a", ".mp4", ".ogg", ".webm"}
 TEXT_EXT  = {".txt", ".vtt", ".json"}
 
 # ── App ───────────────────────────────────────────────────────────────────────
-app = FastAPI(title="TranscriptAI", version="3.2.0", docs_url="/docs")
+app = FastAPI(title="TranscriptAI", version="3.3.0", docs_url="/docs")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
                    allow_methods=["*"], allow_headers=["*"])
+
+# ── Rate limiter ──────────────────────────────────────────────────────────────
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 _oauth = _setup_auth(app)
 
@@ -184,7 +218,7 @@ from api.api import app as _rest_api
 app.mount("/api", _rest_api)
 
 
-# ── Speaker label detection (unlabeled transcript fallback) ───────────────────
+# ── Speaker label detection ───────────────────────────────────────────────────
 import re as _re
 
 _SPEAKER_PATTERNS = [
@@ -202,8 +236,6 @@ def _has_speaker_labels(text: str) -> bool:
     return hits >= 2
 
 def _strip_markdown_bold(text: str) -> str:
-    # Remove markdown bold markers from speaker labels before analysis.
-    # '**Japanese Director:** text' becomes 'Japanese Director: text'
     cleaned = []
     for line in text.split("\n"):
         stripped = line
@@ -214,7 +246,6 @@ def _strip_markdown_bold(text: str) -> str:
     return "\n".join(cleaned)
 
 def _ensure_speaker_labels(text: str):
-    """Return (processed_text, was_unlabeled)."""
     text = _strip_markdown_bold(text)
     if _has_speaker_labels(text):
         return text, False
@@ -239,17 +270,60 @@ def _get_cache_stats(user_id: str | None = None) -> dict | None:
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse(request, "index.html", {
-        "cache_stats":    _get_cache_stats(get_current_user(request)),
-        "current_user":   get_current_user(request),
-        "auth_enabled":   AUTH_ENABLED,
+        "cache_stats":  _get_cache_stats(get_current_user(request)),
+        "current_user": get_current_user(request),
+        "auth_enabled": AUTH_ENABLED,
     })
 
 
-# ── Auth routes (only active when AUTH_ENABLED=1) ─────────────────────────────
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    if get_current_user(request):
+        return RedirectResponse("/")
+    return templates.TemplateResponse(request, "login.html", {
+        "request":      request,
+        "auth_enabled": AUTH_ENABLED,
+        "current_user": get_current_user(request),
+        "error":        request.query_params.get("error", ""),
+        "mode":         request.query_params.get("mode", "login"),
+    })
 
+
+@app.post("/login", response_class=HTMLResponse)
+async def login_submit(
+    request: Request,
+    email: str = Form(default=""),
+    password: str = Form(default=""),
+    name: str = Form(default=""),
+    mode: str = Form(default="login"),
+):
+    clean_email = email.strip()
+    if not clean_email or "@" not in clean_email:
+        return templates.TemplateResponse(request, "login.html", {
+            "request":      request,
+            "auth_enabled": AUTH_ENABLED,
+            "current_user": None,
+            "error":        "Please provide a valid email address.",
+            "mode":         mode,
+        })
+
+    display_name = name.strip() if name.strip() else clean_email.split("@")[0].replace(".", " ").title()
+    user_id = "usr_" + clean_email.replace("@", "_at_").replace(".", "_")
+
+    try:
+        request.session["user_id"] = user_id
+        request.session["email"]   = clean_email
+        request.session["name"]    = display_name
+        await _upsert_user(user_id=user_id, email=clean_email, name=display_name)
+    except Exception as exc:
+        print(f"[AUTH] Session write notice: {exc}", flush=True)
+
+    return RedirectResponse("/", status_code=303)
+
+
+# ── Auth routes ───────────────────────────────────────────────────────────────
 @app.get("/auth/login")
 async def auth_login(request: Request):
-    """Redirect user to Google consent screen."""
     if not AUTH_ENABLED or not _oauth:
         return JSONResponse({"error": "Auth not enabled — set AUTH_ENABLED=1"}, 400)
     redirect_uri = request.url_for("auth_callback")
@@ -258,10 +332,6 @@ async def auth_login(request: Request):
 
 @app.get("/auth/callback", name="auth_callback")
 async def auth_callback(request: Request):
-    """
-    Google redirects here after the user grants consent.
-    Exchange code → token → decode user info → store in session.
-    """
     if not AUTH_ENABLED or not _oauth:
         return RedirectResponse("/")
     try:
@@ -277,19 +347,21 @@ async def auth_callback(request: Request):
         )
     except Exception as exc:
         print(f"[AUTH] callback error: {exc}", flush=True)
+        return RedirectResponse("/?error=1")
     return RedirectResponse("/")
 
 
 @app.get("/auth/logout")
 async def auth_logout(request: Request):
-    """Clear session — user is logged out."""
-    request.session.clear()
+    try:
+        request.session.clear()
+    except Exception:
+        pass
     return RedirectResponse("/")
 
 
 @app.get("/auth/me")
 async def auth_me(request: Request):
-    """Returns current user info — used by frontend to show name/avatar."""
     user_id = get_current_user(request)
     if not user_id:
         return JSONResponse({"authenticated": False})
@@ -308,6 +380,8 @@ async def export_page(request: Request):
         "gijiroku_available":           GIJIROKU_AVAILABLE,
         "cultural_insights_available":  CULTURAL_INSIGHTS_AVAILABLE,
         "cache_stats":                  _get_cache_stats(get_current_user(request)),
+        "current_user":                 get_current_user(request),
+        "auth_enabled":                 AUTH_ENABLED,
     })
 
 
@@ -318,6 +392,8 @@ async def evaluate_page(request: Request):
         "test_case_count":  len(TEST_CASES) if EVAL_AVAILABLE else 0,
         "mlflow_available": MLFLOW_AVAILABLE,
         "cache_stats":      _get_cache_stats(get_current_user(request)),
+        "current_user":     get_current_user(request),
+        "auth_enabled":     AUTH_ENABLED,
     })
 
 
@@ -325,7 +401,7 @@ async def evaluate_page(request: Request):
 async def evaluate_run():
     if not EVAL_AVAILABLE:
         return HTMLResponse(
-            content=_err("Evaluation module unavailable — check utils/evaluator.py and tests/test_data.py."),
+            content=_err("Evaluation module unavailable."),
             status_code=500,
         )
     if not TEST_CASES:
@@ -379,7 +455,8 @@ async def transcribe(file: UploadFile = File(...)):
             return JSONResponse({"success": False, "error": "Audio transcription module unavailable."})
         size_mb = len(content) / (1024 * 1024)
         if size_mb > MAX_FILE_SIZE_MB:
-            return JSONResponse({"success": False, "error": f"File too large ({size_mb:.1f} MB). Max: {MAX_FILE_SIZE_MB} MB"})
+            return JSONResponse({"success": False,
+                                 "error": f"File too large ({size_mb:.1f} MB). Max: {MAX_FILE_SIZE_MB} MB"})
         try:
             res = await asyncio.to_thread(transcribe_audio, content, filename)
         except Exception as exc:
@@ -401,7 +478,8 @@ async def transcribe(file: UploadFile = File(...)):
         try:
             shim = _FileShim(filename, content)
             parsed = parse_uploaded_file(shim)
-            return JSONResponse({"success": True, "transcript": parsed, "meta": {"chars": len(parsed)}})
+            return JSONResponse({"success": True, "transcript": parsed,
+                                 "meta": {"chars": len(parsed)}})
         except Exception as exc:
             return JSONResponse({"success": False, "error": str(exc)})
 
@@ -409,7 +487,13 @@ async def transcribe(file: UploadFile = File(...)):
 
 
 # ── /analyze-text ─────────────────────────────────────────────────────────────
+# v3.3 FIX: Removed double PII masking.
+# analyzer.py already handles masking internally (Stage A3) and restoration (Stage A4).
+# main.py previously masked the text BEFORE passing to analyze_transcript(),
+# causing double masking: [NAME_1] → [NAME_1_1], breaking PII restoration.
+# Now main.py passes the cleaned raw text directly — analyzer handles everything.
 @app.post("/analyze-text", response_class=HTMLResponse)
+@limiter.limit("10/minute")
 async def analyze_text_route(
     request:    Request,
     transcript: str           = Form(...),
@@ -419,24 +503,19 @@ async def analyze_text_route(
     if len(transcript.strip()) < 20:
         return HTMLResponse(content=_err("Transcript too short (min 20 chars)."), status_code=400)
     try:
-        cleaned = clean_text(transcript)
+        cleaned       = clean_text(transcript)
         detected_lang = language or detect_language(cleaned)
-
         cleaned, was_unlabeled = _ensure_speaker_labels(cleaned)
 
-        pii_report = pii_mask = None
-        text_to_analyze = cleaned
-        if mask_pii and PII_AVAILABLE:
-            text_to_analyze, pii_mask = mask_transcript(cleaned)
-            pii_report = get_pii_report(pii_mask)
-
+        # v3.3: Pass raw cleaned text directly.
+        # analyzer.py handles PII masking internally when PII_AVAILABLE.
+        # Do NOT mask here — that caused double masking and broken restoration.
         result = await asyncio.to_thread(
-            analyze_transcript, text_to_analyze, detected_lang,
+            analyze_transcript, cleaned, detected_lang,
             user_id=get_current_user(request)
         )
 
-        if pii_mask is not None:
-            result = restore_pii_in_result(result, pii_mask)
+        # Soft rejection post-processing (on original cleaned text)
         if SOFT_REJECTION_AVAILABLE:
             result["soft_rejections"] = detect_soft_rejections(cleaned)
 
@@ -444,9 +523,13 @@ async def analyze_text_route(
         result["_unlabeled_transcript"] = was_unlabeled
 
         features = get_features(detected_lang)
+
+        # PII report — derive from result metadata if available
+        pii_report = result.get("_pii_report", None)
+
         html = build_results_html(result, detected_lang, features, pii_report)
-        tag = ('<div id="tai-result-data" style="display:none">' +
-               _json.dumps(result, ensure_ascii=False) + '</div>')
+        tag  = ('<div id="tai-result-data" style="display:none">' +
+                _json.dumps(result, ensure_ascii=False) + '</div>')
         return HTMLResponse(content=html + tag)
 
     except Exception as exc:
@@ -552,12 +635,15 @@ async def export_txt_route(request: Request):
         lines.append("")
     if r.get("sentiment"):
         lines += ["SENTIMENT", "-" * 20]
-        lines += [f"- {s.get('speaker','')}: {s.get('score','').upper()}" for s in r["sentiment"]]
+        lines += [f"- {s.get('speaker','')}: {s.get('score','').upper()}"
+                  for s in r["sentiment"]]
         lines.append("")
     if r.get("speakers"):
         lines += ["SPEAKERS", "-" * 20]
         for spk in r["speakers"]:
-            lines.append(f"- {spk.get('name','')}: {spk.get('talk_time_pct',0)}% ({spk.get('tone','')})")
+            lines.append(
+                f"- {spk.get('name','')}: {spk.get('talk_time_pct',0)}% ({spk.get('tone','')})"
+            )
         lines.append("")
     txt = "\n".join(lines)
     return StreamingResponse(
@@ -570,35 +656,35 @@ async def export_txt_route(request: Request):
 @app.get("/health")
 async def health():
     return {
-        "status": "healthy", "version": "3.2.0",
-        "provider": "groq" if os.getenv("GROQ_API_KEY") else "mock",
+        "status":         "healthy",
+        "version":        "3.3.0",
+        "provider":       os.getenv("TRANSCRIPT_AI_PROVIDER", "auto"),
+        "nim_configured": bool(os.getenv("NIM_API_KEY")),
+        "groq_configured":bool(os.getenv("GROQ_API_KEY")),
         "appi_compliant": PII_AVAILABLE,
+        "auth_enabled":   AUTH_ENABLED,
+        "firebase":       _FIREBASE_AVAILABLE,
         "modules": {
-            "audio":              AUDIO_AVAILABLE,
-            "pii_masker":         PII_AVAILABLE,
-            "soft_rejection":     SOFT_REJECTION_AVAILABLE,
-            "hallucination":      HALLUCINATION_GUARD_AVAILABLE,
-            "pptx":               PPTX_AVAILABLE,
-            "gijiroku":           GIJIROKU_AVAILABLE,
-            "cultural_insights":  CULTURAL_INSIGHTS_AVAILABLE,
-            "slide_architect":    SLIDE_ARCHITECT_AVAILABLE,
-            "language_intel":     LANGUAGE_INTEL_AVAILABLE,
-            "evaluation":         EVAL_AVAILABLE,
+            "audio":             AUDIO_AVAILABLE,
+            "pii_masker":        PII_AVAILABLE,
+            "soft_rejection":    SOFT_REJECTION_AVAILABLE,
+            "hallucination":     HALLUCINATION_GUARD_AVAILABLE,
+            "pptx":              PPTX_AVAILABLE,
+            "gijiroku":          GIJIROKU_AVAILABLE,
+            "cultural_insights": CULTURAL_INSIGHTS_AVAILABLE,
+            "slide_architect":   SLIDE_ARCHITECT_AVAILABLE,
+            "language_intel":    LANGUAGE_INTEL_AVAILABLE,
+            "evaluation":        EVAL_AVAILABLE,
         },
     }
 
 
-# ── SEO: robots.txt ───────────────────────────────────────────────────────────
-# FIX: FastAPI does not auto-serve files at the project root.
-# Without this route every crawler gets a 404 on /robots.txt.
+# ── SEO ───────────────────────────────────────────────────────────────────────
 @app.get("/robots.txt", response_class=HTMLResponse)
 async def robots_txt():
     return HTMLResponse(open("robots.txt").read(), media_type="text/plain")
 
 
-# ── SEO: sitemap.xml ──────────────────────────────────────────────────────────
-# Submit this to Google Search Console after deploy:
-#   https://kunalthebeast-transcriptai.hf.space/sitemap.xml
 @app.get("/sitemap.xml", response_class=HTMLResponse)
 async def sitemap():
     from datetime import date
@@ -625,92 +711,28 @@ async def sitemap():
     return HTMLResponse(content=xml, media_type="application/xml")
 
 
-# ── SEO: manifest.json (PWA metadata — helps Google classify the app) ─────────
 @app.get("/manifest.json")
 async def manifest():
     return JSONResponse({
         "name":             "TranscriptAI",
         "short_name":       "TranscriptAI",
-        "description":      "Japanese & Multilingual Meeting Intelligence AI — detects nemawashi, keigo, soft rejections, and meeting outcomes.",
+        "description":      "Japanese & Multilingual Meeting Intelligence AI.",
         "start_url":        "/",
         "display":          "standalone",
         "background_color": "#FDF8F5",
         "theme_color":      "#D96080",
         "categories":       ["business", "productivity"],
         "lang":             "en",
-        "keywords":         "Japanese meeting, nemawashi, soft rejection, keigo, transcript analysis, multilingual AI",
     })
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def _err(msg: str) -> str:
-    return (f'<div style="background:var(--red-bg);border-left:3px solid var(--red);' 
-            f'border-radius:0 10px 10px 0;padding:14px 18px;color:#3C2416;margin-top:12px">' 
-            f'<b style="color:var(--red)">⚠ Error</b><br>{msg}</div>')
-
-
-# ── User store — aiosqlite (non-blocking) ─────────────────────────────────────
-# C3 fix: replaced blocking sqlite3 with aiosqlite.
-try:
-    import aiosqlite as _aiosqlite
-    _AIOSQLITE = True
-except ImportError:
-    import sqlite3 as _sqlite3
-    _AIOSQLITE = False
-
-_DB_PATH = Path("users.db")
-
-
-def _init_user_db():
-    """Create users table on first startup."""
-    try:
-        import sqlite3
-        con = sqlite3.connect(_DB_PATH)
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                user_id    TEXT PRIMARY KEY,
-                email      TEXT UNIQUE NOT NULL,
-                name       TEXT,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                last_seen  TEXT,
-                total_analyses INTEGER DEFAULT 0
-            )
-        """)
-        con.commit()
-        con.close()
-    except Exception as exc:
-        print(f"[DB] init_user_db failed: {exc}", flush=True)
-
-
-async def _upsert_user(user_id: str, email: str, name: str) -> None:
-    """Insert or update a user record — fully async, never blocks the event loop."""
-    now = __import__("datetime").datetime.utcnow().isoformat()
-    sql = """
-        INSERT INTO users (user_id, email, name, created_at, last_seen)
-        VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT(user_id) DO UPDATE SET last_seen=excluded.last_seen
-    """
-    try:
-        if _AIOSQLITE:
-            async with _aiosqlite.connect(_DB_PATH) as db:
-                await db.execute(sql, (user_id, email, name, now, now))
-                await db.commit()
-        else:
-            await asyncio.to_thread(_sync_upsert, user_id, email, name, now, sql)
-    except Exception as exc:
-        print(f"[DB] upsert_user failed: {exc}", flush=True)
-
-
-def _sync_upsert(user_id: str, email: str, name: str, now: str, sql: str) -> None:
-    """Sync fallback for _upsert_user when aiosqlite is unavailable."""
-    import sqlite3
-    con = sqlite3.connect(_DB_PATH)
-    con.execute(sql, (user_id, email, name, now, now))
-    con.commit()
-    con.close()
-
-
-_init_user_db()
+    return (
+        f'<div style="background:var(--red-bg);border-left:3px solid var(--red);'
+        f'border-radius:0 10px 10px 0;padding:14px 18px;color:#3C2416;margin-top:12px">'
+        f'<b style="color:var(--red)">⚠ Error</b><br>{msg}</div>'
+    )
 
 
 if __name__ == "__main__":

@@ -113,8 +113,12 @@ def ask_about_meetings(
         from langchain_core.messages import HumanMessage
         from langchain_core.output_parsers import StrOutputParser
 
-        llm    = ChatGroq(api_key=api_key, model="llama-3.1-8b-instant",
-                          temperature=0.2, max_tokens=800)
+        llm  = ChatOpenAI(
+            api_key=api_key,
+            base_url=os.getenv("NIM_BASE_URL", "https://integrate.api.nvidia.com/v1"),
+            model=os.getenv("GROQ_MODEL_FAST", "meta/llama-3.1-8b-instruct"),
+            temperature=0.2, max_tokens=800
+        )
         chain  = llm | StrOutputParser()
         answer = chain.invoke([HumanMessage(content=prompt)])
         method = "rag_langchain"

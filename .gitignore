@@ -92,3 +92,6 @@ schema_stability_report.json
 # ── Dev container — local-only by choice; remove this line if you'd
 #    rather share it so future contributors get the same setup ───────
 .devcontainer/
+
+eval_*.json
+groq_key_exhausted.json

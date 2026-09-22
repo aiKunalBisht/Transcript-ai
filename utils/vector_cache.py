@@ -52,8 +52,8 @@ PATTERNS_DIR.mkdir(exist_ok=True)
 
 # ── SIMILARITY THRESHOLDS ─────────────────────────────────────────────────────
 EXACT_THRESHOLD    = 0.98   # near-identical transcript → instant return
-SEMANTIC_THRESHOLD = 0.92   # same meeting, slightly different wording → return
-# Below 0.92 = different meeting → call Groq
+SEMANTIC_THRESHOLD = 0.82   # same meeting, slightly different wording, context but same meaning → output
+# Below 0.82 = different meeting → call Groq
 
 # ── LAZY SINGLETONS ───────────────────────────────────────────────────────────
 _chroma_client     = None

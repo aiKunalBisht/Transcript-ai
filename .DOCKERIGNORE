@@ -17,3 +17,10 @@ models/
 *.pt
 node_modules/
 .streamlit/secrets.toml
+eval_*.json
+synthetic_test_data.json
+groq_key_exhausted.json
+vector_store/
+chroma_db/
+*.db
+mlruns/

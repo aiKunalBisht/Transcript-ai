@@ -147,6 +147,28 @@
 </head>
 <body>
 
+<!-- ── Cold-start warm-up banner ── -->
+<div id="warm-banner" style="
+  background: linear-gradient(90deg, var(--amber-bg), var(--peach-bg));
+  border-bottom: 1px solid var(--gold-light);
+  padding: 0.6rem 1.2rem;
+  text-align: center;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--gold);
+  z-index: 10000;
+  position: relative;
+  transition: opacity 0.4s ease, max-height 0.4s ease;
+">
+  ⏳ App is starting up — if this is your first visit today, please wait 30–60 seconds.
+</div>
+<script>
+  setTimeout(function() {
+    var b = document.getElementById('warm-banner');
+    if (b) { b.style.opacity = '0'; b.style.maxHeight = '0'; b.style.padding = '0'; b.style.borderBottom = 'none'; }
+  }, 6000);
+</script>
+
 <!-- Mobile hamburger button -->
 <button class="tai-hamburger" id="tai-hamburger-btn" aria-label="Toggle menu" onclick="taiToggleSidebar()">
   <span></span>
@@ -166,6 +188,19 @@
       <div class="tai-sidebar-logo-sub">Speech &amp; Meeting Intelligence</div>
     </a>
     <hr class="tai-hr" style="margin-top:0">
+
+    {% if current_user %}
+    <div style="padding:0 1rem 0.5rem;">
+      <div class="tai-auth-user">
+        <div class="tai-auth-avatar">{{ (request.session.get('name') or request.session.get('email') or 'User')[0] | upper }}</div>
+        <div style="flex:1; min-width:0;">
+          <div style="font-size:0.82rem; font-weight:700; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ request.session.get('name', 'User') }}</div>
+          <a href="/auth/logout" style="font-size:0.72rem; color:var(--ink-soft); text-decoration:none; font-weight:600;" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--ink-soft)'">Sign out</a>
+        </div>
+      </div>
+    </div>
+    <hr class="tai-hr" style="margin-top:0">
+    {% endif %}
 
     <div class="sh">Navigation</div>
     <nav class="tai-nav">
@@ -251,6 +286,152 @@
   </aside>
 
   <main class="tai-main">
+    <!-- ── Topbar (Top Right Profile & Collapse Menu) ── -->
+    <header class="tai-topbar">
+      <div class="tai-topbar-spacer"></div>
+
+      <div class="tai-profile-dropdown" x-data="{ open: false }" @click.outside="open = false" @keydown.escape.window="open = false">
+        <button
+          type="button"
+          class="tai-profile-btn"
+          :class="{ 'tai-profile-btn--active': open }"
+          @click="open = !open"
+          id="tai-profile-btn"
+          aria-label="Profile and account options"
+          aria-haspopup="true"
+          :aria-expanded="open.toString()"
+        >
+          {% if current_user %}
+          <span class="tai-profile-avatar">{{ (request.session.get('name') or request.session.get('email') or 'User')[0] | upper }}</span>
+          <span class="tai-profile-label">{{ request.session.get('name') or 'Profile' }}</span>
+          {% else %}
+          <span class="tai-profile-icon">
+            <svg width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+              <circle cx="12" cy="7" r="4"></circle>
+            </svg>
+          </span>
+          <span class="tai-profile-label">Profile</span>
+          {% endif %}
+          <svg class="tai-profile-caret" :class="{ 'tai-profile-caret--rotate': open }" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+            <path d="M6 9l6 6 6-6"></path>
+          </svg>
+        </button>
+
+        <!-- Dropdown Menu / Collapsible Options -->
+        <div class="tai-profile-menu" x-show="open" x-cloak>
+          {% if current_user %}
+          <!-- Authenticated State -->
+          <div class="tai-profile-menu-header">
+            <div class="tai-profile-avatar tai-profile-avatar--lg">{{ (request.session.get('name') or request.session.get('email') or 'User')[0] | upper }}</div>
+            <div class="tai-profile-menu-userinfo">
+              <div class="tai-profile-menu-name">{{ request.session.get('name', 'User') }}</div>
+              <div class="tai-profile-menu-email">{{ request.session.get('email', '') }}</div>
+            </div>
+            <span class="tai-profile-badge-online" title="Online"></span>
+          </div>
+
+          <div class="tai-menu-divider"></div>
+
+          <div class="tai-menu-links">
+            <a href="/" class="tai-menu-item {% if active_page == 'index' %}active{% endif %}">
+              <span class="tai-menu-item-icon">🎙️</span>
+              <span class="tai-menu-item-title">Meeting Analysis</span>
+            </a>
+            <a href="/export" class="tai-menu-item {% if active_page == 'export' %}active{% endif %}">
+              <span class="tai-menu-item-icon">📄</span>
+              <span class="tai-menu-item-title">Export Documents</span>
+            </a>
+            <a href="/evaluate" class="tai-menu-item {% if active_page == 'evaluate' %}active{% endif %}">
+              <span class="tai-menu-item-icon">📊</span>
+              <span class="tai-menu-item-title">Evaluate Suite</span>
+            </a>
+          </div>
+
+          <div class="tai-menu-divider"></div>
+
+          <a href="/auth/logout" class="tai-menu-item tai-menu-item--logout">
+            <span class="tai-menu-item-icon">
+              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                <polyline points="16 17 21 12 16 7"></polyline>
+                <line x1="21" y1="12" x2="9" y2="12"></line>
+              </svg>
+            </span>
+            <span class="tai-menu-item-title">Sign Out</span>
+          </a>
+
+          {% else %}
+          <!-- Unauthenticated State: Collapses into options for login/signup classic page -->
+          <div class="tai-profile-menu-header">
+            <div class="tai-profile-icon tai-profile-icon--lg">
+              <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                <circle cx="12" cy="7" r="4"></circle>
+              </svg>
+            </div>
+            <div class="tai-profile-menu-userinfo">
+              <div class="tai-profile-menu-name">TranscriptAI Profile</div>
+              <div class="tai-profile-menu-email">Sign in or create an account</div>
+            </div>
+          </div>
+
+          <div class="tai-menu-divider"></div>
+
+          <div class="tai-menu-links">
+            <a href="/login?mode=login" class="tai-menu-item tai-menu-item--login">
+              <div class="tai-menu-item-icon">
+                <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
+                  <polyline points="10 17 15 12 10 7"></polyline>
+                  <line x1="15" y1="12" x2="3" y2="12"></line>
+                </svg>
+              </div>
+              <div class="tai-menu-item-content">
+                <span class="tai-menu-item-title">Log In</span>
+                <span class="tai-menu-item-desc">Access existing account</span>
+              </div>
+              <span class="tai-menu-pill">Login</span>
+            </a>
+
+            <a href="/login?mode=signup" class="tai-menu-item tai-menu-item--signup">
+              <div class="tai-menu-item-icon tai-menu-item-icon--accent">
+                <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                  <circle cx="8.5" cy="7" r="4"></circle>
+                  <line x1="20" y1="8" x2="20" y2="14"></line>
+                  <line x1="23" y1="11" x2="17" y2="11"></line>
+                </svg>
+              </div>
+              <div class="tai-menu-item-content">
+                <span class="tai-menu-item-title">Sign Up</span>
+                <span class="tai-menu-item-desc">Create free new account</span>
+              </div>
+              <span class="tai-menu-pill tai-menu-pill--pink">Sign up</span>
+            </a>
+          </div>
+
+          {% if auth_enabled %}
+          <div class="tai-menu-divider"></div>
+          <a href="/auth/login" class="tai-google-menu-btn" id="header-google-signin">
+            <svg width="16" height="16" viewBox="0 0 48 48">
+              <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+              <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+              <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+              <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+            </svg>
+            <span>Sign in with Google</span>
+          </a>
+          {% endif %}
+
+          <div class="tai-profile-menu-footer">
+            <span>🛡️ APPI Compliant · Private &amp; Secure</span>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </header>
+
     {% block content %}{% endblock %}
 
     <div class="tai-footer">
