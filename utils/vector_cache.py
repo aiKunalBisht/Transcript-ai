@@ -252,7 +252,7 @@ def get_cached_result(
             result_dir  = _user_results_dir(user_id)
             result_path = result_dir / f"{doc_id}.json"
             if result_path.exists():
-                with open(result_path) as f:
+                with open(result_path, encoding="utf-8") as f:
                     result = json.load(f)
                 result["_from_vector_cache"] = True
                 result["_cache_similarity"]  = round(similarity, 4)
