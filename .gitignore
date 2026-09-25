@@ -95,3 +95,4 @@ schema_stability_report.json
 
 eval_*.json
 groq_key_exhausted.json
+.venv/
