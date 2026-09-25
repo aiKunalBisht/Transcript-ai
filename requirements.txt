@@ -147,3 +147,4 @@ authlib>=1.3.0
 itsdangerous>=2.1.0
 filelock>=3.13.0
 firebase-admin>=6.0.0
+slowapi
