@@ -6,7 +6,50 @@ Format: `[version] — date` → what changed and why. Where a change was driven
 
 ---
 
-## [v3.2] — 2026-07 (current · 156 commits · 93.8% accuracy)
+## [v3.3] — 2026-09 (current)
+
+**Auth hardening · Provider expansion · Reliability · Repo hygiene.**
+
+### Added
+
+- **NVIDIA NIM provider support** — `analyzer.py` now supports NIM as a primary inference provider ahead of Groq, with automatic model selection (`NIM_MODEL`, `NIM_MODEL_FAST`) and full backwards compatibility; provider chain is `NIM → Groq 70B → Groq 8B → Ollama → Mock`
+- **RPM-aware retry vs daily-quota detection** — `analyzer.py` distinguishes rate-per-minute limits (retry after backoff) from daily quota exhaustion (rotate key immediately); previously both triggered the same key-rotation path, burning the backup key on retryable errors
+- **Deterministic extractive fallback** — when all LLM providers fail, the pipeline now returns a structured result extracted deterministically from the transcript rather than raising an exception; extracted summaries use sentence scoring, action items use regex, sentiment uses word-list heuristics
+- **Firebase Firestore user storage** — `utils/firebase_client.py` replaces the previous ephemeral session-only storage; users persist across HuggingFace redeploys; `upsert_user_firebase` and `get_user_by_email_firebase` added
+- **bcrypt password verification** — `/login` POST route now hashes passwords on signup (`bcrypt.hashpw`) and verifies on sign-in (`bcrypt.checkpw`); previous implementation accepted any email+password combination without verification
+- **slowapi rate limiting** — `POST /analyze-text` limited to 10 requests/minute per IP to prevent free-tier quota exhaustion
+- **Per-user ChromaDB collections** — vector cache now isolates cached transcripts by `user_id`; user A cannot retrieve user B's cached results
+- **`PIPELINES.md`** — dedicated 15-stage pipeline architecture document; removed pipeline detail from README to keep it focused
+- **15-stage hybrid pipeline** — documented stages: normalization → PII masking → vector cache → MD5 cache → prompt construction → NIM/LLM inference → PII restoration → schema repair → speaker normalization → MeCab keigo override → action-item backfill → grounding validation → soft rejection → nemawashi sequence → deal outcome
+
+### Fixed
+
+- **SESSION_SECRET hardcoded fallback removed** — `_setup_auth()` previously fell back to `"transcript-ai-secret-session-key-2026"` when the env var was unset; now raises `RuntimeError` at startup so the misconfiguration is visible immediately rather than silently running with a known-public secret
+- **CORS wildcard + credentials contradiction** — `allow_origins=["*"]` combined with `allow_credentials=True` is rejected by browsers; replaced with an explicit `_ALLOWED_ORIGINS` list sourced from the `ALLOWED_ORIGINS` env var
+- **RAG `ChatOpenAI` → `ChatGroq`** — `rags/rag_retriever.py` imported `ChatGroq` but instantiated `ChatOpenAI` (which was never imported), causing a `NameError` at runtime on the LangChain path; fixed to use `ChatGroq` with correct Groq parameters; `streamlit` secrets fallback also removed (app migrated to FastAPI in v3.0)
+- **MeCab system dependencies added to Dockerfile** — `mecab`, `libmecab-dev`, `mecab-ipadic-utf8` apt packages were missing; `mecab-python3` pip installation silently succeeded but MeCab calls failed at runtime on HuggingFace Spaces
+
+### Removed
+
+- `apply_patches.py`, `apply_sentiment_trust_patches.py`, `patch_main.py`, `setup_migration.py` — iterative patch scripts; logic integrated into main modules
+- `groq_key_exhausted.json` — runtime state file committed by mistake
+- `eval_25_recordings.json`, `eval_30_recordings.json`, `eval_60_recordings.json` — empty scaffolding files; replaced by `tests/eval_dataset.json` (30 labeled examples)
+- Streamlit secrets fallback in `rag_retriever.py`
+
+### Changed
+
+- `health` endpoint: `"appi_compliant"` key renamed to `"pii_masking"` — matches README language change from "APPI compliant" to "privacy-first local PII masking"
+- `requirements.txt` restored and extended with `bcrypt`, `langchain-groq`, `langchain-core`, `firebase-admin`; `mlflow` retained for local experiment tracking
+
+### DSA notes
+
+- **Provider chain as ordered list** `O(P)` scan (`P ≤ 5`) — not worth a priority queue at this scale; each provider is tried once in order, with short-circuit on success
+- **RPM vs quota detection** uses response status + error-message substring matching — `O(1)` per check; no external state needed
+- **Per-user ChromaDB isolation** uses `collection_name = f"cache_{user_id}"` — hashed user ID as collection key gives `O(1)` lookup with zero cross-user data risk
+
+---
+
+## [v3.2] — 2026-07
 
 **Soft rejection rewrite + deal outcome detector.**
 
@@ -23,15 +66,15 @@ Format: `[version] — date` → what changed and why. Where a change was driven
 
 ### DSA notes
 
-- **Zero-collision pattern design**: before shipping 72 new acceptance/conditional/deferred/informational phrases, every one was checked for substring overlap against all 6 existing rejection pattern sets (20 soft, 17 EN-high, 15 JP-high, 19 EN-termination, 15 JP-termination, approval-gate). Result: zero collisions — a transcript can never trigger both an acceptance and a rejection pattern on the same phrase.
+- **Zero-collision pattern design**: before shipping 72 new acceptance/conditional/deferred/informational phrases, every one was checked for substring overlap against all 6 existing rejection pattern sets. Result: zero collisions — a transcript can never trigger both an acceptance and a rejection pattern on the same phrase.
 - Pattern matching stays naive `O(n·m·p)` substring search (Python's `in`) rather than Aho-Corasick — at ~60 patterns and 500–3,000-word transcripts this is <0.5ms; Aho-Corasick's `O(n + Σm)` only pays for itself past ~500 patterns.
 
 ### Accuracy
 
-| Version               | Score | Root cause traced                                                                                                              |
-| --------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------ |
-| v4                    | ~82%  | —                                                                                                                              |
-| v5 (bypass_cache fix) | 93.8% | All 3 eval test cases were returning the _same_ cached vector-similarity hit — `bypass_cache=True` now forces independent runs |
+| Version               | Score | Root cause traced                                                                                                            |
+| --------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------- |
+| v4                    | ~82%  | —                                                                                                                            |
+| v5 (bypass_cache fix) | 93.8% | All 3 eval test cases were returning the same cached vector-similarity hit — `bypass_cache=True` now forces independent runs |
 
 ---
 
@@ -98,18 +141,13 @@ Format: `[version] — date` → what changed and why. Where a change was driven
 - 40+ English commitment-strength and hedging patterns
 - Keigo formality detection via MeCab morphological analysis
 - Cross-script speaker normalization (田中 ↔ Tanaka ↔ Director) — hash-map dedup keyed by normalized name, `O(n)` single pass
-- APPI-compliant PII masking — names, phones, emails anonymized before LLM, via a bidirectional dict (`PIIMask`: `mapping` placeholder→value, `reverse` value→placeholder) giving `O(1)` lookups in both directions
-- Rule-based hallucination guard — Jaccard token-overlap verification, no LLM self-validation (avoids the model grading its own homework)
-- Three-tier LLM fallback: Groq → Ollama → Mock (explicit UX feedback at each tier), implemented as an ordered-list priority scan (`O(P)`, `P≤3` — not worth a heap at this scale)
-- Dynamic token budget by transcript length (prevents Ollama timeouts)
-- MD5 result caching with 24-hour TTL — content-addressable storage, same principle as Git object storage
+- PII masking — names, phones, emails anonymized before LLM, via a bidirectional dict (`PIIMask`: `mapping` placeholder→value, `reverse` value→placeholder) giving `O(1)` lookups in both directions
+- Rule-based hallucination guard — Jaccard token-overlap verification, no LLM self-validation
+- Three-tier LLM fallback: Groq → Ollama → Mock
+- MD5 result caching with 24-hour TTL
 - JSONL observability logging with drift detection
-- Meeting trends dashboard — soft rejection trends, hallucination rate, workload analysis
-- Live token streaming (Groq)
-- MP4/MP3/WAV/M4A transcription via Groq Whisper (free tier)
-- FastAPI REST endpoints: `/analyze`, `/analyze/batch`, `/health`, `/patterns/soft-rejections`
+- FastAPI REST endpoints: `/analyze`, `/analyze/batch`, `/health`
 - Async job queue via ThreadPoolExecutor
-- Streamlit UI with 7 tabs and sakura/peach palette
 - Deployed on Hugging Face Spaces: [KunalTheBeast/TranscriptAI](https://huggingface.co/spaces/KunalTheBeast/TranscriptAI)
 
 ### Evaluation (v1 → v5 iteration history)
@@ -131,13 +169,12 @@ Planned for future releases — grouped by priority, each tied to a specific alg
 ### P0
 
 - Wire `api/async_processor.py` job queue into `main.py` + `sessionStorage` polling — replaces the current blocking `fetch()` that loses in-flight analysis on navigation, with a submit-job/poll-status pattern (`O(1)` job-status dict lookup)
-- Meaningful regression tests — current 21 tests only assert `isinstance(result, dict)`; none assert a correct _value_
+- Expand behavioral test coverage beyond current smoke tests — assert correct values not just return types
 - Separate `yes_trap_signals` (承知しました, はい、承知しました) from rejection `risk_level` — currently inflates risk for normal, politely-attentive meetings
 
 ### P1
 
 - `pyannote.audio` speaker diarization (replace the ~70%-accurate silence-gap heuristic with model-based "who spoke when")
-- Audio upload on Hugging Face Spaces (Groq Whisper API integration)
 - Labeled dataset + Platt scaling for calibrated confidence scores
 - External validation on real-world transcripts (the 25/30/60-recording eval sets are scaffolded but empty)
 - User correction loop for fine-tuning

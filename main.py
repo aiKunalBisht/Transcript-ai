@@ -208,6 +208,21 @@ except ImportError:
             "insight_tab_enabled": True,
         }
 
+# ── Async job processor───────────────────────────────────────────
+
+
+try:
+    from api.async_processor import (
+        submit_job,
+        get_job_status,
+        get_job_result,
+        get_queue_stats,
+    )
+    ASYNC_PROCESSOR_AVAILABLE = True
+except ImportError:
+    ASYNC_PROCESSOR_AVAILABLE = False
+
+
 # ── Evaluation module ─────────────────────────────────────────────────────────
 try:
     from utils.evaluator import evaluate, MLFLOW_AVAILABLE
@@ -521,6 +536,142 @@ async def evaluate_run():
 
     html = build_evaluation_html(list(reports), MLFLOW_AVAILABLE)
     return HTMLResponse(content=html)
+
+
+# ── Job queue routes ──────────────────────────────────────────────────────────
+@app.post("/jobs/submit")
+@limiter.limit("10/minute")
+async def jobs_submit(
+    request:    Request,
+    transcript: str           = Form(...),
+    language:   Optional[str] = Form(None),
+):
+    """
+    Submit a transcript for async analysis.
+    Returns a job_id immediately (non-blocking).
+    Client polls /jobs/{job_id} until status == "done".
+ 
+    This is the non-blocking alternative to /analyze-text.
+    Use when you need the frontend to remain responsive during analysis.
+ 
+    Frontend pattern:
+        const res  = await fetch("/jobs/submit", { method: "POST", body: formData })
+        const { job_id } = await res.json()
+        sessionStorage.setItem("tai_job_id", job_id)
+        // poll /jobs/{job_id} every 500ms
+    """
+    if not ASYNC_PROCESSOR_AVAILABLE:
+        return JSONResponse(
+            {"error": "Async processor not available"},
+            status_code=503,
+        )
+    if len(transcript.strip()) < 20:
+        return JSONResponse(
+            {"error": "Transcript too short (min 20 chars)"},
+            status_code=400,
+        )
+ 
+    cleaned       = clean_text(transcript)
+    detected_lang = language or detect_language(cleaned)
+    cleaned, _    = _ensure_speaker_labels(cleaned)
+ 
+    job_id = submit_job(cleaned, detected_lang)
+    return JSONResponse({
+        "job_id":    job_id,
+        "status":    "queued",
+        "poll_url":  f"/jobs/{job_id}",
+    })
+ 
+ 
+@app.get("/jobs/{job_id}")
+async def jobs_status(job_id: str, request: Request):
+    """
+    Poll job status and retrieve result when done.
+ 
+    Returns:
+        status: "queued" | "running" | "done" | "failed"
+        result: analysis result dict (only when status == "done")
+        error:  error message (only when status == "failed")
+ 
+    Frontend polling pattern:
+        const poll = setInterval(async () => {
+            const res  = await fetch(`/jobs/${job_id}`)
+            const data = await res.json()
+            if (data.status === "done") {
+                clearInterval(poll)
+                renderResult(data.result)
+            }
+            if (data.status === "failed") {
+                clearInterval(poll)
+                showError(data.error)
+            }
+        }, 500)
+    """
+    if not ASYNC_PROCESSOR_AVAILABLE:
+        return JSONResponse(
+            {"error": "Async processor not available"},
+            status_code=503,
+        )
+ 
+    status = get_job_status(job_id)
+    if "error" in status:
+        return JSONResponse(status, status_code=404)
+ 
+    response: dict = {
+        "job_id":      job_id,
+        "status":      status["status"],
+        "duration_ms": status.get("duration_ms"),
+    }
+ 
+    if status["status"] == "done":
+        try:
+            result = get_job_result(job_id, timeout_sec=0)
+ 
+            # Post-processing (same as /analyze-text)
+            if SOFT_REJECTION_AVAILABLE:
+                result["soft_rejections"] = detect_soft_rejections(
+                    result.get("_cleaned_transcript", "")
+                )
+ 
+            detected_lang = result.get("_detected_language", "en")
+            features      = get_features(detected_lang)
+            pii_report    = result.get("_pii_report")
+ 
+            html = build_results_html(result, detected_lang, features, pii_report)
+            response["result"] = result
+            response["html"]   = html
+        except Exception as exc:
+            response["status"] = "failed"
+            response["error"]  = str(exc)
+ 
+    elif status["status"] == "failed":
+        response["error"] = status.get("error", "Unknown error")
+ 
+    return JSONResponse(response)
+ 
+ 
+@app.get("/jobs/queue/stats")
+async def jobs_queue_stats():
+    """
+    Returns current job queue statistics.
+    Useful for monitoring and debugging.
+ 
+    Example response:
+        {
+            "total": 12,
+            "queued": 2,
+            "running": 1,
+            "done": 8,
+            "failed": 1,
+            "avg_duration_ms": 1820.5
+        }
+    """
+    if not ASYNC_PROCESSOR_AVAILABLE:
+        return JSONResponse(
+            {"error": "Async processor not available"},
+            status_code=503,
+        )
+    return JSONResponse(get_queue_stats())
 
 
 # ── /transcribe ───────────────────────────────────────────────────────────────
