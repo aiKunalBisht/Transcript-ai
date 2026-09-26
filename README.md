@@ -18,12 +18,10 @@ pinned: false
 [![GitHub](https://img.shields.io/badge/Source-GitHub-3C2416?style=flat-square&logo=github)](https://github.com/aiKunalBisht/Transcript-ai)
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com)
-[![Accuracy](https://img.shields.io/badge/Accuracy-93.8%25-D96080?style=flat-square)](https://huggingface.co/spaces/KunalTheBeast/TranscriptAI)
 [![Tests](https://img.shields.io/badge/Tests-21%20passing-22C55E?style=flat-square)](https://github.com/aiKunalBisht/Transcript-ai/actions)
 [![License](https://img.shields.io/badge/License-MIT-22C55E?style=flat-square)](LICENSE)
 
-_Turns any meeting transcript or audio file into structured business intelligence in ~3 seconds._
-_The only meeting AI that understands what Japanese and Indian business partners actually mean._
+_Turns meeting transcripts and audio into structured business intelligence — Japanese, Hindi, English, and mixed._
 
 </div>
 
@@ -44,36 +42,36 @@ Generic meeting summarisers extract what was **said**. They miss what was **mean
 | dekhte hain                                    | "We'll see"                     | ⚠ Hindi deferral — classic avoidance signal               |
 | kal pakka                                      | "Definitely tomorrow"           | ⚠ Fake urgency — indefinite future in disguise            |
 
-Japanese enterprise also mandates **APPI compliance** — raw meeting data cannot be sent to foreign cloud LLMs. Most tools fail this requirement by design. TranscriptAI masks all PII **locally before any LLM call**.
-
 ---
 
 ## What It Does
 
 ```
 Input:  Transcript (JP · HI · EN · Mixed) or Audio (MP3/MP4/WAV/M4A)
-Output: Structured business intelligence in ~3 seconds
+Output: Structured business intelligence
 ```
 
 ### Core Intelligence
 
 - **8-state meeting outcome verdict** — 🟢 Approved · 🔴 Rejected · 🔵 Conditional · 🟣 Deferred · 🟡 Pending · ⚪ Informational · 🟠 At Risk · ⚫ Unclear
-- **60+ rejection patterns across 3 tiers** — CRITICAL (explicit termination) → HIGH (performance-failure framing) → MEDIUM/LOW (soft hedging)
-- **20 JP soft rejection patterns** — nemawashi, 難しいですね, ぜひ検討, 対応しかねます and more with confidence scores
-- **8 Hindi indirect communication patterns** — देखते हैं, थोड़ा मुश्किल, kuch na kuch ho jayega and more
+- **Rejection detection across 3 tiers** — CRITICAL (explicit termination) → HIGH (performance-failure framing) → MEDIUM/LOW (soft hedging)
+- **Japanese soft-rejection patterns** — nemawashi, 難しいですね, ぜひ検討, 対応しかねます with confidence scores
+- **Hindi indirect communication patterns** — देखते हैं, थोड़ा मुश्किल, kuch na kuch ho jayega
 - **Keigo formality detection** — MeCab morphological analysis, not word-level guessing
-- **はい trap detection** — 承知しました / 承知 flagged as understanding, not approval
-- **Approval gate detection** — "board must approve", 稟議が必要です — deal not done yet
+- **はい trap detection** — 承知しました flagged as understanding, not approval
+- **Approval gate detection** — 稟議が必要です — deal not closed yet
 
-### APPI Compliance
+### Privacy-First Processing
 
 - **Local PII masking** before any data leaves the server — 500+ Japanese surnames, phones, emails
-- **Bidirectional PIIMask** — `[NAME_1]` → `Tanaka` after analysis, never sent to the LLM
+- **Bidirectional masking** — `[NAME_1]` → `Tanaka` restored after analysis; raw names never sent to LLM
 - **Fully local mode** via Ollama — zero cloud exposure when required
+
+> **Note:** Local PII masking reduces personal data exposure before LLM inference. This is a privacy-by-design engineering choice, not a legal APPI compliance certification.
 
 ### Analysis Quality
 
-- **Hallucination guard** — rule-based token overlap, LLM never validates its own output
+- **Hallucination guard** — rule-based token overlap; LLM never validates its own output
 - **Register-based sentiment** — scores how a speaker treats the other party, not word valence (professional apologies = neutral, not negative)
 - **Cross-script speaker normalization** — 田中 ↔ Tanaka ↔ Director resolved to same identity
 - **Meeting health score** — 0–100 across sentiment, action clarity, communication risk, AI confidence. Capped at 35 for HIGH risk, 22 for CRITICAL/termination
@@ -85,41 +83,39 @@ Output: Structured business intelligence in ~3 seconds
 - **Cultural insights** — nemawashi risk, 稟議 approval status, keigo level breakdown
 - **Markdown / JSON / TXT** — for downstream workflows
 
-### MLOps
+### Observability & Tracking
 
 - **Evaluation page** — run 3 bilingual ground-truth test cases on demand, view scores
 - **MLflow integration** — experiment tracking at `http://127.0.0.1:5000`, auto-logs per run
-- **JSONL audit log** — append-only observability with schema drift detection
+- **JSONL audit log** — append-only log with schema drift detection
 
 ---
 
-## Accuracy History
+## Evaluation
 
-| Version       | Key change                                            | Score     |
-| ------------- | ----------------------------------------------------- | --------- |
-| v1            | Hard exact matching, English-only                     | 22–30%    |
-| v2            | Fuzzy speaker names, TF-IDF similarity                | ~45%      |
-| v3            | MeCab keigo override, bilingual ground truth          | ~60%      |
-| v4            | Hallucination guard, nemawashi patterns, APPI masking | 75–85%    |
-| **v5 (live)** | 2-key rotation, vector cache, bypass_cache eval fix   | **93.8%** |
+> **Benchmark scope:** 3 curated bilingual test scenarios (TC001–TC003). These scores reflect internal development benchmarks — not a general accuracy claim. A larger evaluation dataset is in progress.
 
-Every accuracy improvement was driven by evaluation metric failures traced through the pipeline — not intuition. When action F1 was 0.4 at v2, tracing revealed the LLM was extracting `"Director"` (role title) instead of `"Tanaka"` (first name) as the action item owner. One prompt rule fixed it; F1 jumped to 0.87.
+| Test Case                   | Score          | ROUGE-1 | Action F1 | Sentiment |
+| --------------------------- | -------------- | ------- | --------- | --------- |
+| Sales call · JA/EN mixed    | **94.5 / 100** | 0.694   | 1.0       | 1.0       |
+| Internal meeting · Japanese | **93.8 / 100** | 0.703   | 1.0       | 1.0       |
+| Client conflict · EN/JA     | **93.8 / 100** | 0.703   | 1.0       | 1.0       |
 
----
+### Accuracy Progression
 
-## Evaluation — v5 Live
+| Version       | Key change                                           | Score          |
+| ------------- | ---------------------------------------------------- | -------------- |
+| v1            | Hard exact matching, English-only                    | 22–30%         |
+| v2            | Fuzzy speaker names, TF-IDF similarity               | ~45%           |
+| v3            | MeCab keigo override, bilingual ground truth         | ~60%           |
+| v4            | Hallucination guard, nemawashi patterns, PII masking | 75–85%         |
+| **v5 (live)** | 2-key rotation, vector cache, eval fix               | **93.8 / 100** |
 
-| Test Case                   | Overall   | ROUGE-1 | Action F1 | Sentiment |
-| --------------------------- | --------- | ------- | --------- | --------- |
-| Sales call · JA/EN mixed    | **94.5%** | 0.694   | 1.0       | 1.0       |
-| Internal meeting · Japanese | **93.8%** | 0.703   | 1.0       | 1.0       |
-| Client conflict · EN/JA     | **93.8%** | 0.703   | 1.0       | 1.0       |
+Each improvement was driven by evaluation metric failures traced through the pipeline — not intuition. When action F1 was 0.4 at v2, tracing revealed the LLM was extracting `"Director"` instead of `"Tanaka"` as the action item owner. One prompt rule fixed it; F1 jumped to 0.87.
 
 ---
 
 ## Token Efficiency (v3.2)
-
-The prompt pipeline was fully optimized in v3.2 to minimize Groq free-tier consumption:
 
 | Stage                 | Before           | After            | Saved             |
 | --------------------- | ---------------- | ---------------- | ----------------- |
@@ -129,13 +125,11 @@ The prompt pipeline was fully optimized in v3.2 to minimize Groq free-tier consu
 | Sandwich repeat       | 75 tokens        | 0 tokens         | -75 (-100%)       |
 | **Per-request total** | **2,728 tokens** | **1,521 tokens** | **-1,207 (-44%)** |
 
-**30 users/day: 45,630 tokens (46% of 100K free tier limit).** Supports ~65 users/day.
-
 Additional optimizations active:
 
 - Model routing — short EN-only transcripts use `llama-3.1-8b-instant` (separate quota bucket)
-- Dynamic schema — `japan_insights` block only included for JP/mixed transcripts
-- Transcript truncation — 1,200 word cap (first 60% + last 40%) for very long meetings
+- Dynamic schema — `japan_insights` block included only for JP/mixed transcripts
+- Transcript truncation — 1,200 word cap (first 60% + last 40%) for long meetings
 - Reduced `max_tokens` — capped at 550–1,100 depending on transcript length
 
 ---
@@ -148,7 +142,7 @@ Input transcript / audio
     ▼
  1  Vector cache check       utils/vector_cache.py              ChromaDB cosine similarity (≥95% → instant return)
  2  MD5 exact cache          utils/cache.py                     Hash match → return in <1ms
- 3  PII masking              transcription/pii_masker.py        APPI — masks ALL PII before LLM sees text
+ 3  PII masking              transcription/pii_masker.py        Masks ALL PII before LLM sees text
  4  LLM analysis             analysis/analyzer.py               Groq 70B → 8B → Ollama → Mock
  5  PII restoration          transcription/pii_masker.py        Restores [NAME_1] → Tanaka BEFORE normalization
  6  Speaker normalization    transcription/speaker_normalizer.py 田中 ↔ Tanaka ↔ Director → unified
@@ -161,21 +155,31 @@ Input transcript / audio
 
 **Critical ordering:** PII masked before step 4 (LLM). PII restored before step 6 (normalization). Reversing either order breaks the pipeline.
 
+**Design rationale — deterministic vs LLM:**
+
+| Task                            | Approach                           | Why                                                       |
+| ------------------------------- | ---------------------------------- | --------------------------------------------------------- |
+| PII detection                   | Deterministic (regex + dictionary) | Regex is more reliable than LLM for structured patterns   |
+| Language/script detection       | Deterministic (Unicode ranges)     | Rule is faster and always correct                         |
+| Keigo formality                 | Deterministic (MeCab morphemes)    | Auxiliary verb detection requires morpheme-level analysis |
+| Semantic intent / summarization | LLM                                | Too complex for rules                                     |
+| Hallucination check             | Deterministic (token overlap)      | LLM must not validate its own output                      |
+
 ---
 
 ## Technology Stack
 
-| Layer          | Choice                   | Why Not the Alternative                                                               |
-| -------------- | ------------------------ | ------------------------------------------------------------------------------------- |
-| LLM inference  | **Groq (llama-3.3-70b)** | 10–20× faster than GPU APIs. Free tier. JSON mode.                                    |
-| Local fallback | **Ollama (qwen3:8b)**    | Zero cloud exposure for strict APPI cases                                             |
-| Vector DB      | **ChromaDB**             | Free, local, HF Spaces compatible, APPI compliant                                     |
-| Japanese NLP   | **MeCab + IPADIC**       | Morpheme-level auxiliary verb detection — keigo is invisible to word-level tokenizers |
-| Web framework  | **FastAPI**              | Native async, `asyncio.to_thread()`, auto Swagger                                     |
-| Frontend       | **Alpine.js + Jinja2**   | No bundler, no build step, HF Spaces compatible                                       |
-| ML tracking    | **MLflow**               | Free, local SQLite, APPI compliant                                                    |
-| PPTX           | **python-pptx**          | Full slide control                                                                    |
-| Audio          | **Groq Whisper**         | Free tier, fast, multilingual                                                         |
+| Layer               | Choice                   | Why                                                                                   |
+| ------------------- | ------------------------ | ------------------------------------------------------------------------------------- |
+| LLM inference       | **Groq (llama-3.3-70b)** | Fast, free tier, JSON mode                                                            |
+| Local fallback      | **Ollama (qwen3:8b)**    | Zero cloud exposure option                                                            |
+| Vector DB           | **ChromaDB**             | Local, HF Spaces compatible                                                           |
+| Japanese NLP        | **MeCab + IPADIC**       | Morpheme-level auxiliary verb detection — keigo is invisible to word-level tokenizers |
+| Web framework       | **FastAPI**              | Native async, auto Swagger                                                            |
+| Frontend            | **Alpine.js + Jinja2**   | No bundler, no build step, HF Spaces compatible                                       |
+| Experiment tracking | **MLflow**               | Local SQLite, free                                                                    |
+| PPTX                | **python-pptx**          | Full slide control, pure Python                                                       |
+| Audio               | **Groq Whisper**         | Free tier, multilingual                                                               |
 
 ---
 
@@ -189,10 +193,9 @@ pip install -r requirements.txt
 # Required
 export GROQ_API_KEY=your_key_here
 
-# Optional — enables 2-key round-robin (use keys from DIFFERENT accounts for separate quotas)
+# Optional — 2-key round-robin (use keys from DIFFERENT accounts for separate quotas)
 export GROQ_API_KEY_2=your_second_key_here
 
-# Start
 uvicorn main:app --reload --port 7860
 # Open http://localhost:7860
 # API docs at http://localhost:7860/docs
@@ -202,7 +205,7 @@ uvicorn main:app --reload --port 7860
 
 ```bash
 ollama pull qwen3:8b
-# No config needed — app auto-detects Ollama when no Groq key set
+# App auto-detects Ollama when no Groq key is set
 ```
 
 ---
@@ -214,21 +217,21 @@ main.py                           FastAPI server — routes, module loading, spe
 analysis/
   analyzer.py                     LLM orchestration — provider chain, prompt, token optimization
   soft_rejection_detector.py      3-tier rejection detection — CRITICAL / HIGH / MEDIUM / LOW
-  deal_outcome_detector.py        8-state meeting outcome verdict — Approved through Unclear
+  deal_outcome_detector.py        8-state meeting outcome verdict
   hallucination_guard.py          Rule-based token overlap verification
   conversation_dynamics.py        Topic stalls, senior silence pivots, closing summarizer
   japanese_tokenizer.py           MeCab morphological keigo detection
-  english_analyzer.py             40+ EN hedging and commitment-strength patterns
-  hindi_analyzer.py               8-category Hindi/Hinglish indirect communication patterns
+  english_analyzer.py             EN hedging and commitment-strength patterns
+  hindi_analyzer.py               Hindi/Hinglish indirect communication patterns
   semantic_validator.py           Sentence-transformer semantic similarity
 agents/
   gijiroku_formatter.py           議事録 Japanese business minutes generator
   cultural_insights_formatter.py  Cultural context export
-  slide_architect.py              PPTX slide plan — deterministic + LLM-narrative split
+  slide_architect.py              PPTX slide plan
 exporters/
-  pptx_builder.py                 python-pptx builder (670 lines)
+  pptx_builder.py                 python-pptx builder
 transcription/
-  pii_masker.py                   APPI-compliant PII masking — 500+ JP surnames
+  pii_masker.py                   PII masking — 500+ JP surnames
   audio_processor.py              Groq Whisper audio transcription
   speaker_normalizer.py           Cross-script identity resolution
 rags/
@@ -269,6 +272,16 @@ GET  /health              Module availability report
 
 ---
 
+## Known Limitations
+
+- **Small evaluation dataset** — 3 scenarios. Benchmark scores are internal development metrics, not general accuracy claims.
+- **Authentication is demo-grade** — not suitable for production deployment of sensitive meeting data.
+- **HF Spaces storage is ephemeral** — ChromaDB cache and MLflow logs reset on container restart.
+- **Hallucination guard is rule-based** — token overlap is a proxy measure, not a perfect grounding check.
+- **RAG retrieval is lightly tested** — historical meeting search is functional but not load-tested.
+
+---
+
 ## Lighthouse Scores
 
 | Metric                        | Score |
@@ -284,7 +297,7 @@ GET  /health              Module availability report
 
 **Built by [Kunal Bisht](https://linkedin.com/in/kunalhere)**
 AI/ML Engineer · LLM Pipelines · RAG · Multilingual NLP · FastAPI
-Pithoragarh, Uttarakhand, India · Open to Remote / Relocation
+Bangalore, Karnataka, India · Open to Remote / Relocation
 
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-kunalhere-0A66C2?style=flat-square&logo=linkedin)](https://linkedin.com/in/kunalhere)
 [![GitHub](https://img.shields.io/badge/GitHub-aiKunalBisht-3C2416?style=flat-square&logo=github)](https://github.com/aiKunalBisht)

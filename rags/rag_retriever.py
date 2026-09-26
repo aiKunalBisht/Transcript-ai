@@ -1,4 +1,4 @@
-# rag_retriever.py
+# rags/rag_retriever.py
 # RAG (Retrieval-Augmented Generation) pipeline
 #
 # Flow:
@@ -10,6 +10,12 @@
 #
 # This prevents hallucination in Q&A — LLM only uses
 # retrieved meeting content, not its training data.
+#
+# v2 fixes:
+#   - ChatOpenAI replaced with ChatGroq (was importing ChatGroq but using ChatOpenAI — NameError)
+#   - Removed streamlit secrets fallback (app migrated to FastAPI)
+#   - NIM_BASE_URL removed from LangChain path (Groq has its own endpoint)
+#   - GROQ_MODEL_FAST env var kept for model routing consistency
 
 import os
 
@@ -31,14 +37,15 @@ Tell the user to analyze some meetings first, then you can answer questions abou
 
     context_blocks = []
     for i, m in enumerate(retrieved_meetings, 1):
-        date     = m.get("date", "")[:10]
-        lang     = m.get("language", "unknown")
-        risk     = m.get("soft_risk", "NONE")
-        keigo    = m.get("keigo_level", "unknown")
-        excerpt  = m.get("excerpt", "")
-        sim      = m.get("similarity", 0)
+        date    = m.get("date", "")[:10]
+        lang    = m.get("language", "unknown")
+        risk    = m.get("soft_risk", "NONE")
+        keigo   = m.get("keigo_level", "unknown")
+        excerpt = m.get("excerpt", "")
+        sim     = m.get("similarity", 0)
         context_blocks.append(
-            f"Meeting {i} (date:{date}, lang:{lang}, soft_rejection:{risk}, keigo:{keigo}, relevance:{sim:.0%}):\n{excerpt}"
+            f"Meeting {i} (date:{date}, lang:{lang}, "
+            f"soft_rejection:{risk}, keigo:{keigo}, relevance:{sim:.0%}):\n{excerpt}"
         )
 
     context = "\n\n---\n\n".join(context_blocks)
@@ -56,6 +63,11 @@ USER QUESTION: {question}
 Answer concisely and cite which meeting number your answer comes from."""
 
 
+def _get_api_key() -> str:
+    """Get Groq API key from environment only. No streamlit fallback."""
+    return os.getenv("GROQ_API_KEY", "")
+
+
 def ask_about_meetings(
     question: str,
     n_context: int = 3,
@@ -66,15 +78,17 @@ def ask_about_meetings(
     RAG pipeline: retrieve relevant meetings → answer question.
 
     Returns:
-        answer:    LLM response grounded in meeting data
-        sources:   List of meetings used as context
-        method:    'rag_langchain' | 'rag_direct' | 'no_data'
+        answer:           LLM response grounded in meeting data
+        sources:          List of meetings used as context
+        method:           'rag_langchain' | 'rag_direct' | 'no_data' | 'unavailable' | 'error'
+        context_meetings: Number of meetings retrieved
     """
     if not CHROMADB_AVAILABLE:
         return {
             "answer": "Meeting storage not available. Install chromadb: pip install chromadb",
             "sources": [],
-            "method": "unavailable"
+            "method": "unavailable",
+            "context_meetings": 0,
         }
 
     # Step 1: Retrieve relevant meetings
@@ -89,53 +103,49 @@ def ask_about_meetings(
         return {
             "answer": "No meetings found in the database yet. Analyze some meetings first.",
             "sources": [],
-            "method": "no_data"
+            "method": "no_data",
+            "context_meetings": 0,
         }
 
     # Step 2: Build RAG prompt
-    prompt = build_rag_prompt(question, retrieved)
+    prompt  = build_rag_prompt(question, retrieved)
+    api_key = _get_api_key()
+    answer  = None
+    method  = "rag_direct"
 
-    # Step 3: Call LLM with retrieved context
-    api_key = os.getenv("GROQ_API_KEY", "")
-    if not api_key:
+    # Step 3a: Try LangChain + Groq
+    if api_key:
         try:
-            import streamlit as st
-            api_key = st.secrets.get("GROQ_API_KEY", "")
-        except Exception:
-            pass
+            from langchain_groq import ChatGroq
+            from langchain_core.messages import HumanMessage
+            from langchain_core.output_parsers import StrOutputParser
 
-    answer = None
-    method = "rag_direct"
+            llm = ChatGroq(
+                api_key=api_key,
+                model=os.getenv("GROQ_MODEL_FAST", "llama-3.1-8b-instant"),
+                temperature=0.2,
+                max_tokens=800,
+            )
+            chain  = llm | StrOutputParser()
+            answer = chain.invoke([HumanMessage(content=prompt)])
+            method = "rag_langchain"
+        except Exception as e:
+            print(f"[RAG] LangChain path failed: {e}", flush=True)
 
-    # Try LangChain first
-    try:
-        from langchain_groq import ChatGroq
-        from langchain_core.messages import HumanMessage
-        from langchain_core.output_parsers import StrOutputParser
-
-        llm  = ChatOpenAI(
-            api_key=api_key,
-            base_url=os.getenv("NIM_BASE_URL", "https://integrate.api.nvidia.com/v1"),
-            model=os.getenv("GROQ_MODEL_FAST", "meta/llama-3.1-8b-instruct"),
-            temperature=0.2, max_tokens=800
-        )
-        chain  = llm | StrOutputParser()
-        answer = chain.invoke([HumanMessage(content=prompt)])
-        method = "rag_langchain"
-    except Exception:
-        pass
-
-    # Fallback to direct Groq
+    # Step 3b: Fallback to direct Groq HTTP
     if not answer:
         try:
             import requests
             r = requests.post(
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}"},
-                json={"model": "llama-3.1-8b-instant",
-                      "messages": [{"role": "user", "content": prompt}],
-                      "temperature": 0.2, "max_tokens": 800},
-                timeout=30
+                json={
+                    "model":       os.getenv("GROQ_MODEL_FAST", "llama-3.1-8b-instant"),
+                    "messages":    [{"role": "user", "content": prompt}],
+                    "temperature": 0.2,
+                    "max_tokens":  800,
+                },
+                timeout=30,
             )
             r.raise_for_status()
             answer = r.json()["choices"][0]["message"]["content"]
@@ -145,21 +155,19 @@ def ask_about_meetings(
             method = "error"
 
     return {
-        "answer":  answer,
-        "sources": retrieved,
-        "method":  method,
+        "answer":           answer,
+        "sources":          retrieved,
+        "method":           method,
         "context_meetings": len(retrieved),
     }
 
 
 if __name__ == "__main__":
-    import json
-
     # Test RAG pipeline
     result = ask_about_meetings(
         question="Which meetings had soft rejection signals?",
-        n_context=3
+        n_context=3,
     )
-    print(f"Method: {result['method']}")
+    print(f"Method:  {result['method']}")
     print(f"Sources: {result['context_meetings']} meetings")
     print(f"\nAnswer:\n{result['answer']}")

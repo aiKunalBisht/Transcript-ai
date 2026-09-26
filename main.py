@@ -8,6 +8,10 @@
 #   - Replaced local SQLite user storage with Firebase Firestore
 #     Users now persist across HuggingFace redeploys
 #   - Firebase fallback: if FIREBASE_SERVICE_ACCOUNT not set, silently skips
+#   - SESSION_SECRET hardcoded fallback removed — must be set via env var
+#   - CORS fixed: explicit origins, wildcard + credentials contradiction resolved
+#   - Password actually verified via bcrypt on /login (both sign-in and sign-up)
+#   - health endpoint: appi_compliant → pii_masking (matches README)
 #
 # v3.1/3.2 retained:
 #   - Google OAuth auth routes (/auth/login, /auth/callback, /auth/logout, /auth/me)
@@ -21,6 +25,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
+import bcrypt as _bcrypt
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
@@ -49,7 +54,15 @@ except ImportError:
 
 
 def _setup_auth(app):
-    secret = os.getenv("SESSION_SECRET", "transcript-ai-secret-session-key-2026")
+    # SESSION_SECRET must be set explicitly — no hardcoded fallback.
+    # Add it to HF Space secrets: Settings → Variables and secrets → New secret
+    secret = os.getenv("SESSION_SECRET")
+    if not secret:
+        raise RuntimeError(
+            "SESSION_SECRET env variable is not set. "
+            "Add it to your HF Space secrets (Settings → Variables and secrets). "
+            "Use any random string of 32+ characters."
+        )
     try:
         from starlette.middleware.sessions import SessionMiddleware
         app.add_middleware(SessionMiddleware, secret_key=secret,
@@ -85,16 +98,26 @@ from utils.html_renderer import build_results_html
 
 # ── Firebase user storage ─────────────────────────────────────────────────────
 try:
-    from utils.firebase_client import upsert_user_firebase as _upsert_user_fb
+    from utils.firebase_client import (
+        upsert_user_firebase     as _upsert_user_fb,
+        get_user_by_email_firebase as _get_user_by_email_fb,
+    )
     _FIREBASE_AVAILABLE = True
 except ImportError:
     _FIREBASE_AVAILABLE = False
     print("[TRANSCRIPT_AI] firebase_client not found — user storage disabled.", flush=True)
 
 
-async def _upsert_user(user_id: str, email: str, name: str) -> None:
+async def _upsert_user(user_id: str, email: str, name: str,
+                       password_hash: str = "") -> None:
     if _FIREBASE_AVAILABLE:
-        await _upsert_user_fb(user_id, email, name)
+        await _upsert_user_fb(user_id, email, name, password_hash)
+
+
+async def _get_user_by_email(email: str) -> dict | None:
+    if _FIREBASE_AVAILABLE:
+        return await _get_user_by_email_fb(email)
+    return None
 
 
 # ── Optional modules ──────────────────────────────────────────────────────────
@@ -201,8 +224,23 @@ TEXT_EXT  = {".txt", ".vtt", ".json"}
 
 # ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(title="TranscriptAI", version="3.3.0", docs_url="/docs")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
-                   allow_methods=["*"], allow_headers=["*"])
+
+# CORS — explicit origins only.
+# allow_origins=["*"] and allow_credentials=True cannot be used together —
+# browsers reject the combination. Use an explicit list instead.
+# Override via ALLOWED_ORIGINS env var (comma-separated) if needed.
+_ALLOWED_ORIGINS = os.getenv(
+    "ALLOWED_ORIGINS",
+    "https://kunalthebeast-transcriptai.hf.space,http://localhost:7860,http://127.0.0.1:7860"
+).split(",")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
 
 # ── Rate limiter ──────────────────────────────────────────────────────────────
 limiter = Limiter(key_func=get_remote_address)
@@ -291,32 +329,81 @@ async def login_page(request: Request):
 
 @app.post("/login", response_class=HTMLResponse)
 async def login_submit(
-    request: Request,
-    email: str = Form(default=""),
+    request:  Request,
+    email:    str = Form(default=""),
     password: str = Form(default=""),
-    name: str = Form(default=""),
-    mode: str = Form(default="login"),
+    name:     str = Form(default=""),
+    mode:     str = Form(default="login"),
 ):
-    clean_email = email.strip()
+    clean_email = email.strip().lower()
+
+    # ── Input validation ──────────────────────────────────────────────────
     if not clean_email or "@" not in clean_email:
         return templates.TemplateResponse(request, "login.html", {
-            "request":      request,
-            "auth_enabled": AUTH_ENABLED,
-            "current_user": None,
-            "error":        "Please provide a valid email address.",
-            "mode":         mode,
+            "request": request, "auth_enabled": AUTH_ENABLED,
+            "current_user": None, "mode": mode,
+            "error": "Please provide a valid email address.",
+        })
+    if not password or len(password) < 6:
+        return templates.TemplateResponse(request, "login.html", {
+            "request": request, "auth_enabled": AUTH_ENABLED,
+            "current_user": None, "mode": mode,
+            "error": "Password must be at least 6 characters.",
         })
 
-    display_name = name.strip() if name.strip() else clean_email.split("@")[0].replace(".", " ").title()
     user_id = "usr_" + clean_email.replace("@", "_at_").replace(".", "_")
 
+    # ── Sign Up ───────────────────────────────────────────────────────────
+    if mode == "signup":
+        if not _FIREBASE_AVAILABLE:
+            return templates.TemplateResponse(request, "login.html", {
+                "request": request, "auth_enabled": AUTH_ENABLED,
+                "current_user": None, "mode": mode,
+                "error": "Account storage unavailable. Try Google sign-in instead.",
+            })
+        existing = await _get_user_by_email(clean_email)
+        if existing:
+            return templates.TemplateResponse(request, "login.html", {
+                "request": request, "auth_enabled": AUTH_ENABLED,
+                "current_user": None, "mode": "login",
+                "error": "An account with this email already exists. Please sign in.",
+            })
+        display_name = name.strip() or clean_email.split("@")[0].replace(".", " ").title()
+        pw_hash = _bcrypt.hashpw(password.encode(), _bcrypt.gensalt()).decode()
+        await _upsert_user(user_id=user_id, email=clean_email,
+                           name=display_name, password_hash=pw_hash)
+
+    # ── Sign In ───────────────────────────────────────────────────────────
+    else:
+        if _FIREBASE_AVAILABLE:
+            user = await _get_user_by_email(clean_email)
+            if not user:
+                return templates.TemplateResponse(request, "login.html", {
+                    "request": request, "auth_enabled": AUTH_ENABLED,
+                    "current_user": None, "mode": mode,
+                    "error": "No account found with this email. Please sign up first.",
+                })
+            stored_hash = user.get("password_hash", "")
+            if not stored_hash or not _bcrypt.checkpw(
+                    password.encode(), stored_hash.encode()):
+                return templates.TemplateResponse(request, "login.html", {
+                    "request": request, "auth_enabled": AUTH_ENABLED,
+                    "current_user": None, "mode": mode,
+                    "error": "Incorrect password.",
+                })
+            display_name = user.get("name", clean_email.split("@")[0].title())
+            user_id      = user.get("user_id", user_id)
+        else:
+            # Firebase unavailable — session-only demo fallback (no persistence)
+            display_name = clean_email.split("@")[0].title()
+
+    # ── Write session ─────────────────────────────────────────────────────
     try:
         request.session["user_id"] = user_id
         request.session["email"]   = clean_email
         request.session["name"]    = display_name
-        await _upsert_user(user_id=user_id, email=clean_email, name=display_name)
     except Exception as exc:
-        print(f"[AUTH] Session write notice: {exc}", flush=True)
+        print(f"[AUTH] Session write failed: {exc}", flush=True)
 
     return RedirectResponse("/", status_code=303)
 
@@ -340,10 +427,11 @@ async def auth_callback(request: Request):
         request.session["user_id"] = user_info["sub"]
         request.session["email"]   = user_info.get("email", "")
         request.session["name"]    = user_info.get("name", "")
+        # Google OAuth users have no password_hash — that's correct
         await _upsert_user(
-            user_id = user_info["sub"],
-            email   = user_info.get("email", ""),
-            name    = user_info.get("name", ""),
+            user_id=user_info["sub"],
+            email=user_info.get("email", ""),
+            name=user_info.get("name", ""),
         )
     except Exception as exc:
         print(f"[AUTH] callback error: {exc}", flush=True)
@@ -507,24 +595,18 @@ async def analyze_text_route(
         detected_lang = language or detect_language(cleaned)
         cleaned, was_unlabeled = _ensure_speaker_labels(cleaned)
 
-        # v3.3: Pass raw cleaned text directly.
-        # analyzer.py handles PII masking internally when PII_AVAILABLE.
-        # Do NOT mask here — that caused double masking and broken restoration.
         result = await asyncio.to_thread(
             analyze_transcript, cleaned, detected_lang,
             user_id=get_current_user(request)
         )
 
-        # Soft rejection post-processing (on original cleaned text)
         if SOFT_REJECTION_AVAILABLE:
             result["soft_rejections"] = detect_soft_rejections(cleaned)
 
         result["_detected_language"]    = detected_lang
         result["_unlabeled_transcript"] = was_unlabeled
 
-        features = get_features(detected_lang)
-
-        # PII report — derive from result metadata if available
+        features   = get_features(detected_lang)
         pii_report = result.get("_pii_report", None)
 
         html = build_results_html(result, detected_lang, features, pii_report)
@@ -656,14 +738,14 @@ async def export_txt_route(request: Request):
 @app.get("/health")
 async def health():
     return {
-        "status":         "healthy",
-        "version":        "3.3.0",
-        "provider":       os.getenv("TRANSCRIPT_AI_PROVIDER", "auto"),
-        "nim_configured": bool(os.getenv("NIM_API_KEY")),
-        "groq_configured":bool(os.getenv("GROQ_API_KEY")),
-        "appi_compliant": PII_AVAILABLE,
-        "auth_enabled":   AUTH_ENABLED,
-        "firebase":       _FIREBASE_AVAILABLE,
+        "status":          "healthy",
+        "version":         "3.3.0",
+        "provider":        os.getenv("TRANSCRIPT_AI_PROVIDER", "auto"),
+        "nim_configured":  bool(os.getenv("NIM_API_KEY")),
+        "groq_configured": bool(os.getenv("GROQ_API_KEY")),
+        "pii_masking":     PII_AVAILABLE,   # renamed from appi_compliant
+        "auth_enabled":    AUTH_ENABLED,
+        "firebase":        _FIREBASE_AVAILABLE,
         "modules": {
             "audio":             AUDIO_AVAILABLE,
             "pii_masker":        PII_AVAILABLE,
