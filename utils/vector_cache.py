@@ -1,35 +1,34 @@
-# vector_cache.py — v2.1
+# vector_cache.py — v2.2
 # Persistent vector cache using ChromaDB + sentence-transformers
 #
-# v2.0 → v2.1 changes:
+# v2.1 → v2.2 changes:
 #
-# X1 FIX: get_cached_result() now accepts masked_transcript parameter.
-#         Embedding is computed on masked_transcript when provided, falling
-#         back to raw transcript if masking was unavailable. This ensures
-#         cache lookups are consistent with how documents were stored (X2).
+# Y1 FIX: Anonymous persistent cache disabled — privacy isolation.
+#         get_cached_result() and store_result() both return None immediately
+#         when user_id is None. Previously, all unauthenticated users shared
+#         the "transcripts_anonymous" collection, meaning User A's analyzed
+#         result could be returned as a cache hit for User B's semantically
+#         similar transcript. For meeting intelligence (which contains PII,
+#         business decisions, and confidential negotiations), this is
+#         unacceptable. Fix: authenticated users get a private persistent
+#         cache; anonymous users get no persistent cache (in-memory only).
+#         The anonymous ChromaDB collection is retained for NLP patterns only.
 #
-# X2 FIX: store_result() now accepts masked_transcript parameter.
-#         ChromaDB documents[] field now stores masked_transcript[:2000]
-#         instead of raw transcript[:2000]. Raw PII (names, emails, phones)
-#         no longer written to ChromaDB plaintext storage on disk.
-#         doc_id still computed from raw transcript MD5 for backward
-#         compatibility — existing cache entries continue to resolve.
-#         Embedding also computed on masked_transcript for consistency with X1.
+# Y2 FIX: Degraded/fallback results no longer cached.
+#         When all LLM providers fail, analyzer.py falls back to a
+#         deterministic extractive result with provider="no_api" or
+#         provider="fallback_*". Previously, "mock" not in "no_api" was True,
+#         so degraded results were persisted. After a provider outage, the
+#         same transcript would return a cached degraded result even after
+#         providers recovered. Fix: only cache results from known-good
+#         providers (nim, groq, ollama). Everything else is skipped.
 #
-# X3 FIX: Bare `except Exception: pass` replaced with stderr logging in
-#         both get_cached_result() and store_result(). Silent failures were
-#         hiding ChromaDB corruption, disk-full errors, and collection
-#         schema mismatches. Now all cache errors are logged with context.
-#
-# Retained from v2.0:
-#   - Per-user ChromaDB collections: transcripts_{safe_user_id}
-#   - Anonymous requests use "transcripts_anonymous" (shared, as before)
-#   - _get_user_collection(user_id) replaces the global _transcript_coll
-#   - Global singleton _chroma_client still shared (ChromaDB supports this)
-#   - NLP patterns collection remains global (not user-specific)
-#
-# Storage: ./vector_store/chroma_db/ (persists across restarts)
-# Each user's embeddings are isolated — no cross-user semantic leakage.
+# Retained from v2.1:
+#   X1 FIX: masked_transcript parameter for embedding lookup consistency
+#   X2 FIX: masked_transcript stored in ChromaDB (not raw PII)
+#   X3 FIX: stderr logging on all exceptions (no silent swallowing)
+#   Per-user ChromaDB collections: transcripts_{safe_user_id}
+#   Global singleton _chroma_client still shared
 
 import os
 import sys
@@ -52,14 +51,23 @@ PATTERNS_DIR.mkdir(exist_ok=True)
 
 # ── SIMILARITY THRESHOLDS ─────────────────────────────────────────────────────
 EXACT_THRESHOLD    = 0.98   # near-identical transcript → instant return
-SEMANTIC_THRESHOLD = 0.82   # same meeting, slightly different wording, context but same meaning → output
-# Below 0.82 = different meeting → call Groq
+SEMANTIC_THRESHOLD = 0.82   # same meeting, slightly different wording → reuse
+# Below 0.82 = different meeting → call LLM
+
+# Y2 FIX: Only cache results from these providers — never cache degraded output
+_CACHEABLE_PROVIDERS = frozenset({
+    "nim",
+    "groq",
+    "groq_langchain",
+    "ollama",
+    "ollama_langchain",
+})
 
 # ── LAZY SINGLETONS ───────────────────────────────────────────────────────────
-_chroma_client     = None
-_transcript_coll   = None
-_patterns_coll     = None
-_embedder          = None
+_chroma_client   = None
+_transcript_coll = None
+_patterns_coll   = None
+_embedder        = None
 
 
 def _get_embedder():
@@ -68,9 +76,6 @@ def _get_embedder():
     if _embedder is None:
         try:
             from sentence_transformers import SentenceTransformer
-            # paraphrase-multilingual-MiniLM-L12-v2: 420MB, 384-dim, 50+ languages
-            # Audit fix: all-MiniLM-L6-v2 was English-only — language-blind for JP/HI.
-            # The RAG pipeline already uses this model; vector cache now consistent.
             _embedder = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
         except ImportError:
             _embedder = False
@@ -86,6 +91,7 @@ def _get_chroma():
         import chromadb
         _chroma_client = chromadb.PersistentClient(path=str(CHROMA_DIR))
 
+        # anonymous collection retained for NLP patterns only — not transcripts
         _transcript_coll = _chroma_client.get_or_create_collection(
             name="transcripts_anonymous",
             metadata={"hnsw:space": "cosine"}
@@ -111,16 +117,16 @@ def _safe_uid(user_id: str) -> str:
 
 def _get_user_collection(user_id: str | None = None):
     """
-    Returns the ChromaDB collection for this specific user.
-    user_id=None  → shared anonymous collection (v1 behaviour)
-    user_id="xyz" → isolated collection "transcripts_{safe_id}"
+    Returns the ChromaDB collection for this specific authenticated user.
+    Anonymous users (user_id=None) return None — no persistent transcript cache.
     """
-    client, anon_coll, _ = _get_chroma()
+    client, _, _ = _get_chroma()
     if client is None:
         return None
 
+    # Y1 FIX: no persistent collection for anonymous users
     if not user_id:
-        return anon_coll
+        return None
 
     coll_name = f"transcripts_{_safe_uid(user_id)}"
     try:
@@ -133,13 +139,12 @@ def _get_user_collection(user_id: str | None = None):
             f"[VECTOR_CACHE] _get_user_collection failed for user={user_id!r}: {e}",
             file=sys.stderr, flush=True
         )
-        return anon_coll
+        return None
 
 
 def _seed_nlp_patterns(coll):
     """Store reference NLP patterns in ChromaDB for semantic matching."""
     patterns = [
-        # ── MEETING ROLES ──────────────────────────────────────────────────────
         {"id": "role_leader_1",    "text": "Let's get started. I'll chair today's meeting.",          "category": "ROLE", "role": "leader"},
         {"id": "role_leader_2",    "text": "Okay everyone, let me summarize what we agreed.",         "category": "ROLE", "role": "leader"},
         {"id": "role_leader_3",    "text": "I'll take ownership of this. Everyone please note.",      "category": "ROLE", "role": "leader"},
@@ -149,7 +154,6 @@ def _seed_nlp_patterns(coll):
         {"id": "role_teamlead_2",  "text": "Let me check with my team and get back to you.",          "category": "ROLE", "role": "team_lead"},
         {"id": "role_subordinate_1","text": "Yes sir, I will make sure it gets done.",                "category": "ROLE", "role": "subordinate"},
         {"id": "role_subordinate_2","text": "As you wish. I'll follow your guidance.",                "category": "ROLE", "role": "subordinate"},
-        # ── MEETING PHASES ─────────────────────────────────────────────────────
         {"id": "phase_start_1",    "text": "Good morning everyone. Shall we begin?",                  "category": "PHASE", "phase": "start"},
         {"id": "phase_start_2",    "text": "Let's kick things off. First item on the agenda.",        "category": "PHASE", "phase": "start"},
         {"id": "phase_start_3",    "text": "Thanks for joining. Today we'll cover the following.",    "category": "PHASE", "phase": "start"},
@@ -160,21 +164,18 @@ def _seed_nlp_patterns(coll):
         {"id": "phase_decision_2", "text": "Agreed. Let's lock this in and move forward.",            "category": "PHASE", "phase": "decision"},
         {"id": "phase_conflict_1", "text": "I completely disagree with this approach.",               "category": "PHASE", "phase": "conflict"},
         {"id": "phase_conflict_2", "text": "That's not acceptable. We need to revisit this.",         "category": "PHASE", "phase": "conflict"},
-        # ── DEADLINES ──────────────────────────────────────────────────────────
         {"id": "deadline_hard_1",  "text": "This must be done by end of day Friday. Non-negotiable.", "category": "DEADLINE", "urgency": "hard"},
         {"id": "deadline_hard_2",  "text": "The client is expecting this by Monday morning.",         "category": "DEADLINE", "urgency": "hard"},
         {"id": "deadline_soft_1",  "text": "Try to get it done by next week if possible.",            "category": "DEADLINE", "urgency": "soft"},
         {"id": "deadline_soft_2",  "text": "Whenever you get a chance, please send this over.",       "category": "DEADLINE", "urgency": "soft"},
         {"id": "deadline_missed_1","text": "This was supposed to be done last week.",                 "category": "DEADLINE", "urgency": "missed"},
         {"id": "deadline_missed_2","text": "You've already missed the deadline twice.",               "category": "DEADLINE", "urgency": "missed"},
-        # ── COMMITMENTS ───────────────────────────────────────────────────────
         {"id": "commit_strong_1",  "text": "I will have this ready by Thursday. You can count on me.","category": "COMMITMENT", "strength": "strong"},
         {"id": "commit_strong_2",  "text": "Consider it done. I'll send by EOD.",                    "category": "COMMITMENT", "strength": "strong"},
         {"id": "commit_weak_1",    "text": "I'll try my best to get it done.",                       "category": "COMMITMENT", "strength": "weak"},
         {"id": "commit_weak_2",    "text": "I'll see what I can do. No promises though.",            "category": "COMMITMENT", "strength": "weak"},
         {"id": "commit_none_1",    "text": "We'll look into it and get back to you.",                "category": "COMMITMENT", "strength": "none"},
         {"id": "commit_none_2",    "text": "This is something we can explore going forward.",        "category": "COMMITMENT", "strength": "none"},
-        # ── ESCALATION ────────────────────────────────────────────────────────
         {"id": "escalation_1",     "text": "I'm going to have to take this to upper management.",    "category": "ESCALATION", "level": "high"},
         {"id": "escalation_2",     "text": "This needs to be escalated. It's blocking us.",          "category": "ESCALATION", "level": "high"},
         {"id": "escalation_3",     "text": "If this isn't resolved I'll involve legal.",             "category": "ESCALATION", "level": "critical"},
@@ -194,11 +195,6 @@ def _seed_nlp_patterns(coll):
 # ── MAIN PUBLIC API ───────────────────────────────────────────────────────────
 
 def _user_results_dir(user_id: str | None) -> Path:
-    """
-    Returns the directory where full result JSONs are stored for this user.
-    vector_store/results/anonymous/{doc_id}.json   ← shared / no auth
-    vector_store/results/users/{safe_uid}/{doc_id}.json  ← per-user
-    """
     if not user_id:
         return RESULTS_DIR / "anonymous"
     return RESULTS_DIR / "users" / _safe_uid(user_id)
@@ -208,20 +204,22 @@ def get_cached_result(
     transcript:        str,
     language:          str,
     user_id:           str | None = None,
-    masked_transcript: str | None = None,   # X1 FIX: use for embedding lookup
+    masked_transcript: str | None = None,
 ) -> dict | None:
     """
     Search this user's ChromaDB collection for a semantically similar transcript.
     Returns stored analysis result if similarity >= SEMANTIC_THRESHOLD.
 
-    X1 FIX: masked_transcript is used for the embedding query when provided.
-    This ensures the lookup embedding is computed on the same text representation
-    that was used when the document was originally stored (store_result X2 FIX).
-    Falls back to raw transcript if masked_transcript is not available,
-    maintaining backward compatibility with entries stored before v2.1.
+    Y1 FIX: Returns None immediately for anonymous users (user_id=None).
+    Anonymous users receive no persistent cache — each request is a fresh
+    LLM call. This prevents cross-user result leakage in the shared namespace.
 
-    DSA: HNSW approximate nearest-neighbour O(log n).
+    X1 FIX: masked_transcript used for embedding query for consistency.
     """
+    # Y1 FIX: no persistent cache for unauthenticated users
+    if not user_id:
+        return None
+
     embedder = _get_embedder()
     if not embedder:
         return None
@@ -230,7 +228,6 @@ def get_cached_result(
     if coll is None or coll.count() == 0:
         return None
 
-    # X1 FIX: prefer masked text for embedding — consistent with store_result
     embed_text = masked_transcript if masked_transcript else transcript
 
     try:
@@ -259,7 +256,6 @@ def get_cached_result(
                 result["_cache_doc_id"]      = doc_id
                 return result
 
-    # X3 FIX: log cache read failures — don't swallow silently
     except Exception as e:
         print(
             f"[VECTOR_CACHE] get_cached_result failed "
@@ -275,25 +271,33 @@ def store_result(
     language:          str,
     result:            dict,
     user_id:           str | None = None,
-    masked_transcript: str | None = None,   # X2 FIX: store this, not raw
+    masked_transcript: str | None = None,
 ) -> str | None:
     """
     Store a transcript embedding + full result in this user's private store.
 
-    X2 FIX: ChromaDB documents[] field now stores masked_transcript[:2000]
-    instead of raw transcript[:2000]. This ensures names, emails, and phone
-    numbers are NOT written as plaintext to the ChromaDB SQLite files on disk.
+    Y1 FIX: Returns None immediately for anonymous users — no persistent storage.
 
-    doc_id is still derived from the raw transcript MD5 for backward
-    compatibility — existing cache entries resolve with the same key.
+    Y2 FIX: Skips storage for degraded/fallback providers. Only results from
+    nim, groq, ollama are persisted. Fallback/no_api results are discarded
+    so they cannot poison the cache after provider recovery.
 
-    Embedding is computed on masked_transcript (when available) to match
-    the query embedding computed in get_cached_result (X1 FIX). Consistent
-    embedding space = correct similarity scores.
-
-    If masked_transcript is not provided (masking unavailable), falls back
-    to raw transcript for both embedding and document storage — no regression.
+    X2 FIX: ChromaDB documents[] stores masked_transcript (no raw PII on disk).
     """
+    # Y1 FIX: no persistent cache for unauthenticated users
+    if not user_id:
+        return None
+
+    # Y2 FIX: skip degraded/fallback results
+    provider = result.get("_provider", "")
+    provider_lower = provider.lower()
+    if provider and not any(p in provider_lower for p in _CACHEABLE_PROVIDERS):
+        print(
+            f"[VECTOR_CACHE] Skipping cache for non-cacheable provider: {provider!r}",
+            file=sys.stderr, flush=True
+        )
+        return None
+
     embedder = _get_embedder()
     if not embedder:
         return None
@@ -306,35 +310,29 @@ def store_result(
     if not client:
         return None
 
-    # X2 FIX: prefer masked text for embedding + document storage
     embed_text    = masked_transcript if masked_transcript else transcript
     document_text = masked_transcript if masked_transcript else transcript
 
     try:
-        # doc_id on RAW text MD5 — backward compatible with pre-v2.1 entries
         doc_id    = hashlib.md5(transcript.encode()).hexdigest()
-        # X2 FIX: embedding on masked text — consistent with get_cached_result
         embedding = embedder.encode([embed_text], show_progress_bar=False).tolist()
-
         word_count = len(transcript.split())
         lang_label = language or "unknown"
 
-        # X2 FIX: document_text is masked — no raw PII written to ChromaDB disk
         coll.upsert(
             ids        =[doc_id],
-            documents  =[document_text[:2000]],   # ← masked, not raw
+            documents  =[document_text[:2000]],
             embeddings =embedding,
             metadatas  =[{
                 "language":   lang_label,
                 "word_count": word_count,
                 "stored_at":  time.strftime("%Y-%m-%dT%H:%M:%S"),
-                "provider":   result.get("_provider", "unknown"),
-                "user_id":    user_id or "anonymous",
-                "pii_masked": bool(masked_transcript),   # auditable flag
+                "provider":   provider,
+                "user_id":    user_id,
+                "pii_masked": bool(masked_transcript),
             }]
         )
 
-        # Full result JSON stored in user's results directory (no size limit)
         result_dir = _user_results_dir(user_id)
         result_dir.mkdir(parents=True, exist_ok=True)
         result_path = result_dir / f"{doc_id}.json"
@@ -344,14 +342,13 @@ def store_result(
             if not k.startswith("_") or k in ("_provider", "_duration_ms")
         }
         clean_result["_cached_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
-        clean_result["_user_id"]   = user_id or "anonymous"
+        clean_result["_user_id"]   = user_id
 
         with open(result_path, "w", encoding="utf-8") as f:
             json.dump(clean_result, f, ensure_ascii=False, indent=2)
 
         return doc_id
 
-    # X3 FIX: log store failures — don't swallow silently
     except Exception as e:
         print(
             f"[VECTOR_CACHE] store_result failed "
@@ -362,10 +359,7 @@ def store_result(
 
 
 def query_patterns(text: str, category: str = None, top_k: int = 3) -> list:
-    """
-    Query the NLP pattern library for semantic matches.
-    Used to identify meeting roles, phases, deadlines, commitments.
-    """
+    """Query the NLP pattern library for semantic matches."""
     embedder = _get_embedder()
     if not embedder:
         return []
@@ -406,6 +400,18 @@ def get_cache_stats(user_id: str | None = None) -> dict:
     if not client:
         return {"available": False, "transcript_count": 0}
 
+    # Y1 FIX: anonymous users have no transcript cache
+    if not user_id:
+        return {
+            "available":        True,
+            "transcript_count": 0,
+            "pattern_count":    patterns_coll.count() if patterns_coll else 0,
+            "store_path":       str(VECTOR_STORE_DIR),
+            "user_id":          "anonymous",
+            "cache_enabled":    False,
+            "cache_note":       "Sign in to enable persistent transcript caching",
+        }
+
     try:
         coll = _get_user_collection(user_id)
         return {
@@ -413,7 +419,8 @@ def get_cache_stats(user_id: str | None = None) -> dict:
             "transcript_count": coll.count() if coll else 0,
             "pattern_count":    patterns_coll.count() if patterns_coll else 0,
             "store_path":       str(VECTOR_STORE_DIR),
-            "user_id":          user_id or "anonymous",
+            "user_id":          user_id,
+            "cache_enabled":    True,
         }
     except Exception as e:
         print(f"[VECTOR_CACHE] get_cache_stats failed: {e}", file=sys.stderr, flush=True)

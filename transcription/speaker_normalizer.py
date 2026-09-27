@@ -90,7 +90,7 @@ def normalize_speaker_name(raw: str) -> str:
     name = name.strip()
 
     if name.lower() in ROLE_ONLY_LABELS:
-        return ""
+        return name
 
     return name
 
