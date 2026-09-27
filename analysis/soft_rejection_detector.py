@@ -160,6 +160,10 @@ JP_APPROVAL_GATE_PHRASES = [
     ("稟議が必要です",                          "Ringi-sho process required — formal approval chain"),
     ("稟議を通す必要があります",                "Must pass through ringi approval process"),
     ("役員会の承認が必要",                      "Executive board approval required"),
+    ("承認が必要",                              "Approval required — explicit gate (catches code-switched '承認 this first')"),
+    ("まず承認",                               "First need approval — gate signal"),
+    ("最初に承認",                              "Need approval first — gate signal"),
+    ("承認を得る必要",                          "Need to obtain approval — formal gate"),
 ]
 
 
@@ -239,8 +243,9 @@ EN_HIGH_PHRASES = [
     ("must be resolved by",                          "Hard deadline imposed for resolution"),
     ("needs to be resolved by",                      "Deadline for resolution specified"),
     ("by end of week",                               "End-of-week deadline — escalation framing"),
-    ("by friday",                                    "Friday deadline — common client ultimatum pattern"),
-    ("by monday",                                    "Monday deadline — common client ultimatum pattern"),
+    ("resolved by friday",                           "Friday resolution deadline — ultimatum context only"),
+    ("resolved by monday",                           "Monday resolution deadline — ultimatum context only"),
+    ("fixed by friday",                              "Friday fix deadline — ultimatum context only"),
     # ── Written demand signals ────────────────────────────────────────────────
     ("demand a written",                             "Formal written demand — complaint escalation to documentation"),
     ("written commitment",                           "Written commitment demanded — accountability escalation"),
@@ -590,6 +595,20 @@ SOFT_PATTERNS = [
         "english": "Could we have a little time (partial match)",
         "confidence": 0.70,
         "explanation": "Time deferral — partial match catches 少し時間をいただけますか and all conjugated variants.",
+    },
+    {
+        "phrase": "検討する必要",
+        "reading": "Kentō suru hitsuyō",
+        "english": "Need to consider (plain form)",
+        "confidence": 0.78,
+        "explanation": "Plain-form consideration — less polite than 検討いたします but same deferral meaning. Catches code-switched usage like '検討する this'.",
+    },
+    {
+        "phrase": "検討する",
+        "reading": "Kentō suru",
+        "english": "To consider (plain form, partial match)",
+        "confidence": 0.72,
+        "explanation": "Plain-form 検討 — catches code-switched usage where speaker drops keigo register mid-sentence.",
     },
 ]
 

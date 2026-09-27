@@ -13,6 +13,17 @@
 #   - Password actually verified via bcrypt on /login (both sign-in and sign-up)
 #   - health endpoint: appi_compliant → pii_masking (matches README)
 #
+# v3.3.1 changes (this file):
+#   - FastAPI lifespan context manager replaces deprecated @app.on_event
+#     Calls async_processor.startup() / shutdown() so the thread pool and
+#     cleanup daemon start/stop cleanly with the server process.
+#   - RAG evaluation integrated into /evaluate/run via utils/rag_evaluator.py
+#     Adds faithfulness, answer_relevancy, context_precision, hallucination_rate
+#     to each test-case report. Logs to MLflow under nested runs.
+#   - Fixed: get_job_result(timeout_sec=0) was silently raising TimeoutError
+#     for every completed job — fixed inside async_processor.py (no call-site
+#     change needed here; the route is already correct).
+#
 # v3.1/3.2 retained:
 #   - Google OAuth auth routes (/auth/login, /auth/callback, /auth/logout, /auth/me)
 #   - SessionMiddleware + aiosqlite removed (replaced by Firebase)
@@ -22,6 +33,7 @@ import asyncio
 import io
 import json as _json
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
@@ -54,8 +66,6 @@ except ImportError:
 
 
 def _setup_auth(app):
-    # SESSION_SECRET must be set explicitly — no hardcoded fallback.
-    # Add it to HF Space secrets: Settings → Variables and secrets → New secret
     secret = os.getenv("SESSION_SECRET")
     if not secret:
         raise RuntimeError(
@@ -208,9 +218,7 @@ except ImportError:
             "insight_tab_enabled": True,
         }
 
-# ── Async job processor───────────────────────────────────────────
-
-
+# ── Async job processor ───────────────────────────────────────────────────────
 try:
     from api.async_processor import (
         submit_job,
@@ -221,7 +229,6 @@ try:
     ASYNC_PROCESSOR_AVAILABLE = True
 except ImportError:
     ASYNC_PROCESSOR_AVAILABLE = False
-
 
 # ── Evaluation module ─────────────────────────────────────────────────────────
 try:
@@ -234,16 +241,47 @@ except ImportError:
     MLFLOW_AVAILABLE = False
     TEST_CASES = []
 
+# ── RAG evaluation module ─────────────────────────────────────────────────────
+try:
+    from utils.rag_evaluator import evaluate_rag
+    RAG_EVAL_AVAILABLE = True
+except ImportError:
+    RAG_EVAL_AVAILABLE = False
+
 AUDIO_EXT = {".mp3", ".wav", ".m4a", ".mp4", ".ogg", ".webm"}
 TEXT_EXT  = {".txt", ".vtt", ".json"}
 
+
+# ── Lifespan ──────────────────────────────────────────────────────────────────
+# Replaces deprecated @app.on_event("startup") / ("shutdown").
+# Starts the async_processor thread pool and cleanup daemon on server start,
+# drains in-flight jobs cleanly before the process exits.
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    if ASYNC_PROCESSOR_AVAILABLE:
+        from api.async_processor import startup as _async_startup
+        _async_startup()
+
+    yield   # server is running
+
+    # Shutdown — drains in-flight jobs before HF Spaces kills the process
+    if ASYNC_PROCESSOR_AVAILABLE:
+        from api.async_processor import shutdown as _async_shutdown
+        _async_shutdown()
+
+
 # ── App ───────────────────────────────────────────────────────────────────────
-app = FastAPI(title="TranscriptAI", version="3.3.0", docs_url="/docs")
+app = FastAPI(
+    title="TranscriptAI",
+    version="3.3.1",
+    docs_url="/docs",
+    lifespan=lifespan,
+)
 
 # CORS — explicit origins only.
 # allow_origins=["*"] and allow_credentials=True cannot be used together —
 # browsers reject the combination. Use an explicit list instead.
-# Override via ALLOWED_ORIGINS env var (comma-separated) if needed.
 _ALLOWED_ORIGINS = os.getenv(
     "ALLOWED_ORIGINS",
     "https://kunalthebeast-transcriptai.hf.space,http://localhost:7860,http://127.0.0.1:7860"
@@ -352,7 +390,6 @@ async def login_submit(
 ):
     clean_email = email.strip().lower()
 
-    # ── Input validation ──────────────────────────────────────────────────
     if not clean_email or "@" not in clean_email:
         return templates.TemplateResponse(request, "login.html", {
             "request": request, "auth_enabled": AUTH_ENABLED,
@@ -368,7 +405,6 @@ async def login_submit(
 
     user_id = "usr_" + clean_email.replace("@", "_at_").replace(".", "_")
 
-    # ── Sign Up ───────────────────────────────────────────────────────────
     if mode == "signup":
         if not _FIREBASE_AVAILABLE:
             return templates.TemplateResponse(request, "login.html", {
@@ -388,7 +424,6 @@ async def login_submit(
         await _upsert_user(user_id=user_id, email=clean_email,
                            name=display_name, password_hash=pw_hash)
 
-    # ── Sign In ───────────────────────────────────────────────────────────
     else:
         if _FIREBASE_AVAILABLE:
             user = await _get_user_by_email(clean_email)
@@ -409,10 +444,8 @@ async def login_submit(
             display_name = user.get("name", clean_email.split("@")[0].title())
             user_id      = user.get("user_id", user_id)
         else:
-            # Firebase unavailable — session-only demo fallback (no persistence)
             display_name = clean_email.split("@")[0].title()
 
-    # ── Write session ─────────────────────────────────────────────────────
     try:
         request.session["user_id"] = user_id
         request.session["email"]   = clean_email
@@ -442,7 +475,6 @@ async def auth_callback(request: Request):
         request.session["user_id"] = user_info["sub"]
         request.session["email"]   = user_info.get("email", "")
         request.session["name"]    = user_info.get("name", "")
-        # Google OAuth users have no password_hash — that's correct
         await _upsert_user(
             user_id=user_info["sub"],
             email=user_info.get("email", ""),
@@ -521,6 +553,27 @@ async def evaluate_run():
             evaluate, prediction, tc["ground_truth"], tc["transcript"],
             tc_name=tc["name"], provider=prediction.get("_provider", "unknown"),
         )
+
+        # ── RAG evaluation ────────────────────────────────────────────
+        # Runs after main eval so it doesn't block accuracy scoring.
+        # bypass_cache=True above means cached_transcript is N/A here —
+        # context_precision will return the neutral 1.0 in that mode.
+        if RAG_EVAL_AVAILABLE:
+            try:
+                rag_report = await asyncio.to_thread(
+                    evaluate_rag,
+                    tc["transcript"],   # source transcript
+                    prediction,         # full analysis result dict
+                    None,               # cached_transcript (N/A in bypass mode)
+                    False,              # cache_hit
+                    tc["name"],         # label for MLflow run
+                    MLFLOW_AVAILABLE,   # log_to_mlflow
+                )
+                report["rag_metrics"] = rag_report
+            except Exception as exc:
+                report["rag_metrics"] = {"error": str(exc)}
+        # ─────────────────────────────────────────────────────────────
+
         return {
             "tc_id":       tc["id"],
             "tc_name":     tc["name"],
@@ -550,10 +603,10 @@ async def jobs_submit(
     Submit a transcript for async analysis.
     Returns a job_id immediately (non-blocking).
     Client polls /jobs/{job_id} until status == "done".
- 
+
     This is the non-blocking alternative to /analyze-text.
     Use when you need the frontend to remain responsive during analysis.
- 
+
     Frontend pattern:
         const res  = await fetch("/jobs/submit", { method: "POST", body: formData })
         const { job_id } = await res.json()
@@ -570,29 +623,34 @@ async def jobs_submit(
             {"error": "Transcript too short (min 20 chars)"},
             status_code=400,
         )
- 
+
     cleaned       = clean_text(transcript)
     detected_lang = language or detect_language(cleaned)
     cleaned, _    = _ensure_speaker_labels(cleaned)
- 
-    job_id = submit_job(cleaned, detected_lang)
+
+    try:
+        job_id = submit_job(cleaned, detected_lang)
+    except RuntimeError as exc:
+        # Job store at capacity — back-pressure
+        return JSONResponse({"error": str(exc)}, status_code=503)
+
     return JSONResponse({
-        "job_id":    job_id,
-        "status":    "queued",
-        "poll_url":  f"/jobs/{job_id}",
+        "job_id":   job_id,
+        "status":   "queued",
+        "poll_url": f"/jobs/{job_id}",
     })
- 
- 
+
+
 @app.get("/jobs/{job_id}")
 async def jobs_status(job_id: str, request: Request):
     """
     Poll job status and retrieve result when done.
- 
+
     Returns:
         status: "queued" | "running" | "done" | "failed"
         result: analysis result dict (only when status == "done")
         error:  error message (only when status == "failed")
- 
+
     Frontend polling pattern:
         const poll = setInterval(async () => {
             const res  = await fetch(`/jobs/${job_id}`)
@@ -612,50 +670,52 @@ async def jobs_status(job_id: str, request: Request):
             {"error": "Async processor not available"},
             status_code=503,
         )
- 
+
     status = get_job_status(job_id)
     if "error" in status:
         return JSONResponse(status, status_code=404)
- 
+
     response: dict = {
         "job_id":      job_id,
         "status":      status["status"],
         "duration_ms": status.get("duration_ms"),
     }
- 
+
     if status["status"] == "done":
         try:
+            # timeout_sec=0 is safe: async_processor.get_job_result does an
+            # immediate check before entering the poll loop, so a completed
+            # job is returned in microseconds regardless of the timeout value.
             result = get_job_result(job_id, timeout_sec=0)
- 
-            # Post-processing (same as /analyze-text)
+
             if SOFT_REJECTION_AVAILABLE:
                 result["soft_rejections"] = detect_soft_rejections(
                     result.get("_cleaned_transcript", "")
                 )
- 
+
             detected_lang = result.get("_detected_language", "en")
             features      = get_features(detected_lang)
             pii_report    = result.get("_pii_report")
- 
+
             html = build_results_html(result, detected_lang, features, pii_report)
             response["result"] = result
             response["html"]   = html
         except Exception as exc:
             response["status"] = "failed"
             response["error"]  = str(exc)
- 
+
     elif status["status"] == "failed":
         response["error"] = status.get("error", "Unknown error")
- 
+
     return JSONResponse(response)
- 
- 
+
+
 @app.get("/jobs/queue/stats")
 async def jobs_queue_stats():
     """
     Returns current job queue statistics.
     Useful for monitoring and debugging.
- 
+
     Example response:
         {
             "total": 12,
@@ -890,11 +950,11 @@ async def export_txt_route(request: Request):
 async def health():
     return {
         "status":          "healthy",
-        "version":         "3.3.0",
+        "version":         "3.3.1",
         "provider":        os.getenv("TRANSCRIPT_AI_PROVIDER", "auto"),
         "nim_configured":  bool(os.getenv("NIM_API_KEY")),
         "groq_configured": bool(os.getenv("GROQ_API_KEY")),
-        "pii_masking":     PII_AVAILABLE,   # renamed from appi_compliant
+        "pii_masking":     PII_AVAILABLE,
         "auth_enabled":    AUTH_ENABLED,
         "firebase":        _FIREBASE_AVAILABLE,
         "modules": {
@@ -908,6 +968,8 @@ async def health():
             "slide_architect":   SLIDE_ARCHITECT_AVAILABLE,
             "language_intel":    LANGUAGE_INTEL_AVAILABLE,
             "evaluation":        EVAL_AVAILABLE,
+            "rag_evaluation":    RAG_EVAL_AVAILABLE,
+            "async_processor":   ASYNC_PROCESSOR_AVAILABLE,
         },
     }
 
