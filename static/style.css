@@ -1,336 +1,930 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+JP:wght@400;500;700;800&display=swap');
+
+/* ========================================================================== 
+   TranscriptAI — Analytics UI / Neo-Japan System
+   UI-only stylesheet. Existing routes, Alpine state, API calls and logic are
+   intentionally not touched by this file.
+   ========================================================================== */
 
 :root {
-    /* Neo-Zen Palette */
-    --washi:        #FAFAFA;
-    --surface:      #FFFFFF;
-    --surface-warm: #FFF5F7;
-    --border:       #E5E7EB;
-    --border-mid:   #D1D5DB;
-    
-    /* Typography Colors */
-    --ink:          #111827;
-    --ink-mid:      #4B5563;
-    --ink-soft:     #6B7280;
-    --ink-faint:    #9CA3AF;
-    
-    /* Sakura Accents */
-    --sakura:       #F472B6;
-    --sakura-deep:  #DB2777;
-    --sakura-bg:    #FDF2F8;
-    --sakura-pale:  #FFF1F2;
-    --sakura-light: #FBCFE8;
-    
-    /* Semantic Colors */
-    --peach:        #F97316;
-    --peach-bg:     #FFF7ED;
-    --gold:         #D97706;
-    --gold-light:   #FDE68A;
-    --green:        #059669;
-    --green-bg:     #ECFDF5;
-    --red:          #DC2626;
-    --red-bg:       #FEF2F2;
-    --amber:        #D97706;
-    --amber-bg:     #FFFBEB;
-    --purple:       #7C3AED;
-    --purple-bg:    #F5F3FF;
-    --purple-border:#C4B5FD;
-    
-    /* UI Elements */
-    --glass:        rgba(255, 255, 255, 0.85);
-    --glass-b:      rgba(255, 255, 255, 0.4);
-    --shadow-sm:    0 2px 8px rgba(17, 24, 39, 0.04);
-    --shadow-md:    0 8px 24px rgba(17, 24, 39, 0.06);
-    --shadow-hover: 0 12px 32px rgba(219, 39, 119, 0.12);
-    --r:            16px;
-    --sidebar-w:    290px;
+    /* Application surfaces */
+    --washi:         #F3F5F7;
+    --surface:       #FFFFFF;
+    --surface-soft:  #F8FAFC;
+    --surface-warm:  #FFF8FA;
+    --border:        #E2E7EC;
+    --border-mid:    #CDD5DE;
+    --border-dark:   #334155;
+
+    /* Typography */
+    --ink:           #13202D;
+    --ink-mid:       #526171;
+    --ink-soft:      #718096;
+    --ink-faint:     #9AA6B2;
+    --ink-inverse:   #F8FAFC;
+
+    /* Japanese / Sakura accent system */
+    --sakura:        #E1879C;
+    --sakura-deep:   #B9526F;
+    --sakura-bg:     #FFF1F4;
+    --sakura-pale:   #FFF7F9;
+    --sakura-light:  #F2C4CF;
+
+    /* Dark analytics shell */
+    --navy:          #101923;
+    --navy-2:        #172331;
+    --navy-3:        #1E2D3E;
+    --navy-border:   #2B3A4A;
+    --navy-text:     #CBD5E1;
+    --navy-muted:    #8694A3;
+
+    /* Semantic analytics */
+    --green:         #198A72;
+    --green-bg:      #ECF8F4;
+    --red:           #C95757;
+    --red-bg:        #FFF1F1;
+    --amber:         #B47A2D;
+    --amber-bg:      #FFF8EA;
+    --purple:        #6D5A94;
+    --purple-bg:     #F4F1FA;
+    --purple-border: #CFC3E7;
+    --blue:          #4676A8;
+    --blue-bg:       #EEF5FB;
+    --teal:          #2E7F86;
+    --teal-bg:       #EDF7F8;
+
+    /* System UI */
+    --glass:         rgba(255,255,255,0.92);
+    --glass-b:       rgba(255,255,255,0.15);
+    --shadow-sm:     0 1px 2px rgba(15,23,42,0.04);
+    --shadow-md:     0 8px 24px rgba(15,23,42,0.07);
+    --shadow-lg:     0 18px 45px rgba(15,23,42,0.12);
+    --shadow-accent: 0 8px 22px rgba(185,82,111,0.14);
+    --r:             12px;
+    --r-sm:          8px;
+    --sidebar-w:     272px;
+    --content-max:   1380px;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
 
 html, body {
-    margin: 0; padding: 0;
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
     font-family: 'Inter', 'Noto Sans JP', sans-serif;
     color: var(--ink);
+    background: var(--washi);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     scroll-behavior: smooth;
-    background-color: var(--washi);
-    background-image: radial-gradient(var(--border) 1px, transparent 1px);
-    background-size: 24px 24px;
+}
+
+body {
+    background-image:
+        linear-gradient(rgba(19,32,45,0.018) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(19,32,45,0.018) 1px, transparent 1px);
+    background-size: 32px 32px;
+}
+
+a { color: inherit; }
+button, input, select, textarea { font: inherit; }
+button { -webkit-tap-highlight-color: transparent; }
+
+::-webkit-scrollbar { width: 7px; height: 7px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #BCC6D0; border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: #9DAAB7; }
+
+[x-cloak] { display: none !important; }
+@view-transition { navigation: auto; }
+
+/* ========================================================================== 
+   APP SHELL
+   ========================================================================== */
+
+.tai-app {
+    display: flex;
     min-height: 100vh;
 }
 
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-thumb { background: var(--sakura-light); border-radius: 999px; }
-::-webkit-scrollbar-thumb:hover { background: var(--sakura); }
-
-[x-cloak] { display: none !important; }
-
-@view-transition { navigation: auto; }
-
-/* ═══════════════════════════════════════════════════════════════
-   SHELL LAYOUT
-   ═══════════════════════════════════════════════════════════════ */
-.tai-app { display: flex; min-height: 100vh; }
-
 .tai-sidebar {
     width: var(--sidebar-w);
-    flex-shrink: 0;
-    background-color: rgba(255, 255, 255, 0.95);
-    backdrop-filter: blur(12px);
-    border-right: 1px solid var(--border);
-    box-shadow: 4px 0 24px rgba(0,0,0,0.02);
-    padding: 1.5rem;
-    display: flex; flex-direction: column; gap: 0;
-    position: sticky; top: 0; height: 100vh; overflow-y: auto;
-    z-index: 10;
+    flex: 0 0 var(--sidebar-w);
+    min-height: 100vh;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    z-index: 100;
+    padding: 20px 16px 18px;
+    color: var(--navy-text);
+    background: var(--navy);
+    border-right: 1px solid var(--navy-border);
+    box-shadow: 8px 0 30px rgba(15,23,42,0.08);
 }
 
 .tai-main {
-    flex: 1; min-width: 0;
-    padding: 2rem 3rem 4rem;
-    max-width: 1100px;
+    flex: 1;
+    min-width: 0;
+    width: 100%;
+    max-width: var(--content-max);
     margin: 0 auto;
+    padding: 18px 34px 52px;
 }
 
-.tai-hr { border: none; border-top: 1px solid var(--border); margin: 1.2rem 0; }
+.tai-hr {
+    border: 0;
+    border-top: 1px solid rgba(148,163,184,0.16);
+    margin: 16px 0;
+}
 
 .sh {
-    font-size: 0.7rem; font-weight: 700; color: var(--ink-faint); letter-spacing: 0.1em;
-    text-transform: uppercase; margin-bottom: 0.8rem;
-    display: flex; align-items: center; gap: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin: 0 0 9px;
+    color: var(--navy-muted);
+    font-size: 0.66rem;
+    line-height: 1.2;
+    font-weight: 800;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
 }
 
-/* ── Sidebar ──────────────────────────────────────────────────── */
-.tai-sidebar-logo { padding: 0.5rem 0 1.5rem; display: flex; flex-direction: column; align-items: flex-start; }
-.tai-sidebar-logo-icon { font-size: 2rem; margin-bottom: 0.5rem; background: var(--sakura-bg); padding: 8px; border-radius: 12px; border: 1px solid var(--sakura-light); }
-.tai-sidebar-logo-name { font-size: 1.15rem; font-weight: 800; color: var(--ink); letter-spacing: -0.02em; }
-.tai-sidebar-logo-sub  { font-size: 0.65rem; color: var(--sakura-deep); letter-spacing: 0.1em; text-transform: uppercase; margin-top: 0.2rem; font-weight: 600; }
+/* ========================================================================== 
+   SIDEBAR
+   ========================================================================== */
 
-.tai-nav { display: flex; flex-direction: column; gap: 6px; }
+.tai-sidebar-logo {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 5px 8px 16px;
+    text-decoration: none;
+}
+
+.tai-sidebar-logo-icon {
+    display: grid;
+    place-items: center;
+    width: 42px;
+    height: 42px;
+    margin-bottom: 10px;
+    font-size: 20px;
+    border-radius: 10px;
+    color: #FFF;
+    background: var(--navy-2);
+    border: 1px solid var(--navy-border);
+}
+
+.tai-sidebar-logo-name {
+    color: #F8FAFC !important;
+    font-size: 1.08rem;
+    line-height: 1.15;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+}
+
+.tai-sidebar-logo-sub {
+    margin-top: 5px;
+    color: #DF8AA0 !important;
+    font-size: 0.61rem;
+    line-height: 1.4;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+.tai-auth-user {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 8px 9px;
+    background: rgba(255,255,255,0.035);
+    border: 1px solid rgba(148,163,184,0.15);
+    border-radius: 9px;
+}
+
+.tai-auth-user div[style*="color:var(--ink)"] {
+    color: #F8FAFC !important;
+}
+
+.tai-auth-user a {
+    color: #95A2B1 !important;
+}
+
+.tai-auth-avatar {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    flex: 0 0 30px;
+    border-radius: 50%;
+    color: #FFF;
+    background: #314154;
+    border: 1px solid #425268;
+    font-size: 0.76rem;
+    font-weight: 800;
+}
+
+.tai-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
 .tai-nav-link {
-    display: flex; align-items: center; gap: 8px; width: 100%;
-    padding: 0.6rem 0.8rem; border-radius: 10px;
-    font-size: 0.9rem; font-weight: 500; color: var(--ink-mid); text-decoration: none;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 9px 10px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    color: #9EABBA;
+    text-decoration: none;
+    font-size: 0.84rem;
+    font-weight: 600;
+    transition: background .18s ease, border-color .18s ease, color .18s ease;
 }
-.tai-nav-link:hover { background: var(--sakura-pale); color: var(--sakura-deep); transform: translateX(4px); }
-.tai-nav-link.active { background: var(--sakura-bg); color: var(--sakura-deep); font-weight: 700; box-shadow: inset 3px 0 0 var(--sakura-deep); }
+
+.tai-nav-link:hover {
+    background: rgba(255,255,255,0.055);
+    border-color: rgba(148,163,184,0.10);
+    color: #F8FAFC;
+    transform: none;
+}
+
+.tai-nav-link.active {
+    color: #FFF;
+    background: #1C2A39;
+    border-color: #33475A;
+    box-shadow: inset 3px 0 0 var(--sakura);
+}
+
+.tai-nav-link.active svg { color: #E6A0B2; }
 
 .tai-select {
-    width: 100%; padding: 0.6rem 0.8rem;
-    background-color: var(--surface); border: 1px solid var(--border-mid);
-    border-radius: 10px; color: var(--ink); font-size: 0.85rem; font-weight: 500;
-    cursor: pointer; outline: none; transition: all 0.2s;
-    appearance: none; background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%239CA3AF%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E"); background-repeat: no-repeat; background-position: right 0.7rem top 50%; background-size: 0.65rem auto;
+    width: 100%;
+    padding: 9px 34px 9px 10px;
+    color: #E2E8F0;
+    background-color: var(--navy-2);
+    border: 1px solid var(--navy-border);
+    border-radius: 8px;
+    outline: none;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' width='292.4' height='292.4'%3E%3Cpath fill='%2394A3B8' d='M287 69.4a17.6 17.6 0 0 0-13-5.4H18.4c-5 0-9.3 1.8-12.9 5.4A17.6 17.6 0 0 0 0 82.2c0 5 1.8 9.3 5.4 12.9l128 127.9c3.6 3.6 7.8 5.4 12.8 5.4s9.2-1.8 12.8-5.4L287 95c3.5-3.5 5.4-7.8 5.4-12.8 0-5-1.9-9.2-5.4-12.8z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 11px center;
+    background-size: 8px auto;
 }
-.tai-select:focus { border-color: var(--sakura); box-shadow: 0 0 0 4px rgba(244,114,182,0.15); }
 
-.tai-toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 0.4rem 0; }
-.tai-toggle { position: relative; width: 44px; height: 24px; background: var(--border-mid); border-radius: 999px; cursor: pointer; transition: background 0.3s; }
+.tai-select:focus {
+    border-color: #B05C73;
+    box-shadow: 0 0 0 3px rgba(225,135,156,0.10);
+}
+
+.tai-toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 3px 0;
+}
+
+.tai-toggle {
+    position: relative;
+    flex: 0 0 auto;
+    width: 40px;
+    height: 22px;
+    border-radius: 999px;
+    background: #3A4858;
+    cursor: pointer;
+    transition: background .2s ease;
+}
+
 .tai-toggle input { display: none; }
 .tai-toggle:has(input:checked) { background: var(--green); }
-.tai-toggle input:checked + .tai-toggle-thumb { transform: translateX(20px); }
-.tai-toggle-thumb { position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; background: #fff; border-radius: 50%; transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1); box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
-.tai-toggle-label { font-size: 0.85rem; font-weight: 500; color: var(--ink-mid); }
+.tai-toggle input:checked + .tai-toggle-thumb { transform: translateX(18px); }
 
-.tai-cache-pill { font-size: 0.75rem; font-weight: 600; color: var(--green); background: var(--green-bg); border: 1px solid #A7F3D0; border-radius: 8px; padding: 0.5rem 0.8rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 6px; }
+.tai-toggle-thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #FFF;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.35);
+    transition: transform .2s ease;
+}
 
-.tai-history-empty { font-size: 0.8rem; color: var(--ink-faint); padding: 0.5rem 0; font-style: italic; }
+.tai-toggle-label {
+    color: #C7D0DA;
+    font-size: 0.76rem;
+    line-height: 1.35;
+    font-weight: 600;
+}
 
-/* ── History list: expand-on-hover ───────────────────────────────
-   Each item is normally collapsed to one line with the label clipped.
-   On hover/focus, that specific item expands to show the full label
-   and elevates slightly; all others remain clipped.
-   ────────────────────────────────────────────────────────────────── */
-.tai-history-list { display: flex; flex-direction: column; gap: 0; }
+.tai-cache-pill {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-bottom: 12px;
+    padding: 8px 10px;
+    color: #75C6B0;
+    background: rgba(25,138,114,0.10);
+    border: 1px solid rgba(25,138,114,0.25);
+    border-radius: 8px;
+    font-size: 0.72rem;
+    font-weight: 700;
+}
+
+.tai-history-empty {
+    padding: 5px 1px;
+    color: #667586;
+    font-size: 0.72rem;
+    line-height: 1.55;
+}
+
+.tai-history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
 
 .tai-history-item {
     display: flex;
     align-items: flex-start;
-    gap: 0.45rem;
+    gap: 8px;
     width: 100%;
+    margin: 0;
+    padding: 8px 9px;
+    color: #A4AFBB;
     text-align: left;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    font-size: 0.73rem;
+    line-height: 1.45;
+    font-weight: 600;
+    cursor: pointer;
+    overflow: hidden;
+    max-height: 2.4rem;
+    transition: background .18s ease, border-color .18s ease, color .18s ease;
+}
+
+.tai-history-item:hover,
+.tai-history-item--active {
+    color: #F8FAFC;
+    background: rgba(255,255,255,0.045);
+    border-color: rgba(148,163,184,0.12);
+    transform: none;
+    box-shadow: none;
+}
+
+.tai-history-item--active { max-height: none; }
+.tai-history-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+.tai-history-item--active .tai-history-label { white-space: normal; overflow: visible; }
+.tai-history-icon { opacity: .65; font-size: .68rem; flex: 0 0 auto; line-height: 1.7; }
+.tai-history-item--active .tai-history-icon { opacity: 1; }
+
+.tai-details {
+    margin-bottom: 1rem;
+    overflow: hidden;
+    background: var(--navy-2);
+    border: 1px solid var(--navy-border);
+    border-radius: 8px;
+}
+
+.tai-details summary {
+    padding: 9px 10px;
+    color: #D4DCE5;
+    background: transparent;
+    font-size: 0.76rem;
+    font-weight: 700;
+    cursor: pointer;
+    list-style: none;
+}
+
+.tai-details summary::-webkit-details-marker { display: none; }
+.tai-details summary::before { content: '＋'; margin-right: 6px; color: #8795A5; }
+.tai-details[open] summary::before { content: '−'; }
+
+.tai-details-body {
+    padding: 10px;
+    color: #94A2B1;
+    border-top: 1px solid var(--navy-border);
+    font-size: 0.71rem;
+    line-height: 1.6;
+}
+
+.tai-details-body p { margin: 0 0 7px; }
+.tai-details-body p:last-child { margin-bottom: 0; }
+
+/* Minor structural helpers used by existing templates */
+.tai-health-right { min-width: 0; }
+.tai-menu-item--signup { background: #FFF8FA; border-color: #F0D3DB; }
+.tai-menu-item--signup:hover { background: #FFF2F5; border-color: var(--sakura-light); }
+.tai-profile-menu-footer { margin-top: 2px; padding: 6px; color: var(--ink-soft); border-top: 1px solid var(--border); font-size: .66rem; }
+
+/* ========================================================================== 
+   TOPBAR / PROFILE
+   ========================================================================== */
+
+.tai-topbar {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    width: 100%;
+    margin-bottom: 8px;
+    position: relative;
+    z-index: 50;
+}
+
+.tai-topbar-spacer { flex: 1; }
+.tai-profile-dropdown { position: relative; display: inline-block; }
+
+.tai-profile-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 9px 5px 5px;
+    color: var(--ink);
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 0.55rem 0.75rem;
-    margin-bottom: 0.4rem;
-    font-size: 0.8rem;
-    font-weight: 500;
-    color: var(--ink-mid);
+    border-radius: 999px;
+    box-shadow: var(--shadow-sm);
+    font-size: 0.78rem;
+    font-weight: 700;
     cursor: pointer;
-    transition: border-color 0.2s, background 0.2s, box-shadow 0.2s, transform 0.2s;
-    /* Default: clipped to one line */
-    overflow: hidden;
-    max-height: 2.4rem;       /* ≈ 1 line + padding */
+    transition: border-color .18s ease, box-shadow .18s ease;
 }
 
-.tai-history-icon {
-    flex-shrink: 0;
+.tai-profile-btn:hover,
+.tai-profile-btn--active {
+    border-color: #C6CED7;
+    box-shadow: 0 3px 12px rgba(15,23,42,0.08);
+    transform: none;
+}
+
+.tai-profile-icon,
+.tai-profile-avatar {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    flex: 0 0 28px;
+    border-radius: 50%;
+}
+
+.tai-profile-icon {
+    color: var(--ink-mid);
+    background: #F0F3F6;
+    border: 1px solid #DCE2E8;
+}
+
+.tai-profile-avatar {
+    color: #FFF;
+    background: #2A3A4D;
     font-size: 0.75rem;
-    line-height: 1.6;
-    opacity: 0.6;
+    font-weight: 800;
 }
 
-/* Label: clipped by default, wraps when expanded */
-.tai-history-label {
-    flex: 1;
-    min-width: 0;
-    line-height: 1.55;
-    /* Clipped state */
-    white-space: nowrap;
+.tai-profile-icon--lg,
+.tai-profile-avatar--lg { width: 40px; height: 40px; flex-basis: 40px; }
+.tai-profile-icon--lg { font-size: 1rem; }
+.tai-profile-avatar--lg { font-size: .95rem; }
+
+.tai-profile-label {
+    max-width: 140px;
     overflow: hidden;
     text-overflow: ellipsis;
-    transition: white-space 0.15s;
+    white-space: nowrap;
 }
 
-/* Expanded state: this specific item only */
-.tai-history-item--active {
-    border-color: var(--sakura-light);
-    background: var(--sakura-pale);
+.tai-profile-caret { color: var(--ink-faint); transition: transform .2s ease; }
+.tai-profile-caret--rotate { transform: rotate(180deg); }
+
+.tai-profile-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    width: 300px;
+    max-width: calc(100vw - 24px);
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    background: rgba(255,255,255,0.98);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--shadow-lg);
+    backdrop-filter: blur(12px);
+    animation: taiProfileSlide .18s ease both;
+}
+
+@keyframes taiProfileSlide {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.tai-profile-menu-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px;
+}
+
+.tai-profile-menu-userinfo { flex: 1; min-width: 0; }
+.tai-profile-menu-name { color: var(--ink); font-size: .8rem; font-weight: 800; }
+.tai-profile-menu-email { margin-top: 2px; color: var(--ink-soft); font-size: .68rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tai-profile-badge-online { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px rgba(25,138,114,.10); }
+
+.tai-menu-divider { height: 1px; background: var(--border); margin: 3px 0; }
+.tai-menu-links { display: flex; flex-direction: column; gap: 2px; }
+
+.tai-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 8px 9px;
+    color: var(--ink);
+    text-decoration: none;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    font-size: .76rem;
+    font-weight: 600;
+    transition: background .16s ease, border-color .16s ease;
+}
+
+.tai-menu-item:hover {
+    color: var(--ink);
+    background: #F6F8FA;
+    border-color: #E9EDF1;
+    transform: none;
+}
+
+.tai-menu-item.active { color: var(--sakura-deep); background: var(--sakura-bg); border-color: var(--sakura-light); }
+.tai-menu-item--login { background: var(--sakura-bg); border-color: var(--sakura-light); }
+.tai-menu-item--logout:hover { color: var(--red); background: var(--red-bg); border-color: #F6D3D3; }
+
+.tai-menu-item-icon {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    flex: 0 0 28px;
+    border-radius: 7px;
+    color: var(--ink-mid);
+    background: #F3F5F7;
+    font-size: .88rem;
+}
+
+.tai-menu-item:hover .tai-menu-item-icon,
+.tai-menu-item-icon--accent { color: var(--sakura-deep); background: var(--sakura-pale); }
+.tai-menu-item-content { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.tai-menu-item-title { color: inherit; font-size: .77rem; font-weight: 700; }
+.tai-menu-item-desc { margin-top: 1px; color: var(--ink-soft); font-size: .64rem; }
+.tai-menu-arrow { margin-left: auto; color: var(--ink-faint); }
+.tai-menu-pill { margin-left: auto; padding: 3px 7px; border-radius: 5px; color: var(--sakura-deep); background: var(--sakura-pale); border: 1px solid var(--sakura-light); font-size: .62rem; font-weight: 800; }
+.tai-menu-pill--pink { color: #FFF; background: var(--sakura-deep); border-color: var(--sakura-deep); }
+
+.tai-google-menu-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    width: 100%;
+    padding: 8px 10px;
+    color: var(--ink);
+    background: #FFF;
+    border: 1px solid var(--border-mid);
+    border-radius: 8px;
+    text-decoration: none;
+    font-size: .74rem;
+    font-weight: 700;
+}
+
+.tai-google-menu-btn:hover { border-color: #B7C1CC; background: #FAFBFC; }
+
+/* ========================================================================== 
+   HEADERS / BADGES
+   ========================================================================== */
+
+.tai-header {
+    position: relative;
+    padding: 18px 0 22px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 22px;
+}
+
+.tai-header-icon {
+    position: absolute;
+    top: -4px;
+    right: 0;
+    font-size: 5rem;
+    line-height: 1;
+    opacity: .035;
+    user-select: none;
+}
+
+.tai-header-kicker {
+    margin-bottom: 7px;
     color: var(--sakura-deep);
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-sm);
-    max-height: none;          /* allow full height */
-    overflow: visible;
-    z-index: 1;
+    font-size: .66rem;
+    font-weight: 800;
+    letter-spacing: .15em;
+    text-transform: uppercase;
 }
 
-.tai-history-item--active .tai-history-label {
-    white-space: normal;       /* wrap to full text */
-    overflow: visible;
-    text-overflow: clip;
+.tai-header h1 {
+    margin: 0 0 10px;
+    color: var(--ink);
+    font-size: 2.15rem;
+    line-height: 1.05;
+    font-weight: 800;
+    letter-spacing: -.035em;
 }
 
-.tai-history-item--active .tai-history-icon {
-    opacity: 1;
-    margin-top: 0.05rem;       /* stay top-aligned when label wraps */
+.tai-header-badges { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+
+.tai-hbadge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-size: .62rem;
+    font-weight: 800;
+    letter-spacing: .05em;
+    text-transform: uppercase;
 }
 
-.tai-details { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); margin-bottom: 1rem; overflow: hidden; }
-.tai-details summary { font-weight: 600; color: var(--ink); font-size: 0.85rem; padding: 0.8rem 1rem; cursor: pointer; list-style: none; background: var(--washi); }
-.tai-details summary::-webkit-details-marker { display: none; }
-.tai-details summary::before { content: '＋'; display: inline-block; margin-right: 0.5rem; color: var(--ink-soft); transition: transform 0.3s; }
-.tai-details[open] summary::before { transform: rotate(45deg); }
-.tai-details-body { padding: 1rem; font-size: 0.8rem; color: var(--ink-mid); line-height: 1.6; border-top: 1px solid var(--border); }
-.tai-details-body p { margin: 0 0 0.5rem; }
+/* ========================================================================== 
+   INPUT / ANALYSIS EXPERIENCE
+   ========================================================================== */
 
-/* ── Main Content Area ────────────────────────────────────────── */
-.tai-header { padding: 1.5rem 0 2rem; position: relative; }
-.tai-header-icon { position: absolute; top: 0; right: 0; opacity: 0.05; font-size: 5rem; line-height: 1; user-select: none; }
-.tai-header-kicker { font-size: 0.7rem; font-weight: 800; color: var(--sakura-deep); letter-spacing: 0.15em; text-transform: uppercase; margin-bottom: 0.5rem; }
-.tai-header h1 { font-size: 2.5rem; font-weight: 800; color: var(--ink); margin: 0 0 1rem; letter-spacing: -0.03em; line-height: 1.1; }
-.tai-header-badges { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
-.tai-hbadge { font-size: 0.7rem; padding: 0.3rem 0.8rem; border-radius: 999px; font-weight: 700; border: 1px solid; letter-spacing: 0.05em; text-transform: uppercase; }
-
-/* ── Inputs & Upload ──────────────────────────────────────────── */
 .tai-upload {
-    position: relative; background-color: var(--surface);
-    border: 2px dashed var(--border-mid); border-radius: 16px;
-    padding: 2.5rem 1.5rem; text-align: center; cursor: pointer;
-    transition: all 0.3s ease; box-shadow: var(--shadow-sm);
+    position: relative;
+    min-height: 188px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 24px 18px;
+    text-align: center;
+    cursor: pointer;
+    background: #FFF;
+    border: 1px dashed #C7D0D9;
+    border-radius: 10px;
+    box-shadow: var(--shadow-sm);
+    transition: border-color .18s ease, background .18s ease, box-shadow .18s ease;
 }
-.tai-upload:hover, .tai-upload.drag-over { border-color: var(--sakura); background-color: var(--sakura-pale); transform: translateY(-2px); box-shadow: var(--shadow-md); }
+
+.tai-upload:hover,
+.tai-upload.drag-over {
+    background: var(--surface-warm);
+    border-color: var(--sakura);
+    box-shadow: var(--shadow-accent);
+    transform: none;
+}
+
 .tai-upload input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
-.tai-upload-label { font-size: 0.95rem; font-weight: 600; color: var(--ink); margin-top: 0.8rem; }
-.tai-upload-hint { font-size: 0.75rem; color: var(--ink-soft); margin-top: 0.4rem; }
+.tai-upload-label { margin-top: 8px; color: var(--ink); font-size: .86rem; font-weight: 700; }
+.tai-upload-hint { margin-top: 4px; color: var(--ink-soft); font-size: .7rem; }
 
 .tai-textarea {
-    width: 100%; min-height: 220px; padding: 1.2rem;
-    background-color: var(--surface); border: 2px solid var(--border);
-    border-radius: 16px; color: var(--ink);
-    font-family: 'Inter', 'Noto Sans JP', sans-serif;
-    font-size: 0.9rem; line-height: 1.8; resize: vertical;
-    outline: none; transition: all 0.2s; box-shadow: var(--shadow-sm);
+    width: 100%;
+    min-height: 188px;
+    padding: 13px 14px;
+    color: var(--ink);
+    background: #FFF;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    outline: none;
+    resize: vertical;
+    font-size: .83rem;
+    line-height: 1.7;
+    box-shadow: var(--shadow-sm);
+    transition: border-color .18s ease, box-shadow .18s ease;
 }
-.tai-textarea:focus { border-color: var(--sakura); box-shadow: 0 0 0 4px rgba(244,114,182,0.15); }
-.tai-textarea::placeholder { color: var(--ink-faint); }
 
-.tai-sample-row { display: flex; gap: 0.5rem; margin-top: 1rem; flex-wrap: wrap; }
-.tai-sample-btn {
-    background: var(--surface); color: var(--ink-mid); border: 1px solid var(--border);
-    border-radius: 999px; padding: 0.5rem 1rem; font-size: 0.8rem; font-weight: 600;
-    cursor: pointer; transition: all 0.2s; box-shadow: var(--shadow-sm);
+.tai-textarea:focus {
+    border-color: #D59AAC;
+    box-shadow: 0 0 0 3px rgba(225,135,156,.10);
 }
-.tai-sample-btn:hover { border-color: var(--sakura); color: var(--sakura-deep); transform: translateY(-2px); box-shadow: var(--shadow-md); }
+
+.tai-textarea::placeholder { color: #9DA8B3; }
+
+.tai-sample-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+
+.tai-sample-btn,
 .tai-clear-btn {
-    background: transparent; color: var(--ink-soft); border: 1px solid transparent;
-    border-radius: 999px; padding: 0.5rem 1rem; font-size: 0.8rem; font-weight: 600;
-    cursor: pointer; transition: all 0.2s;
+    padding: 7px 10px;
+    border-radius: 7px;
+    font-size: .69rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background .16s ease, border-color .16s ease, color .16s ease;
 }
-.tai-clear-btn:hover { background: var(--red-bg); color: var(--red); }
 
-/* ── Buttons & Progress ───────────────────────────────────────── */
-.tai-btn {
-    background: linear-gradient(135deg, var(--sakura) 0%, var(--sakura-deep) 100%);
-    color: #FFFFFF; border: none; border-radius: 12px;
-    font-family: 'Inter', sans-serif; font-weight: 700;
-    font-size: 0.95rem; padding: 0.8rem 1.8rem; cursor: pointer;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 0 4px 14px rgba(219, 39, 119, 0.3);
-    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+.tai-sample-btn {
+    color: var(--ink-mid);
+    background: #FFF;
+    border: 1px solid var(--border);
 }
-.tai-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(219, 39, 119, 0.4); }
-.tai-btn:active { transform: translateY(0); }
-.tai-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; box-shadow: none; filter: grayscale(50%); }
+
+.tai-sample-btn:hover { color: var(--ink); background: #F8FAFC; border-color: #BDC7D1; transform: none; box-shadow: none; }
+
+.tai-clear-btn {
+    color: var(--ink-soft);
+    background: transparent;
+    border: 1px solid transparent;
+}
+
+.tai-clear-btn:hover { color: var(--red); background: var(--red-bg); }
+
+/* Primary action: solid, product-like, not a gradient */
+.tai-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 40px;
+    padding: 9px 16px;
+    color: #FFF;
+    background: var(--navy);
+    border: 1px solid var(--navy);
+    border-radius: 8px;
+    font-size: .78rem;
+    font-weight: 800;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(15,23,42,.12);
+    transition: background .18s ease, border-color .18s ease, box-shadow .18s ease;
+}
+
+.tai-btn:hover {
+    background: #1A2938;
+    border-color: #1A2938;
+    box-shadow: 0 5px 14px rgba(15,23,42,.16);
+    transform: none;
+}
+
+.tai-btn:active { transform: translateY(1px); }
+.tai-btn:disabled { opacity: .48; cursor: not-allowed; box-shadow: none; filter: none; transform: none; }
 
 .tai-btn-outline {
-    background-color: var(--surface); color: var(--sakura-deep);
-    border: 2px solid var(--sakura-light); border-radius: 12px;
-    font-family: 'Inter', sans-serif; font-weight: 700; font-size: 0.95rem;
-    padding: 0.7rem 1.8rem; cursor: pointer; transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    min-height: 38px;
+    padding: 8px 14px;
+    color: var(--ink);
+    background: #FFF;
+    border: 1px solid var(--border-mid);
+    border-radius: 8px;
+    font-size: .76rem;
+    font-weight: 800;
+    cursor: pointer;
+    transition: background .16s ease, border-color .16s ease, color .16s ease;
 }
-.tai-btn-outline:hover { background-color: var(--sakura-bg); border-color: var(--sakura); transform: translateY(-2px); }
-.tai-btn-outline:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 
-.tai-progress-track { background: var(--border); border-radius: 999px; height: 6px; overflow: hidden; margin-top: 1rem; width: 100%; max-width: 300px; }
+.tai-btn-outline:hover { color: var(--sakura-deep); background: var(--sakura-pale); border-color: var(--sakura-light); transform: none; }
+.tai-btn-outline:disabled { opacity: .5; cursor: not-allowed; }
+
+.tai-progress-track {
+    width: 100%;
+    max-width: 360px;
+    height: 5px;
+    margin-top: 14px;
+    overflow: hidden;
+    background: #E5E9EE;
+    border-radius: 999px;
+}
+
 .tai-progress-fill {
-    height: 100%; width: 50%; border-radius: 999px;
-    background: linear-gradient(90deg, var(--sakura), var(--sakura-deep));
-    animation: tai-progress-slide 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    width: 40%;
+    height: 100%;
+    background: var(--sakura-deep);
+    border-radius: 999px;
+    animation: tai-progress-slide 1.15s ease-in-out infinite;
 }
-@keyframes tai-progress-slide { 0%{transform: translateX(-100%);} 100%{transform: translateX(250%);} }
-.tai-loading-caption { font-size: 0.85rem; font-weight: 600; color: var(--sakura-deep); margin-top: 0.5rem; animation: pulse 1.5s infinite; }
-@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 
-/* ═══════════════════════════════════════════════════════════════
-   PORTED RESULTS UI (Enhanced Design)
-   ═══════════════════════════════════════════════════════════════ */
-#results { min-height: 20px; padding-top: 2rem; }
-@keyframes fadeSlideUp { from{opacity:0;transform:translateY(24px)} to{opacity:1;transform:translateY(0)} }
-.results-wrapper, .tai-results { animation: fadeSlideUp 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+@keyframes tai-progress-slide {
+    0% { transform: translateX(-130%); }
+    100% { transform: translateX(350%); }
+}
+
+.tai-loading-caption {
+    margin-top: 7px;
+    color: var(--ink-soft);
+    font-size: .74rem;
+    font-weight: 700;
+    animation: taiPulse 1.5s ease infinite;
+}
+
+@keyframes taiPulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
+
+/* ========================================================================== 
+   GENERIC RESULT SURFACES
+   ========================================================================== */
+
+#results { min-height: 20px; padding-top: 18px; }
+.results-wrapper, .tai-results { animation: fadeSlideUp .35s ease both; }
+@keyframes fadeSlideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
 .card {
-    background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
-    padding: 1.5rem; margin-bottom: 1rem;
-    transition: all 0.3s ease; box-shadow: var(--shadow-sm);
+    margin-bottom: 12px;
+    padding: 18px;
+    background: #FFF;
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    box-shadow: var(--shadow-sm);
 }
-.card:hover { border-color: var(--sakura-light); box-shadow: var(--shadow-md); transform: translateY(-2px); }
 
-/* Top Tiles Grid */
-.tai-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 2rem; }
-@media(max-width: 900px) { .tai-tiles { grid-template-columns: repeat(2, 1fr); } }
-.tai-tile { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 1.5rem 1rem; text-align: center; transition: all 0.3s; box-shadow: var(--shadow-sm); }
-.tai-tile:hover { transform: translateY(-4px); border-color: var(--sakura-light); box-shadow: var(--shadow-hover); }
-.tai-tile-icon { font-size: 1.8rem; margin-bottom: 0.5rem; }
-.tai-tile-val  { font-size: 2rem; font-weight: 800; color: var(--ink); letter-spacing: -0.03em; line-height: 1; }
-.tai-tile-lbl  { font-size: 0.7rem; font-weight: 700; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.1em; margin-top: 0.5rem; }
+.card:hover { border-color: #D7DEE6; box-shadow: var(--shadow-md); transform: none; }
 
-/* Tabs */
+/* KPI / analytics tiles */
+.tai-tiles {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0,1fr));
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.tai-tile {
+    position: relative;
+    padding: 14px 15px 13px;
+    overflow: hidden;
+    text-align: left;
+    background: #FFF;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: var(--shadow-sm);
+}
+
+.tai-tile::before {
+    content: '';
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 3px;
+    background: var(--sakura-deep);
+}
+
+.tai-tile:nth-child(2)::before { background: var(--green); }
+.tai-tile:nth-child(3)::before { background: var(--blue); }
+.tai-tile:nth-child(4)::before { background: var(--purple); }
+
+.tai-tile:hover { transform: none; border-color: #D7DEE6; box-shadow: var(--shadow-md); }
+.tai-tile-icon { font-size: 1.05rem; margin-bottom: 8px; opacity: .78; }
+.tai-tile-val { color: var(--ink); font-size: 1.7rem; line-height: 1; font-weight: 800; letter-spacing: -.04em; }
+.tai-tile-lbl { margin-top: 7px; color: var(--ink-soft); font-size: .64rem; line-height: 1.25; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+
+/* Tabs / panels */
 .tai-radio-tabs { display: contents; }
 .tai-radio-tabs input[type="radio"] { display: none; }
-.tai-tab-bar { display: flex; gap: 0.5rem; border-bottom: 2px solid var(--border); margin-bottom: 0; overflow-x: auto; scrollbar-width: none; }
-.tai-tab-bar::-webkit-scrollbar { display: none; }
-.tai-tab-label {
-    padding: 1rem 1.5rem; font-size: 0.9rem; font-weight: 600; color: var(--ink-soft);
-    cursor: pointer; white-space: nowrap; transition: all 0.2s; margin-bottom: -2px;
-    border-bottom: 3px solid transparent; border-radius: 8px 8px 0 0;
+
+.tai-tab-bar {
+    display: flex;
+    gap: 2px;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--border);
+    scrollbar-width: none;
 }
-.tai-tab-label:hover { color: var(--ink); background: var(--washi); }
-.tai-panel { background: var(--surface); border: 1px solid var(--border); border-top: none; border-radius: 0 0 16px 16px; padding: 2rem; box-shadow: var(--shadow-sm); }
-.tai-tab-content { display: none; animation: tFadeIn 0.3s ease; }
+
+.tai-tab-bar::-webkit-scrollbar { display: none; }
+
+.tai-tab-label {
+    margin-bottom: -1px;
+    padding: 10px 13px;
+    color: var(--ink-soft);
+    border-bottom: 2px solid transparent;
+    border-radius: 6px 6px 0 0;
+    font-size: .74rem;
+    font-weight: 700;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: color .16s ease, background .16s ease, border-color .16s ease;
+}
+
+.tai-tab-label:hover { color: var(--ink); background: #F7F9FB; }
+
+.tai-panel {
+    padding: 18px;
+    background: #FFF;
+    border: 1px solid var(--border);
+    border-top: 0;
+    border-radius: 0 0 10px 10px;
+    box-shadow: var(--shadow-sm);
+}
+
+.tai-tab-content { display: none; animation: tFadeIn .2s ease both; }
+@keyframes tFadeIn { from { opacity: .3; } to { opacity: 1; } }
 
 #tai-radio-sum:checked ~ .tai-panel #tai-sum,
 #tai-radio-act:checked ~ .tai-panel #tai-act,
@@ -343,746 +937,543 @@ html, body {
 #tai-radio-sent:checked ~ .tai-tab-bar label[for="tai-radio-sent"],
 #tai-radio-spk:checked ~ .tai-tab-bar label[for="tai-radio-spk"],
 #tai-radio-ins:checked ~ .tai-tab-bar label[for="tai-radio-ins"] {
-    color: var(--sakura-deep); border-bottom-color: var(--sakura-deep); background: var(--surface);
+    color: var(--ink);
+    background: #F8FAFC;
+    border-bottom-color: var(--sakura-deep);
 }
 
-/* Internal Components */
-.tai-section-label { font-size: 0.75rem; font-weight: 800; color: var(--ink-mid); letter-spacing: 0.15em; text-transform: uppercase; border-bottom: 2px solid var(--border); padding-bottom: 0.5rem; margin: 1.5rem 0 1rem; }
+.tai-section-label {
+    margin: 18px 0 10px;
+    padding-bottom: 7px;
+    color: var(--ink-mid);
+    border-bottom: 1px solid var(--border);
+    font-size: .65rem;
+    line-height: 1.25;
+    font-weight: 800;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+}
 
-.tai-summary-box { background: var(--washi); border: 1px solid var(--border); border-left: 4px solid var(--sakura); border-radius: 0 12px 12px 0; padding: 1.5rem; margin-bottom: 1.5rem; line-height: 1.8; font-size: 0.95rem; }
-.tai-summary-label { font-size: 0.7rem; font-weight: 800; color: var(--sakura-deep); letter-spacing: 0.15em; text-transform: uppercase; margin-bottom: 0.8rem; }
-
-.tai-bullet-card { display: flex; align-items: flex-start; gap: 1rem; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1rem 1.2rem; margin-bottom: 0.8rem; transition: all 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
-.tai-bullet-card:hover { border-color: var(--sakura-light); transform: translateX(4px); box-shadow: var(--shadow-sm); }
-.tai-bullet-num { font-size: 0.75rem; font-weight: 800; color: var(--sakura-deep); background: var(--sakura-pale); border-radius: 8px; padding: 4px 10px; flex-shrink: 0; }
-
-.tai-action-card { display: flex; gap: 1rem; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--sakura-deep); border-radius: 0 12px 12px 0; padding: 1.2rem; margin-bottom: 0.8rem; transition: transform 0.2s; box-shadow: var(--shadow-sm); }
-.tai-action-card:hover { transform: translateX(4px); box-shadow: var(--shadow-md); }
-.tai-action-flagged { border-left-color: var(--red) !important; background: var(--red-bg) !important; }
-
-.tai-sent-row { display: flex; align-items: center; gap: 1rem; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1rem 1.2rem; margin-bottom: 0.8rem; transition: all 0.2s; }
-.tai-sent-row:hover { border-color: var(--border-mid); transform: scale(1.01); }
-.tai-sent-badge { font-size: 0.7rem; font-weight: 800; letter-spacing: 0.1em; padding: 0.4rem 1rem; border-radius: 999px; text-transform: uppercase; }
-.tai-sent-positive { background: var(--green-bg); color: var(--green); border: 1px solid rgba(5,150,105,0.2); }
-.tai-sent-neutral   { background: var(--washi); color: var(--ink-mid); border: 1px solid var(--border-mid); }
-.tai-sent-negative  { background: var(--red-bg); color: var(--red); border: 1px solid rgba(220,38,38,0.2); }
-
-.tai-sig-high { background: var(--red-bg); border-left: 4px solid var(--red); border-radius: 0 12px 12px 0; padding: 1.2rem; margin-bottom: 1rem; }
-.tai-sig-med  { background: var(--amber-bg); border-left: 4px solid var(--amber); border-radius: 0 12px 12px 0; padding: 1.2rem; margin-bottom: 1rem; }
-.signal-phrase { font-weight: 700; font-size: 1rem; font-family: 'Noto Sans JP', sans-serif; color: var(--ink); }
-.signal-reading { font-size: 0.85rem; color: var(--ink-mid); margin-top: 0.3rem; }
-.signal-exp { font-size: 0.85rem; color: var(--ink-soft); margin-top: 0.5rem; line-height: 1.6; }
-
-.spk-bar-bg { background: var(--border); border-radius: 999px; height: 8px; overflow: hidden; margin-top: 0.5rem; width: 100%; }
-.spk-bar-fill { height: 100%; border-radius: 999px; transition: width 1s cubic-bezier(0.2, 0.8, 0.2, 1); background: linear-gradient(90deg, var(--sakura), var(--sakura-deep)); }
-
-.tai-lang-label { display: inline-block; font-size: 0.65rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; padding: 4px 10px; border-radius: 999px; margin-right: 8px; margin-bottom: 8px; }
-.tai-lang-ja { background: var(--sakura-pale); color: var(--sakura-deep); border: 1px solid var(--sakura-light); }
-.tai-lang-en { background: var(--green-bg); color: var(--green); border: 1px solid rgba(5,150,105,0.2); }
-
-/* Gijiroku Specific Styling */
-.tai-gijiroku-card { border: 1px solid var(--border-mid); border-radius: 16px; overflow: hidden; background: var(--surface); margin-top: 2rem; box-shadow: var(--shadow-md); }
-.tai-gijiroku-header { background: var(--ink); padding: 1.5rem; display: flex; justify-content: space-between; align-items: flex-start; }
-.tai-gijiroku-header * { color: #FFF; }
-.tai-gijiroku-section { font-size: 0.7rem; font-weight: 800; color: var(--sakura-deep); letter-spacing: 0.15em; text-transform: uppercase; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 2px solid var(--sakura-light); }
-.tai-gijiroku-table { width: 100%; border-collapse: collapse; background: var(--surface); }
-.tai-gijiroku-table th { padding: 1rem; font-size: 0.75rem; font-weight: 800; color: var(--ink-mid); background: var(--washi); text-align: left; letter-spacing: 0.1em; text-transform: uppercase; border-bottom: 1px solid var(--border); }
-.tai-gijiroku-table td { padding: 1rem; font-size: 0.9rem; color: var(--ink); border-bottom: 1px solid var(--border); line-height: 1.6; }
-
-/* ── Footer ───────────────────────────────────────────────────── */
-.tai-footer { margin-top: 4rem; border-top: 1px solid var(--border); padding: 3rem 0; }
-.tai-footer-card { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 2.5rem; max-width: 900px; margin: 0 auto; box-shadow: var(--shadow-md); display: flex; flex-direction: column; align-items: center; text-align: center; }
-.tai-footer-name { font-size: 1.4rem; font-weight: 800; color: var(--ink); letter-spacing: -0.02em; margin-bottom: 0.3rem; }
-.tai-footer-title { font-size: 0.85rem; color: var(--sakura-deep); font-weight: 700; letter-spacing: 0.05em; margin-bottom: 1.2rem; text-transform: uppercase; }
-.tai-footer-bio { font-size: 0.95rem; color: var(--ink-mid); line-height: 1.8; margin-bottom: 1.5rem; max-width: 600px; }
-.tai-footer-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-bottom: 1.5rem; }
-.tai-footer-link-pill { display: inline-flex; align-items: center; gap: 6px; padding: 0.6rem 1.2rem; border-radius: 999px; font-size: 0.85rem; font-weight: 600; text-decoration: none; border: 1px solid; transition: all 0.2s; }
-.tai-footer-link-pill:hover { transform: translateY(-3px); box-shadow: var(--shadow-md); }
-.tai-footer-link-gh { background: #18181B; color: #FFF; border-color: #18181B; }
-.tai-footer-link-li { background: #EFF6FF; color: #1D4ED8; border-color: #BFDBFE; }
-.tai-footer-link-hf { background: #FFF7ED; color: #C2410C; border-color: #FED7AA; }
-.tai-footer-link-mail { background: var(--sakura-pale); color: var(--sakura-deep); border-color: var(--sakura-light); }
-.tai-footer-link-repo { background: #F0FDF4; color: #15803D; border-color: #BBF7D0; }
-.tai-footer-divider { width: 100px; border: none; border-top: 2px solid var(--border); margin: 1.5rem auto; }
-.tai-footer-stack { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
-.tai-footer-chip { font-size: 0.75rem; padding: 4px 12px; border-radius: 6px; background: var(--washi); color: var(--ink-mid); border: 1px solid var(--border); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
-
-/* ═══════════════════════════════════════════════════════════════
-   MOBILE HAMBURGER MENU
-   ═══════════════════════════════════════════════════════════════ */
-
-/* Hamburger button — hidden on desktop */
-.tai-hamburger {
-    display: none;
-    position: fixed;
-    top: 1rem;
-    left: 1rem;
-    z-index: 200;
-    background: var(--surface);
+.tai-summary-box {
+    margin-bottom: 14px;
+    padding: 14px;
+    background: #F8FAFC;
     border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 0.5rem 0.65rem;
-    cursor: pointer;
-    box-shadow: var(--shadow-md);
-    flex-direction: column;
-    gap: 5px;
+    border-left: 3px solid var(--sakura);
+    border-radius: 0 8px 8px 0;
+    line-height: 1.75;
+    font-size: .84rem;
+}
+
+.tai-summary-label {
+    margin-bottom: 8px;
+    color: var(--sakura-deep);
+    font-size: .63rem;
+    font-weight: 800;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+}
+
+.tai-bilingual-block { display: grid; grid-template-columns: 44px 1fr; gap: 6px 10px; align-items: start; }
+.tai-bilingual-block .tai-lang-label { margin: 0; }
+.tai-bilingual-ja, .tai-bilingual-en { grid-column: 2; }
+.tai-bilingual-ja { font-family: 'Noto Sans JP', sans-serif; }
+.tai-bilingual-en { color: var(--ink-mid); }
+
+.tai-bullet-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 7px;
+    padding: 10px 11px;
+    background: #FFF;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: none;
+}
+
+.tai-bullet-card:hover { border-color: #D7DEE6; transform: none; box-shadow: var(--shadow-sm); }
+.tai-bullet-num { min-width: 28px; padding: 3px 6px; color: var(--sakura-deep); background: var(--sakura-pale); border: 1px solid var(--sakura-light); border-radius: 5px; font-size: .63rem; font-weight: 800; text-align: center; }
+
+.tai-action-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 7px;
+    padding: 11px 12px;
+    background: #FFF;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--green);
+    border-radius: 0 8px 8px 0;
+    box-shadow: none;
+}
+
+.tai-action-card:hover { transform: none; box-shadow: var(--shadow-sm); }
+.tai-action-flagged { background: var(--red-bg) !important; border-left-color: var(--red) !important; }
+
+.tai-sent-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 7px;
+    padding: 10px 11px;
+    background: #FFF;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+
+.tai-sent-row:hover { border-color: #D7DEE6; transform: none; }
+.tai-sent-badge { padding: 3px 8px; border-radius: 5px; font-size: .62rem; font-weight: 800; letter-spacing: .08em; }
+.tai-sent-positive { color: var(--green); background: var(--green-bg); border: 1px solid #BFE7DB; }
+.tai-sent-neutral { color: var(--ink-mid); background: #F3F5F7; border: 1px solid var(--border); }
+.tai-sent-negative { color: var(--red); background: var(--red-bg); border: 1px solid #F0CACA; }
+
+.tai-sig-high { margin-bottom: 9px; padding: 11px 12px; background: var(--red-bg); border-left: 3px solid var(--red); border-radius: 0 8px 8px 0; }
+.tai-sig-med { margin-bottom: 9px; padding: 11px 12px; background: var(--amber-bg); border-left: 3px solid var(--amber); border-radius: 0 8px 8px 0; }
+.signal-phrase { color: var(--ink); font-size: .84rem; font-weight: 800; font-family: 'Noto Sans JP', sans-serif; }
+.signal-reading { margin-top: 2px; color: var(--ink-mid); font-size: .72rem; }
+.signal-exp { margin-top: 5px; color: var(--ink-soft); font-size: .74rem; line-height: 1.55; }
+
+.sp k-bar-bg { background: #E7EBEF; }
+.spk-bar-bg { width: 100%; height: 7px; margin-top: 4px; overflow: hidden; background: #E7EBEF; border-radius: 999px; }
+.spk-bar-fill { height: 100%; background: var(--sakura-deep); border-radius: 999px; transition: width .6s ease; }
+
+.tai-spk-row {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    margin-bottom: 9px;
+    padding: 10px 0;
+    border-bottom: 1px solid #EEF1F4;
+}
+
+.tai-spk-row:last-child { border-bottom: 0; }
+
+.tai-insight-chip {
+    flex: 1;
+    min-width: 145px;
+    padding: 11px 12px;
+    background: #F8FAFC;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+
+.tai-nemawashi-pill {
+    display: inline-flex;
+    align-items: center;
+    margin: 0 5px 5px 0;
+    padding: 5px 8px;
+    color: var(--purple);
+    background: var(--purple-bg);
+    border: 1px solid var(--purple-border);
+    border-radius: 6px;
+    font-size: .68rem;
+    font-weight: 700;
+}
+
+.tai-pii-pill {
+    display: inline-flex;
+    align-items: center;
+    margin-bottom: 10px;
+    padding: 6px 8px;
+    color: var(--green);
+    background: var(--green-bg);
+    border: 1px solid #BFE7DB;
+    border-radius: 6px;
+    font-size: .67rem;
+    font-weight: 800;
+}
+
+.tai-lang-label {
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-}
-.tai-hamburger span {
-    display: block;
-    width: 20px;
-    height: 2px;
-    background: var(--ink);
-    border-radius: 2px;
-    transition: all 0.3s;
-}
-.tai-hamburger.open span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
-.tai-hamburger.open span:nth-child(2) { opacity: 0; }
-.tai-hamburger.open span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
-
-/* Sidebar overlay backdrop — mobile only */
-.tai-sidebar-overlay {
-    display: none;
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.45);
-    z-index: 99;
-    backdrop-filter: blur(2px);
+    min-width: 35px;
+    padding: 3px 7px;
+    margin-right: 5px;
+    margin-bottom: 5px;
+    border-radius: 5px;
+    font-size: .58rem;
+    font-weight: 800;
+    letter-spacing: .08em;
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   RESPONSIVE BREAKPOINTS
-   ═══════════════════════════════════════════════════════════════ */
+.tai-lang-ja { color: var(--sakura-deep); background: var(--sakura-pale); border: 1px solid var(--sakura-light); }
+.tai-lang-en { color: var(--blue); background: var(--blue-bg); border: 1px solid #C7DCEF; }
 
-/* ── Tablet & small laptop (≤ 1024px) ───────────────────────── */
-@media (max-width: 1024px) {
-    :root { --sidebar-w: 260px; }
-    .tai-main { padding: 2rem 2rem 4rem; }
-}
-
-/* ── Tablet (≤ 900px) — sidebar collapses to off-canvas ──────── */
-@media (max-width: 900px) {
-    .tai-hamburger { display: flex; }
-
-    /* Topbar on mobile: fixed top-right opposite hamburger */
-    .tai-topbar {
-        position: fixed;
-        top: 1rem;
-        right: 1rem;
-        width: auto;
-        padding: 0;
-        margin: 0;
-        z-index: 200;
-    }
-
-    .tai-app { flex-direction: column; }
-
-    /* Sidebar becomes a fixed off-canvas drawer */
-    .tai-sidebar {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 280px;
-        max-width: 85vw;
-        height: 100vh;
-        z-index: 100;
-        transform: translateX(-100%);
-        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        border-right: 1px solid var(--border);
-        box-shadow: 4px 0 32px rgba(0,0,0,0.12);
-        overflow-y: auto;
-    }
-    .tai-sidebar.open {
-        transform: translateX(0);
-    }
-    .tai-sidebar-overlay {
-        display: block;
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity 0.3s;
-    }
-    .tai-sidebar-overlay.open {
-        opacity: 1;
-        pointer-events: auto;
-    }
-
-    /* Main takes full width, add top padding for hamburger */
-    .tai-main {
-        padding: 4.5rem 1.2rem 3rem;
-        width: 100%;
-        max-width: 100%;
-    }
-
-    /* Transcript input: stack upload + textarea vertically */
-    [x-data*="uploading"] {
-        grid-template-columns: 1fr !important;
-    }
-
-    /* Header adjustments */
-    .tai-header { padding: 1rem 0 1.5rem; }
-    .tai-header h1 { font-size: 1.9rem; }
-    .tai-header-icon { font-size: 3.5rem; }
-    .tai-header-badges { gap: 0.4rem; }
-    .tai-hbadge { font-size: 0.65rem; padding: 0.25rem 0.6rem; }
-
-    /* Tile grid: 2 cols */
-    .tai-tiles { grid-template-columns: repeat(2, 1fr); gap: 0.75rem; margin-bottom: 1.5rem; }
-    .tai-tile { padding: 1.1rem 0.75rem; }
-    .tai-tile-val { font-size: 1.6rem; }
-
-    /* Tab bar: smaller padding, horizontal scroll */
-    .tai-tab-label { padding: 0.75rem 0.9rem; font-size: 0.82rem; }
-    .tai-panel { padding: 1.2rem; }
-
-    /* Sample buttons wrap nicely */
-    .tai-sample-row { gap: 0.4rem; }
-    .tai-sample-btn { font-size: 0.75rem; padding: 0.45rem 0.85rem; }
-
-    /* Export cards: single column */
-    .tai-export-grid {
-        grid-template-columns: 1fr !important;
-    }
-
-    /* Upload area: reduce padding */
-    .tai-upload { padding: 1.8rem 1rem; }
-    .tai-textarea { min-height: 160px; padding: 1rem; }
-
-    /* Footer */
-    .tai-footer { margin-top: 2.5rem; padding: 2rem 0; }
-    .tai-footer-card { padding: 1.5rem 1rem; border-radius: 16px; }
-    .tai-footer-name { font-size: 1.2rem; }
-    .tai-footer-bio { font-size: 0.88rem; }
-    .tai-footer-link-pill { padding: 0.5rem 0.9rem; font-size: 0.8rem; }
-
-    /* Modal adjustments */
-    .tai-md-modal { border-radius: 12px; }
-    .tai-md-modal-body { padding: 1rem 1.2rem 1.5rem; }
-    .tai-md-modal-header { padding: 0.9rem 1.1rem; }
-}
-
-/* ── Mobile (≤ 600px) — tighten further ─────────────────────── */
-@media (max-width: 600px) {
-    .tai-main { padding: 4rem 0.9rem 3rem; }
-
-    .tai-header h1 { font-size: 1.6rem; }
-    .tai-header-kicker { font-size: 0.65rem; }
-
-    /* Tiles: 2 cols still works, just tighter */
-    .tai-tiles { gap: 0.6rem; }
-    .tai-tile { padding: 0.9rem 0.5rem; border-radius: 12px; }
-    .tai-tile-icon { font-size: 1.4rem; }
-    .tai-tile-val { font-size: 1.4rem; }
-    .tai-tile-lbl { font-size: 0.62rem; }
-
-    /* Tab labels: even tighter */
-    .tai-tab-label { padding: 0.65rem 0.7rem; font-size: 0.78rem; }
-    .tai-panel { padding: 1rem 0.9rem; }
-
-    /* Analyze button: full width */
-    .tai-btn[\\@click="runAnalyze()"],
-    button[\\@click="runAnalyze()"] { width: 100%; justify-content: center; }
-
-    /* Progress bar full width */
-    .tai-progress-track { max-width: 100%; }
-
-    /* Export button full width on mobile */
-    .tai-btn-outline[style*="width:100%"] { font-size: 0.88rem; padding: 0.7rem 1rem; }
-
-    /* Action cards: reduce gap */
-    .tai-action-card { padding: 1rem; gap: 0.75rem; }
-    .tai-bullet-card { padding: 0.9rem 1rem; gap: 0.75rem; }
-    .tai-sent-row { padding: 0.9rem 1rem; }
-
-    /* Footer stack */
-    .tai-footer-links { gap: 8px; }
-    .tai-footer-chip { font-size: 0.7rem; padding: 3px 9px; }
-
-    /* Modal: full screen on mobile */
-    .tai-md-modal-overlay { padding: 0; align-items: flex-end; }
-    .tai-md-modal {
-        border-radius: 16px 16px 0 0;
-        max-height: 92vh;
-        width: 100%;
-        max-width: 100%;
-    }
-    .tai-md-modal-actions { gap: 0.3rem; }
-    .tai-md-view-toggle button { padding: 0.3rem 0.6rem; font-size: 0.72rem; }
-    .tai-md-modal-header-title { font-size: 0.9rem; }
-}
-
-/* ── Very small phones (≤ 380px) ────────────────────────────── */
-@media (max-width: 380px) {
-    .tai-main { padding: 3.8rem 0.75rem 2.5rem; }
-    .tai-header h1 { font-size: 1.4rem; }
-    .tai-tiles { grid-template-columns: repeat(2, 1fr); }
-    .tai-tab-label { padding: 0.6rem 0.55rem; font-size: 0.72rem; }
-    .tai-hbadge { display: none; }
-    .tai-header-badges .tai-hbadge:first-child,
-    .tai-header-badges .tai-hbadge:nth-child(2) { display: inline-block; }
-}
-
-/* ── Health widget responsive ────────────────────────────────── */
+/* Health widget */
 .tai-health {
     display: grid;
-    grid-template-columns: 140px 1fr;
-    gap: 1.5rem;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 1.5rem;
-    margin-bottom: 1.5rem;
-    box-shadow: var(--shadow-sm);
+    grid-template-columns: 140px minmax(0,1fr);
+    gap: 20px;
     align-items: center;
-}
-.tai-health-title {
-    font-size: 0.7rem; font-weight: 800; color: var(--ink-faint);
-    letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 0.8rem;
-}
-@media (max-width: 600px) {
-    .tai-health {
-        grid-template-columns: 1fr;
-        text-align: center;
-        gap: 1rem;
-        padding: 1.2rem;
-    }
-    .tai-health-left { display: flex; justify-content: center; }
+    margin-bottom: 14px;
+    padding: 16px;
+    background: #FFF;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--shadow-sm);
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   TOAST NOTIFICATION (no-analysis blocker)
-   ═══════════════════════════════════════════════════════════════ */
-@keyframes tai-toast-in {
-    from { opacity: 0; transform: translateX(-50%) translateY(12px); }
-    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+.tai-health-title { margin-bottom: 8px; color: var(--ink-soft); font-size: .63rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+
+/* ========================================================================== 
+   JAPANESE / GIJIROKU SURFACES
+   ========================================================================== */
+
+.tai-gijiroku-card {
+    margin-top: 18px;
+    overflow: hidden;
+    background: #FFF;
+    border: 1px solid #D7DCE5;
+    border-radius: 10px;
+    box-shadow: var(--shadow-sm);
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   EXPORT CARDS GRID — responsive 3-zone layout
-   Desktop  (≥900px):  2 × N  two equal columns
-   Tablet  (600-900):  2 × N  same, slightly tighter gap
-   Mobile   (<600px):  1 col  full-width stacked
-   ═══════════════════════════════════════════════════════════════ */
+.tai-gijiroku-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 14px 16px;
+    color: #FFF;
+    background: var(--navy);
+}
+
+.tai-gijiroku-header * { color: #FFF !important; }
+
+.tai-gijiroku-section {
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    color: var(--sakura-deep);
+    border-bottom: 1px solid var(--sakura-light);
+    font-size: .64rem;
+    font-weight: 800;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+}
+
+.tai-gijiroku-table { width: 100%; border-collapse: collapse; }
+.tai-gijiroku-table th { padding: 9px 10px; color: var(--ink-mid); background: #F5F7F9; border-bottom: 1px solid var(--border); font-size: .64rem; font-weight: 800; text-align: left; letter-spacing: .08em; text-transform: uppercase; }
+.tai-gijiroku-table td { padding: 10px; color: var(--ink); border-bottom: 1px solid #EDF0F3; font-size: .74rem; line-height: 1.5; }
+
+/* ========================================================================== 
+   MARKDOWN / EXPORT
+   ========================================================================== */
+
 .tai-export-grid {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 1.25rem;
-    margin-top: 2rem;
+    grid-template-columns: repeat(2, minmax(0,1fr));
+    gap: 12px;
+    margin-top: 18px;
     align-items: start;
 }
 
-/* Featured card (PPTX) spans full width — anchors the grid */
-.tai-export-grid > .tai-export-card-featured {
-    grid-column: 1 / -1;
+.tai-export-grid > .tai-export-card-featured { grid-column: 1 / -1; }
+.tai-export-card-btns { display: flex; gap: 6px; }
+
+.tai-markdown-preview h1,
+.tai-markdown-preview h2,
+.tai-markdown-preview h3 { font-family: 'Noto Sans JP', sans-serif; }
+.tai-markdown-preview h1 { margin: 0 0 10px; color: var(--ink); font-size: 1.45rem; font-weight: 800; }
+.tai-markdown-preview h2 { margin: 20px 0 10px; padding-bottom: 6px; color: var(--sakura-deep); border-bottom: 1px solid var(--border); font-size: 1.05rem; font-weight: 800; }
+.tai-markdown-preview h3 { margin: 15px 0 7px; color: var(--ink); font-size: .9rem; font-weight: 800; }
+.tai-markdown-preview p, .tai-markdown-preview li { color: var(--ink-mid); font-size: .82rem; line-height: 1.7; }
+.tai-markdown-preview strong { color: var(--ink); }
+.tai-markdown-preview em { color: var(--sakura-deep); }
+.tai-markdown-preview hr { margin: 18px 0; border: 0; border-top: 1px solid var(--border); }
+.tai-markdown-preview table { width: 100%; border-collapse: collapse; margin: 10px 0 16px; font-size: .78rem; }
+.tai-markdown-preview th { padding: 8px 9px; color: var(--ink-mid); background: #F5F7F9; border-bottom: 1px solid var(--border); font-size: .65rem; font-weight: 800; text-align: left; text-transform: uppercase; }
+.tai-markdown-preview td { padding: 8px 9px; color: var(--ink); border-bottom: 1px solid #EDF0F3; }
+.tai-markdown-preview code { color: var(--sakura-deep); background: var(--sakura-pale); border: 1px solid var(--sakura-light); border-radius: 4px; padding: 1px 4px; font-size: .78em; }
+.tai-markdown-preview pre { padding: 12px; overflow-x: auto; background: #F4F6F8; border: 1px solid var(--border); border-radius: 7px; }
+.tai-markdown-preview pre code { padding: 0; color: var(--ink); background: transparent; border: 0; }
+.tai-markdown-preview blockquote { margin: 10px 0; padding: 7px 10px; background: var(--sakura-pale); border-left: 3px solid var(--sakura); border-radius: 0 6px 6px 0; }
+
+.tai-md-modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 24px 14px;
+    overflow-y: auto;
+    background: rgba(12,18,26,.60);
+    backdrop-filter: blur(4px);
+}
+
+.tai-md-modal {
+    width: 100%;
+    max-width: 900px;
+    max-height: 90vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    background: #FFF;
+    border: 1px solid #D9E0E7;
+    border-radius: 12px;
+    box-shadow: 0 28px 75px rgba(0,0,0,.26);
+}
+
+.tai-md-modal-header {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 7px;
+    padding: 11px 14px;
+    background: #FBFCFD;
+    border-bottom: 1px solid var(--border);
+}
+
+.tai-md-modal-header-title { display: flex; align-items: center; gap: 7px; color: var(--ink); font-size: .82rem; font-weight: 800; font-family: 'Noto Sans JP', sans-serif; }
+.tai-md-modal-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; }
+.tai-md-modal-body { flex: 1; overflow-y: auto; padding: 18px 20px 22px; }
+.tai-md-modal-loading { padding: 48px 20px; color: var(--ink-soft); text-align: center; font-size: .8rem; }
+.tai-md-modal-loading-spinner { display: inline-block; width: 25px; height: 25px; margin-bottom: 9px; border: 3px solid #E4E9EE; border-top-color: var(--sakura-deep); border-radius: 50%; animation: taiSpin .8s linear infinite; }
+@keyframes taiSpin { to { transform: rotate(360deg); } }
+
+.tai-md-view-toggle { display: flex; overflow: hidden; border: 1px solid var(--border); border-radius: 6px; }
+.tai-md-view-toggle button { padding: 5px 9px; color: var(--ink-soft); background: #FFF; border: 0; font-size: .66rem; font-weight: 700; cursor: pointer; }
+.tai-md-view-toggle button + button { border-left: 1px solid var(--border); }
+.tai-md-view-toggle button.active { color: var(--sakura-deep); background: var(--sakura-pale); }
+
+/* ========================================================================== 
+   LOGIN / AUTH
+   ========================================================================== */
+
+.tai-login-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 72vh;
+    padding: 18px 10px 40px;
+}
+
+.tai-login-card {
+    width: 100%;
+    max-width: 430px;
+    padding: 28px;
+    text-align: center;
+    background: #FFF;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--shadow-lg);
+}
+
+.tai-login-icon { display: grid; place-items: center; width: 48px; height: 48px; margin: 0 auto 11px; color: #FFF; background: var(--navy); border-radius: 11px; font-size: 22px; }
+.tai-login-title { margin: 0 0 5px; color: var(--ink); font-size: 1.3rem; font-weight: 800; letter-spacing: -.025em; }
+.tai-login-subtitle { margin: 0 0 18px; color: var(--ink-soft); font-size: .77rem; line-height: 1.55; }
+
+.tai-auth-tabs {
+    display: flex;
+    gap: 2px;
+    margin-bottom: 18px;
+    padding: 3px;
+    background: #F1F4F7;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+
+.tai-auth-tab { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 8px; color: var(--ink-soft); background: transparent; border: 0; border-radius: 6px; font-size: .75rem; font-weight: 700; cursor: pointer; }
+.tai-auth-tab:hover { color: var(--ink); }
+.tai-auth-tab.active { color: var(--ink); background: #FFF; box-shadow: 0 1px 4px rgba(15,23,42,.06); }
+
+.tai-classic-form { display: flex; flex-direction: column; gap: 13px; text-align: left; }
+.tai-form-field { display: flex; flex-direction: column; gap: 5px; }
+.tai-form-label { color: var(--ink-mid); font-size: .65rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.tai-form-link { color: var(--sakura-deep); font-size: .68rem; font-weight: 700; text-decoration: none; }
+.tai-form-link:hover { text-decoration: underline; }
+
+.tai-input-wrap { position: relative; display: flex; align-items: center; }
+.tai-input-icon { position: absolute; left: 11px; color: #9AA6B2; pointer-events: none; }
+.tai-input { width: 100%; padding: 9px 11px 9px 34px; color: var(--ink); background: #FBFCFD; border: 1px solid var(--border-mid); border-radius: 8px; outline: none; font-size: .78rem; }
+.tai-input:focus { background: #FFF; border-color: #C993A2; box-shadow: 0 0 0 3px rgba(225,135,156,.10); }
+
+.tai-primary-submit-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    width: 100%;
+    min-height: 40px;
+    margin-top: 2px;
+    padding: 9px 12px;
+    color: #FFF;
+    background: var(--navy);
+    border: 1px solid var(--navy);
+    border-radius: 8px;
+    font-size: .77rem;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.tai-primary-submit-btn:hover { background: #1A2938; border-color: #1A2938; transform: none; box-shadow: 0 4px 12px rgba(15,23,42,.14); }
+.tai-primary-submit-btn:active { transform: translateY(1px); }
+
+.tai-or-divider { display: flex; align-items: center; margin: 18px 0 11px; }
+.tai-or-divider::before, .tai-or-divider::after { content: ''; flex: 1; border-bottom: 1px solid var(--border); }
+.tai-or-divider span { padding: 0 9px; color: var(--ink-faint); font-size: .62rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+
+.tai-login-error { display: flex; align-items: center; gap: 7px; margin-bottom: 14px; padding: 9px 10px; color: var(--red); background: var(--red-bg); border: 1px solid #F0D1D1; border-left: 3px solid var(--red); border-radius: 0 7px 7px 0; text-align: left; font-size: .72rem; font-weight: 700; }
+
+.tai-google-btn { display: inline-flex; align-items: center; justify-content: center; gap: 9px; width: 100%; padding: 9px 12px; color: var(--ink); background: #FFF; border: 1px solid var(--border-mid); border-radius: 8px; font-size: .76rem; font-weight: 700; text-decoration: none; }
+.tai-google-btn:hover { background: #FAFBFC; border-color: #B8C2CC; transform: none; box-shadow: none; }
+
+.tai-login-privacy { display: flex; align-items: center; justify-content: center; gap: 5px; margin-top: 15px; color: var(--green); font-size: .66rem; font-weight: 700; }
+.tai-back-link { display: inline-flex; align-items: center; gap: 5px; color: var(--ink-soft); font-size: .7rem; font-weight: 700; text-decoration: none; }
+.tai-back-link:hover { color: var(--sakura-deep); }
+
+/* ========================================================================== 
+   FOOTER
+   ========================================================================== */
+
+.tai-footer { margin-top: 44px; padding: 28px 0; border-top: 1px solid var(--border); }
+.tai-footer-card { max-width: 920px; margin: 0 auto; padding: 24px; text-align: center; background: #FFF; border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-sm); }
+.tai-footer-name { margin-bottom: 4px; color: var(--ink); font-size: 1.15rem; font-weight: 800; }
+.tai-footer-title { margin-bottom: 12px; color: var(--sakura-deep); font-size: .72rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.tai-footer-bio { max-width: 620px; margin: 0 auto 15px; color: var(--ink-mid); font-size: .78rem; line-height: 1.7; }
+.tai-footer-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 7px; margin-bottom: 15px; }
+.tai-footer-link-pill { display: inline-flex; align-items: center; gap: 5px; padding: 6px 10px; border-radius: 6px; font-size: .68rem; font-weight: 700; text-decoration: none; border: 1px solid; }
+.tai-footer-link-pill:hover { transform: none; box-shadow: none; }
+.tai-footer-link-gh { color: #FFF; background: #18181B; border-color: #18181B; }
+.tai-footer-link-li { color: #1D4ED8; background: #EEF5FF; border-color: #C8DCF8; }
+.tai-footer-link-hf { color: #B45309; background: #FFF7ED; border-color: #F0D5AF; }
+.tai-footer-link-mail { color: var(--sakura-deep); background: var(--sakura-pale); border-color: var(--sakura-light); }
+.tai-footer-link-repo { color: #15803D; background: #F1FAF4; border-color: #C6E8CF; }
+.tai-footer-divider { width: 70px; margin: 15px auto; border: 0; border-top: 1px solid var(--border); }
+.tai-footer-stack { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; }
+.tai-footer-chip { padding: 3px 7px; color: var(--ink-mid); background: #F6F8FA; border: 1px solid var(--border); border-radius: 5px; font-size: .59rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+
+/* ========================================================================== 
+   MOBILE / RESPONSIVE
+   ========================================================================== */
+
+.tai-hamburger {
+    display: none;
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    z-index: 220;
+    width: 38px;
+    height: 38px;
+    padding: 8px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: var(--shadow-md);
+    cursor: pointer;
+}
+
+.tai-hamburger span { display: block; width: 18px; height: 2px; background: var(--ink); border-radius: 2px; transition: transform .2s ease, opacity .2s ease; }
+.tai-hamburger.open span:nth-child(1) { transform: translateY(6px) rotate(45deg); }
+.tai-hamburger.open span:nth-child(2) { opacity: 0; }
+.tai-hamburger.open span:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
+
+.tai-sidebar-overlay { display: none; position: fixed; inset: 0; z-index: 99; background: rgba(11,17,24,.52); backdrop-filter: blur(2px); }
+
+@media (max-width: 1100px) {
+    :root { --sidebar-w: 250px; }
+    .tai-main { padding-left: 24px; padding-right: 24px; }
 }
 
 @media (max-width: 900px) {
-    .tai-export-grid {
-        gap: 1rem;
-        margin-top: 1.5rem;
+    .tai-app { display: block; }
+    .tai-hamburger { display: flex; }
+
+    .tai-sidebar {
+        position: fixed;
+        inset: 0 auto 0 0;
+        width: 278px;
+        max-width: 86vw;
+        height: 100vh;
+        transform: translateX(-100%);
+        transition: transform .25s ease;
+        box-shadow: 12px 0 35px rgba(0,0,0,.22);
     }
+
+    .tai-sidebar.open { transform: translateX(0); }
+    .tai-sidebar-overlay { display: block; opacity: 0; pointer-events: none; transition: opacity .2s ease; }
+    .tai-sidebar-overlay.open { opacity: 1; pointer-events: auto; }
+
+    .tai-main { width: 100%; max-width: 100%; padding: 66px 18px 42px; }
+    .tai-topbar { position: fixed; top: 12px; right: 12px; width: auto; margin: 0; z-index: 210; }
+
+    .tai-header { padding-top: 5px; }
+    .tai-header h1 { font-size: 1.8rem; }
+    .tai-header-icon { font-size: 3.5rem; }
+
+    .tai-tiles { grid-template-columns: repeat(2,minmax(0,1fr)); }
+    .tai-export-grid { grid-template-columns: 1fr; }
+    .tai-export-grid > .tai-export-card-featured { grid-column: auto; }
 }
 
-@media (max-width: 600px) {
-    .tai-export-grid {
-        grid-template-columns: 1fr;
-        gap: 0.9rem;
-        margin-top: 1.2rem;
-    }
-    .tai-export-grid > .tai-export-card-featured {
-        grid-column: auto;
-    }
-    /* Stack dual-button rows on Japanese-format cards */
-    .tai-export-card-btns {
-        flex-direction: column !important;
-    }
+@media (max-width: 680px) {
+    .tai-main { padding-left: 12px; padding-right: 12px; }
+    .tai-header h1 { font-size: 1.58rem; }
+    .tai-header-badges { max-width: calc(100% - 20px); }
+    .tai-hbadge { font-size: .58rem; }
+
+    .tai-health { grid-template-columns: 1fr; text-align: center; }
+    .tai-health-left { display: flex; justify-content: center; }
+    .tai-bilingual-block { grid-template-columns: 40px 1fr; }
+    .tai-spk-row { align-items: flex-start; }
+
+    .tai-md-modal-overlay { padding: 0; align-items: flex-end; }
+    .tai-md-modal { max-height: 92vh; border-radius: 14px 14px 0 0; }
+    .tai-md-modal-header { padding: 9px 10px; }
+    .tai-md-modal-body { padding: 14px 12px 18px; }
+
+    .tai-login-card { padding: 22px 17px; }
+}
+
+@media (max-width: 520px) {
+    .tai-tiles { gap: 7px; }
+    .tai-tile { padding: 11px 10px; }
+    .tai-tile-val { font-size: 1.4rem; }
+    .tai-tile-lbl { font-size: .58rem; }
+
+    .tai-tab-label { padding: 9px 10px; font-size: .68rem; }
+    .tai-panel { padding: 13px; }
+
+    .tai-sample-row { display: grid; grid-template-columns: 1fr 1fr; }
+    .tai-sample-btn, .tai-clear-btn { width: 100%; }
+
+    .tai-btn,
+    .tai-btn-outline { width: 100%; }
+
+    .tai-export-card-btns { flex-direction: column !important; }
     .tai-export-card-btns .tai-btn,
-    .tai-export-card-btns .tai-btn-outline {
-        width: 100%;
-    }
+    .tai-export-card-btns .tai-btn-outline { width: 100%; }
 }
 
-/* Dim cards visually when no analysis is loaded */
-.tai-export-grid .card:has(button:disabled) {
-    opacity: 0.72;
+@media (max-width: 380px) {
+    .tai-main { padding-left: 9px; padding-right: 9px; }
+    .tai-tiles { grid-template-columns: repeat(2,minmax(0,1fr)); }
+    .tai-header-badges .tai-hbadge { display: none; }
+    .tai-header-badges .tai-hbadge:first-child,
+    .tai-header-badges .tai-hbadge:nth-child(2) { display: inline-flex; }
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   TOPBAR & PROFILE DROPDOWN (TOP RIGHT)
-   ═══════════════════════════════════════════════════════════════ */
+/* ========================================================================== 
+   SMALL SAFETY OVERRIDES FOR EXISTING INLINE-HEAVY COMPONENTS
+   ========================================================================== */
 
-.tai-topbar {
-    display: flex;
-    justify-content: flex-end;
-    align-items: center;
-    width: 100%;
-    margin-bottom: 0.75rem;
-    position: relative;
-    z-index: 50;
-}
+#results table { max-width: 100%; }
+#results img, #results svg { max-width: 100%; }
+#results code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 
-.tai-topbar-spacer {
-    flex: 1;
-}
-
-.tai-profile-dropdown {
-    position: relative;
-    display: inline-block;
-}
-
-/* Collapsed profile trigger button — showing only profile */
-.tai-profile-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.55rem;
-    background: var(--surface);
-    border: 1.5px solid var(--border-mid);
-    padding: 0.4rem 0.85rem;
-    border-radius: 999px;
-    color: var(--ink);
-    font-family: inherit;
-    font-size: 0.85rem;
-    font-weight: 600;
-    cursor: pointer;
-    box-shadow: var(--shadow-sm);
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    user-select: none;
-}
-
-.tai-profile-btn:hover {
-    border-color: var(--sakura);
-    background: var(--surface-warm);
-    box-shadow: 0 4px 14px rgba(219, 39, 119, 0.12);
-    transform: translateY(-1px);
-}
-
-.tai-profile-btn--active {
-    border-color: var(--sakura-deep);
-    background: var(--sakura-bg);
-    box-shadow: 0 0 0 3px var(--sakura-light);
-}
-
-.tai-profile-icon {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    background: var(--sakura-bg);
-    color: var(--sakura-deep);
-    border: 1px solid var(--sakura-light);
-    flex-shrink: 0;
-    transition: transform 0.2s ease;
-}
-
-.tai-profile-btn:hover .tai-profile-icon {
-    transform: scale(1.06);
-}
-
-.tai-profile-avatar {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    background: linear-gradient(135deg, var(--sakura), var(--sakura-deep));
-    color: #fff;
-    font-size: 0.8rem;
-    font-weight: 700;
-    flex-shrink: 0;
-}
-
-.tai-profile-avatar--lg {
-    width: 40px;
-    height: 40px;
-    font-size: 1.05rem;
-}
-
-.tai-profile-icon--lg {
-    width: 40px;
-    height: 40px;
-}
-
-.tai-profile-label {
-    letter-spacing: -0.01em;
-    max-width: 140px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.tai-profile-caret {
-    color: var(--ink-faint);
-    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.tai-profile-caret--rotate {
-    transform: rotate(180deg);
-}
-
-/* Expanded options menu */
-.tai-profile-menu {
-    position: absolute;
-    top: calc(100% + 8px);
-    right: 0;
-    width: 300px;
-    max-width: calc(100vw - 2rem);
-    background: rgba(255, 255, 255, 0.98);
-    backdrop-filter: blur(20px);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    box-shadow: 0 16px 40px rgba(17, 24, 39, 0.12), 0 4px 12px rgba(0, 0, 0, 0.04);
-    padding: 0.75rem;
-    z-index: 100;
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
-    animation: taiProfileSlide 0.22s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-@keyframes taiProfileSlide {
-    from {
-        opacity: 0;
-        transform: translateY(-8px) scale(0.96);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0) scale(1);
-    }
-}
-
-.tai-profile-menu-header {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.5rem 0.5rem 0.6rem;
-    position: relative;
-}
-
-.tai-profile-menu-userinfo {
-    flex: 1;
-    min-width: 0;
-}
-
-.tai-profile-menu-name {
-    font-size: 0.88rem;
-    font-weight: 700;
-    color: var(--ink);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.tai-profile-menu-email {
-    font-size: 0.74rem;
-    color: var(--ink-soft);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.tai-profile-badge-online {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--green);
-    box-shadow: 0 0 0 2px #fff, 0 0 8px rgba(5, 150, 105, 0.5);
-}
-
-.tai-menu-divider {
-    height: 1px;
-    background: var(--border);
-    margin: 0.25rem 0;
-}
-
-.tai-menu-links {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-}
-
-.tai-menu-item {
-    display: flex;
-    align-items: center;
-    gap: 0.65rem;
-    padding: 0.6rem 0.75rem;
-    border-radius: 10px;
-    text-decoration: none;
-    color: var(--ink);
-    font-size: 0.84rem;
-    font-weight: 500;
-    transition: all 0.18s ease;
-    cursor: pointer;
-}
-
-.tai-menu-item:hover {
-    background: var(--surface-warm);
-    color: var(--sakura-deep);
-    transform: translateX(2px);
-}
-
-.tai-menu-item.active {
-    background: var(--sakura-bg);
-    color: var(--sakura-deep);
-    font-weight: 600;
-}
-
-.tai-menu-item--login {
-    background: var(--sakura-bg);
-    border: 1px solid var(--sakura-light);
-}
-
-.tai-menu-item--login:hover {
-    background: var(--sakura-pale);
-    border-color: var(--sakura);
-}
-
-.tai-menu-item--logout:hover {
-    background: var(--red-bg);
-    color: var(--red);
-}
-
-.tai-menu-item-icon {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    border-radius: 8px;
-    background: var(--washi);
-    color: var(--ink-mid);
-    flex-shrink: 0;
-    font-size: 0.95rem;
-    transition: all 0.2s;
-}
-
-.tai-menu-item:hover .tai-menu-item-icon {
-    background: var(--sakura-light);
-    color: var(--sakura-deep);
-}
-
-.tai-menu-item-icon--accent {
-    color: var(--sakura-deep);
-    background: var(--sakura-pale);
-}
-
-.tai-menu-item-content {
-    display: flex;
-    flex-direction: column;
-    flex: 1;
-    min-width: 0;
-}
-
-.tai-menu-item-title {
-    font-weight: 600;
-    font-size: 0.84rem;
-    color: var(--ink);
-    line-height: 1.25;
-}
-
-.tai-menu-item:hover .tai-menu-item-title {
-    color: var(--sakura-deep);
-}
-
-.tai-menu-item-desc {
-    font-size: 0.7rem;
-    color: var(--ink-soft);
-    line-height: 1.25;
-    margin-top: 1px;
-}
-
-.tai-menu-arrow {
-    color: var(--ink-faint);
-    flex-shrink: 0;
-    transition: transform 0.2s ease;
-}
-
-.tai-menu-item:hover .tai-menu-arrow {
-    transform: translateX(2px);
-    color: var(--sakura-deep);
-}
-
-.tai-menu-pill {
-    font-size: 0.65rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    padding: 0.2rem 0.45rem;
-    border-radius: 999px;
-    background: var(--washi);
-    color: var(--ink-mid);
-    border: 1px solid var(--border);
-}
-
-.tai-menu-pill--pink {
-    background: var(--sakura-bg);
-    color: var(--sakura-deep);
-    border-color: var(--sakura-light);
-}
-
-.tai-google-menu-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.55rem;
-    padding: 0.55rem 0.75rem;
-    border-radius: 10px;
-    background: var(--surface);
-    border: 1px solid var(--border-mid);
-    color: var(--ink);
-    text-decoration: none;
-    font-size: 0.82rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-}
-
-.tai-google-menu-btn:hover {
-    border-color: var(--sakura);
-    background: var(--surface-warm);
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-sm);
-}
-
-.tai-profile-menu-footer {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0.4rem 0.2rem 0.1rem;
-    font-size: 0.68rem;
-    font-weight: 600;
-    color: var(--green);
-}
-
-.tai-auth-user {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    padding: 0.4rem 0;
-}
-
-.tai-auth-avatar {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    background: linear-gradient(135deg, var(--sakura), var(--sakura-deep));
-    color: #fff;
-    font-size: 0.82rem;
-    font-weight: 700;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   WARM-UP BANNER
-   ═══════════════════════════════════════════════════════════════ */
-
-#warm-banner {
-    overflow: hidden;
-    max-height: 60px;
-}
+/* Keep Japanese text comfortable everywhere. */
+[lang="ja"],
+.signal-phrase,
+.tai-bilingual-ja,
+.tai-gijiroku-header,
+.tai-markdown-preview { font-family: 'Noto Sans JP', 'Inter', sans-serif; }

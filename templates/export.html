@@ -3,6 +3,250 @@
 {% block title %}TranscriptAI · Export Documents{% endblock %}
 
 {% block content %}
+<div class="tai-export-page">
+
+<style>
+/* =====================================================================
+   TranscriptAI Export Workspace — Analytics UI Layer
+   Presentation only. Existing Alpine/Jinja behavior remains unchanged.
+   ===================================================================== */
+.tai-export-page {
+  --export-bg: #f5f7fb;
+  --export-panel: #ffffff;
+  --export-border: #dfe5ee;
+  --export-ink: #152033;
+  --export-muted: #6b778c;
+  --export-navy: #17243a;
+  --export-indigo: #344d78;
+  --export-sakura: #c35f82;
+  --export-sakura-bg: #fff5f8;
+  --export-japan: #7a4b65;
+}
+
+.tai-export-page .tai-header {
+  padding: 0 0 1.75rem;
+  border-bottom: 1px solid var(--export-border);
+  margin-bottom: 1.35rem;
+}
+.tai-export-page .tai-header-icon {
+  opacity: .06;
+  right: 1rem;
+  top: -0.4rem;
+  font-size: 6rem;
+}
+.tai-export-page .tai-header-kicker {
+  color: var(--export-indigo);
+  font-size: .68rem;
+  letter-spacing: .16em;
+}
+.tai-export-page .tai-header h1 {
+  color: var(--export-ink);
+  font-size: 2.2rem;
+  margin-bottom: .45rem;
+}
+.tai-export-page .tai-header > div:last-child {
+  max-width: 760px !important;
+  color: var(--export-muted) !important;
+}
+
+.tai-export-page .card,
+.tai-export-page .tai-gijiroku-card {
+  background: var(--export-panel);
+  border: 1px solid var(--export-border);
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(21,32,51,.03);
+  transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease;
+}
+.tai-export-page .card:hover {
+  border-color: #cfd7e4;
+  box-shadow: 0 8px 22px rgba(21,32,51,.07);
+  transform: translateY(-1px);
+}
+
+/* Status banner */
+.tai-export-page .card[x-show="!hasResult()"] {
+  background: #fffaf4 !important;
+  border: 1px solid #eadcc7 !important;
+  border-left: 4px solid #c8954a !important;
+  border-radius: 10px !important;
+}
+
+/* Export grid becomes an intentional dashboard layout */
+.tai-export-page .tai-export-grid {
+  margin-top: 1.25rem;
+  gap: 1rem;
+}
+.tai-export-page .tai-export-grid > .tai-export-card-featured {
+  background: linear-gradient(135deg, #17243a 0%, #223656 100%);
+  border: 1px solid #2c4162;
+  border-top: 0 !important;
+  color: #fff;
+  position: relative;
+  overflow: hidden;
+}
+.tai-export-page .tai-export-grid > .tai-export-card-featured::after {
+  content: 'EXECUTIVE REPORT';
+  position: absolute;
+  top: 1.1rem;
+  right: 1.2rem;
+  font-size: .58rem;
+  letter-spacing: .16em;
+  font-weight: 800;
+  color: rgba(255,255,255,.48);
+}
+.tai-export-page .tai-export-card-featured .tai-hbadge {
+  color: #e9d5df !important;
+  background: rgba(255,255,255,.08) !important;
+  border-color: rgba(255,255,255,.18) !important;
+}
+.tai-export-page .tai-export-card-featured div[style*="font-weight:800"] {
+  color: #fff !important;
+}
+.tai-export-page .tai-export-card-featured div[style*="font-size:0.85rem"] {
+  color: rgba(255,255,255,.70) !important;
+}
+
+/* All non-featured cards become compact export modules */
+.tai-export-page .tai-export-grid > .card:not(.tai-export-card-featured) {
+  min-height: 220px;
+  padding: 1.3rem;
+  position: relative;
+}
+.tai-export-page .tai-export-grid > .card:not(.tai-export-card-featured)::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: #d7dde7;
+}
+.tai-export-page .tai-export-grid > .card:has(.tai-hbadge[style*="Japanese Format"])::after,
+.tai-export-page .tai-export-grid > .card:has(.tai-hbadge[style*="Japanese Format"]) {
+  border-color: #e7d7df;
+}
+
+/* Japanese cards */
+.tai-export-page .tai-export-grid > .card[x-show*="_detected_language"] {
+  background: linear-gradient(180deg, #fffafd 0%, #ffffff 100%);
+}
+.tai-export-page .tai-export-grid > .card[x-show*="_detected_language"]::after {
+  background: var(--export-sakura);
+}
+.tai-export-page .tai-export-grid > .card[x-show*="_detected_language"] .tai-hbadge {
+  background: #fff3f7 !important;
+  color: #8b4c68 !important;
+  border-color: #e9cbd8 !important;
+}
+
+/* Type badges */
+.tai-export-page .tai-hbadge {
+  border-radius: 5px !important;
+  padding: .28rem .55rem !important;
+  font-size: .6rem !important;
+  letter-spacing: .10em !important;
+}
+
+/* Buttons in export cards */
+.tai-export-page .tai-btn,
+.tai-export-page .tai-btn-outline {
+  border-radius: 7px !important;
+  box-shadow: none !important;
+  transform: none !important;
+  font-size: .8rem !important;
+  min-height: 38px;
+}
+.tai-export-page .tai-btn {
+  background: #344d78 !important;
+}
+.tai-export-page .tai-btn:hover {
+  background: #293e63 !important;
+}
+.tai-export-page .tai-btn-outline {
+  color: #344d78 !important;
+  border: 1px solid #cfd8e5 !important;
+  background: #fff !important;
+}
+.tai-export-page .tai-btn-outline:hover {
+  background: #f5f7fb !important;
+  border-color: #aebbd0 !important;
+}
+
+/* Japanese 議事録 preview */
+.tai-export-page > div[x-show*="_detected_language"] {
+  background: transparent !important;
+}
+.tai-export-page > div[x-show*="_detected_language"] > div[style*="FDFAFF"] {
+  background: #fff !important;
+  border: 1px solid #e0d3da !important;
+  border-radius: 12px !important;
+  box-shadow: 0 8px 22px rgba(67,49,60,.06);
+}
+.tai-export-page > div[x-show*="_detected_language"] > div > div[style*="linear-gradient"] {
+  background: #6d465d !important;
+  padding: 1rem 1.2rem !important;
+}
+.tai-export-page > div[x-show*="_detected_language"] > div > div > div[style*="font-size:0.6rem"] {
+  color: rgba(255,255,255,.62) !important;
+}
+.tai-export-page > div[x-show*="_detected_language"] [style*="#7D4E8A"] {
+  color: #6d465d !important;
+}
+.tai-export-page > div[x-show*="_detected_language"] [style*="background:#F5EEF8"] {
+  background: #faf3f6 !important;
+}
+
+/* Markdown modal */
+.tai-export-page .tai-md-modal-overlay {
+  background: rgba(14,22,35,.68);
+  backdrop-filter: blur(7px);
+}
+.tai-export-page .tai-md-modal {
+  max-width: 980px;
+  border-radius: 12px;
+  border: 1px solid #dfe5ee;
+  box-shadow: 0 24px 70px rgba(0,0,0,.22);
+}
+.tai-export-page .tai-md-modal-header {
+  background: #f8fafc;
+  padding: .9rem 1.2rem;
+}
+.tai-export-page .tai-md-modal-header-title {
+  color: #17243a;
+}
+.tai-export-page .tai-md-modal-body {
+  padding: 1.4rem 1.6rem 1.8rem;
+}
+.tai-export-page .tai-md-view-toggle {
+  border-radius: 6px;
+}
+.tai-export-page .tai-md-view-toggle button.active {
+  background: #eef2f7;
+  color: #344d78;
+}
+.tai-export-page .tai-markdown-preview h2 {
+  color: #344d78;
+  border-bottom-color: #dfe5ee;
+}
+.tai-export-page .tai-markdown-preview blockquote {
+  border-left-color: #c35f82;
+  background: #fff7fa;
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .tai-export-page .tai-export-grid {
+    gap: .85rem;
+  }
+}
+@media (max-width: 600px) {
+  .tai-export-page .tai-header h1 { font-size: 1.7rem; }
+  .tai-export-page .tai-export-grid > .card:not(.tai-export-card-featured) {
+    min-height: auto;
+  }
+  .tai-export-page > div[x-show*="_detected_language"] > div > div[style*="grid-template-columns"] {
+    grid-template-columns: 1fr !important;
+  }
+}
+</style>
 <style>
 /* ── Markdown preview ── */
 .tai-markdown-preview h1 { font-size:1.6rem; font-weight:800; color:var(--ink); margin:0 0 0.8rem; font-family:'Noto Sans JP',sans-serif; }
@@ -440,6 +684,7 @@
            x-text="mdModal.markdown"></pre>
     </div>
   </div>
+</div>
 </div>
 {% endblock %}
 

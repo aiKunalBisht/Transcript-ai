@@ -12,25 +12,25 @@ v3.1 fixes:
 from utils.utils import language_display_name
 
 
+
 def _svg_donut(pct: int, color: str, size: int = 56) -> str:
     r = (size - 8) // 2
     circ = 2 * 3.14159 * r
     dash = circ * pct / 100
     return (
-        f"<svg width='{size}' height='{size}' viewBox='0 0 {size} {size}'>"
-        f"<circle cx='{size//2}' cy='{size//2}' r='{r}' fill='none' stroke='rgba(60,36,22,0.12)' stroke-width='6'/>"
+        f"<svg class='tai-viz-donut' width='{size}' height='{size}' viewBox='0 0 {size} {size}'>"
+        f"<circle cx='{size//2}' cy='{size//2}' r='{r}' fill='none' stroke='#D9E0E7' stroke-width='6'/>"
         f"<circle cx='{size//2}' cy='{size//2}' r='{r}' fill='none' stroke='{color}' stroke-width='6' stroke-linecap='round' "
         f"stroke-dasharray='{dash:.1f} {circ:.1f}' transform='rotate(-90 {size//2} {size//2})'/>"
-        f"<text x='50%' y='54%' text-anchor='middle' font-size='13' font-weight='700' fill='{color}' font-family='Arial'>{pct}%</text></svg>"
+        f"<text x='50%' y='54%' text-anchor='middle' font-size='13' font-weight='800' fill='{color}' font-family='Arial'>{pct}%</text></svg>"
     )
 
 
 def _avatar(name: str, color: str) -> str:
     initials = "".join(p[0].upper() for p in name.split()[:2]) or name[:2].upper()
     return (
-        f"<div style='width:36px;height:36px;border-radius:50%;background:{color}22;"
-        f"border:2px solid {color};display:flex;align-items:center;justify-content:center;"
-        f"font-size:0.75rem;font-weight:700;color:{color};flex-shrink:0'>{initials}</div>"
+        f"<div class='tai-viz-avatar' style='--avatar-color:{color}'>"
+        f"{initials}</div>"
     )
 
 
@@ -39,20 +39,162 @@ def _health_ring(score: int, color: str) -> str:
     circ = 2 * 3.14159 * r
     dash = circ * score / 100
     label = ("Excellent" if score >= 80 else "Good" if score >= 60 else "Fair" if score >= 40 else "At Risk")
-    # Override label for very low scores (termination)
     if score <= 22:
         label = "Terminated"
     return (
-        f"<div style='text-align:center'>"
+        f"<div class='tai-viz-health-ring'>"
         f"<svg width='{size}' height='{size}' viewBox='0 0 {size} {size}'>"
-        f"<circle cx='60' cy='60' r='{r}' fill='none' stroke='rgba(60,36,22,0.10)' stroke-width='10'/>"
+        f"<circle cx='60' cy='60' r='{r}' fill='none' stroke='#D9E0E7' stroke-width='10'/>"
         f"<circle cx='60' cy='60' r='{r}' fill='none' stroke='{color}' stroke-width='10' stroke-linecap='round' "
-        f"stroke-dasharray='{dash:.1f} {circ:.1f}' transform='rotate(-90 60 60)' style='filter:drop-shadow(0 0 6px {color}88)'/>"
-        f"<text x='50%' y='46%' text-anchor='middle' font-size='22' font-weight='800' fill='#3C2416' font-family=Arial>{score}</text>"
-        f"<text x='50%' y='62%' text-anchor='middle' font-size='10' fill='#A87868' font-family=Arial>/ 100</text></svg>"
-        f"<div style='font-size:0.7rem;font-weight:600;color:{color};letter-spacing:0.1em;text-transform:uppercase;margin-top:2px'>{label}</div></div>"
+        f"stroke-dasharray='{dash:.1f} {circ:.1f}' transform='rotate(-90 60 60)'/>"
+        f"<text x='50%' y='46%' text-anchor='middle' font-size='22' font-weight='800' fill='#17212B' font-family='Arial'>{score}</text>"
+        f"<text x='50%' y='62%' text-anchor='middle' font-size='10' fill='#7A8694' font-family='Arial'>/ 100</text></svg>"
+        f"<div class='tai-viz-health-label' style='color:{color}'>{label}</div></div>"
     )
 
+
+def _analytics_css() -> str:
+    return r'''<style>
+    .tai-analytics-shell{--ax-bg:#F3F6F8;--ax-surface:#FFFFFF;--ax-ink:#17212B;--ax-muted:#667482;--ax-faint:#93A0AD;--ax-line:#DDE4EA;--ax-navy:#14222D;--ax-blue:#557A96;--ax-sakura:#B55478;--ax-sakura-bg:#FAEEF3;--ax-jp:#6E4C7A;--ax-jp-bg:#F6F1F8;--ax-green:#357A62;--ax-green-bg:#EDF6F2;--ax-amber:#9B6A27;--ax-amber-bg:#FBF5E9;--ax-red:#A64B4B;--ax-red-bg:#FBEEEE;--ax-purple:#6C4CA1;--ax-purple-bg:#F2EEFA;font-family:Inter,'Noto Sans JP',sans-serif;color:var(--ax-ink)}
+    .tai-analytics-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:16px}
+    .tai-analytics-kicker{font-size:.65rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--ax-muted);margin-bottom:5px}
+    .tai-analytics-title{font-size:1.35rem;font-weight:800;letter-spacing:-.02em;color:var(--ax-ink);margin:0}
+    .tai-analytics-sub{font-size:.76rem;color:var(--ax-muted);margin-top:4px}
+    .tai-analytics-status{display:inline-flex;align-items:center;gap:7px;background:var(--ax-surface);border:1px solid var(--ax-line);padding:7px 10px;border-radius:8px;font-size:.68rem;font-weight:700;color:var(--ax-green);white-space:nowrap}
+    .tai-analytics-dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+    .tai-viz-outcome{display:flex;align-items:center;gap:14px;background:var(--outcome-bg,#F5F7F9);border:1px solid var(--outcome-border,#DDE4EA);padding:12px 14px;border-radius:10px;margin-bottom:14px}
+    .tai-viz-outcome-icon{font-size:1.35rem;line-height:1}
+    .tai-viz-label{font-size:.6rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--outcome-color,var(--ax-blue));margin-bottom:2px}
+    .tai-viz-outcome-title{font-size:.96rem;font-weight:800;color:var(--ax-ink)}
+    .tai-viz-outcome-meaning{font-size:.72rem;color:var(--ax-muted);margin-top:2px;line-height:1.4}
+    .tai-analytics-meta{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px}
+    .tai-viz-pill{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--ax-line);background:var(--ax-surface);border-radius:7px;padding:5px 8px;font-size:.64rem;font-weight:700;color:var(--ax-muted)}
+    .tai-viz-pill strong{color:var(--ax-ink)}
+    .tai-viz-pill.jp{background:var(--ax-jp-bg);border-color:#D8C8DF;color:var(--ax-jp)}
+    .tai-viz-pill.green{background:var(--ax-green-bg);border-color:#C8E0D6;color:var(--ax-green)}
+    .tai-viz-pill.warn{background:var(--ax-amber-bg);border-color:#E8D5A6;color:var(--ax-amber)}
+    .tai-viz-warning{display:flex;gap:9px;align-items:flex-start;background:var(--ax-amber-bg);border:1px solid #E8D5A6;border-left:3px solid var(--ax-amber);padding:10px 12px;border-radius:8px;margin-bottom:12px;color:#78571F;font-size:.72rem;line-height:1.55}
+    .tai-viz-warning code{background:#F6EBCB;border-radius:4px;padding:1px 4px}
+    .tai-viz-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:12px}
+    .tai-viz-kpi{background:var(--ax-surface);border:1px solid var(--ax-line);border-radius:10px;padding:12px 13px;min-height:82px}
+    .tai-viz-kpi-top{display:flex;justify-content:space-between;gap:8px;align-items:center}
+    .tai-viz-kpi-label{font-size:.6rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--ax-faint)}
+    .tai-viz-kpi-icon{font-size:.85rem;opacity:.75}
+    .tai-viz-kpi-value{font-size:1.3rem;font-weight:800;letter-spacing:-.03em;margin-top:8px;color:var(--ax-ink)}
+    .tai-viz-kpi-foot{font-size:.62rem;color:var(--ax-muted);margin-top:3px}
+    .tai-viz-main-grid{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(270px,.9fr);gap:12px;margin-bottom:12px}
+    .tai-viz-card{background:var(--ax-surface);border:1px solid var(--ax-line);border-radius:10px;padding:14px}
+    .tai-viz-card-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:12px}
+    .tai-viz-card-title{font-size:.72rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--ax-ink)}
+    .tai-viz-card-caption{font-size:.62rem;color:var(--ax-faint)}
+    .tai-viz-health-layout{display:grid;grid-template-columns:140px 1fr;gap:14px;align-items:center}
+    .tai-viz-health-ring{text-align:center}
+    .tai-viz-health-label{font-size:.68rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;margin-top:2px}
+    .tai-viz-health-bars{display:grid;gap:9px}
+    .tai-viz-health-bar-row{display:grid;grid-template-columns:110px 1fr 48px;gap:8px;align-items:center}
+    .tai-viz-health-bar-label{font-size:.65rem;color:var(--ax-muted)}
+    .tai-viz-health-track{height:6px;background:#E8EDF1;border-radius:99px;overflow:hidden}
+    .tai-viz-health-fill{height:100%;border-radius:99px;background:var(--health-color,#557A96)}
+    .tai-viz-health-score{font-size:.63rem;font-weight:800;color:var(--ax-muted);text-align:right}
+    .tai-viz-jp-card{background:linear-gradient(180deg,#FBF8FC 0%,#F8F4FA 100%);border-color:#DCCFE1}
+    .tai-viz-jp-badge{display:inline-flex;align-items:center;gap:5px;background:#EEE7F2;color:var(--ax-jp);border:1px solid #D5C5DD;border-radius:7px;padding:4px 7px;font-size:.59rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+    .tai-viz-jp-stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:11px}
+    .tai-viz-jp-stat{background:#fff;border:1px solid #E4DCE8;border-radius:8px;padding:9px}
+    .tai-viz-jp-stat-label{font-size:.57rem;color:#8E7A97;text-transform:uppercase;letter-spacing:.06em;font-weight:800}
+    .tai-viz-jp-stat-value{font-size:.95rem;font-weight:800;color:var(--ax-jp);margin-top:5px}
+    .tai-viz-jp-stat-foot{font-size:.57rem;color:#9A8AA0;margin-top:2px}
+    .tai-radio-tabs{display:contents}
+    .tai-tab-bar{background:var(--ax-surface);border:1px solid var(--ax-line);border-radius:9px 9px 0 0;padding:3px;gap:2px}
+    .tai-tab-label{padding:9px 12px!important;font-size:.68rem!important;border:0!important;border-radius:6px!important;margin:0!important}
+    .tai-tab-label:hover{background:#F5F7F9!important}
+    .tai-panel{border:1px solid var(--ax-line)!important;border-top:0!important;border-radius:0 0 10px 10px!important;padding:14px!important;box-shadow:none!important}
+    .tai-viz-section{font-size:.62rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--ax-muted);padding-bottom:7px;border-bottom:1px solid var(--ax-line);margin:3px 0 11px}
+    .tai-viz-summary{background:#F7F9FA;border:1px solid var(--ax-line);border-radius:9px;padding:13px;margin-bottom:12px}
+    .tai-viz-summary-title{font-size:.6rem;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--ax-muted);margin-bottom:8px}
+    .tai-viz-bilingual{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .tai-viz-lang-block{background:#fff;border:1px solid var(--ax-line);border-radius:8px;padding:10px}
+    .tai-viz-lang-tag{font-size:.56rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--ax-faint);margin-bottom:6px}
+    .tai-viz-lang-tag.ja{color:var(--ax-jp)}
+    .tai-viz-lang-tag.en{color:var(--ax-green)}
+    .tai-viz-lang-text{font-size:.78rem;line-height:1.7;color:var(--ax-ink)}
+    .tai-viz-keypoint{display:grid;grid-template-columns:30px 1fr;gap:9px;background:#fff;border:1px solid var(--ax-line);border-radius:8px;padding:10px;margin-bottom:7px}
+    .tai-viz-keypoint-num{width:24px;height:24px;border-radius:6px;background:#EEF2F5;color:var(--ax-blue);display:flex;align-items:center;justify-content:center;font-size:.62rem;font-weight:800}
+    .tai-viz-keypoint-text{font-size:.77rem;line-height:1.6;color:var(--ax-ink)}
+    .tai-viz-action{display:grid;grid-template-columns:26px 1fr auto;gap:10px;align-items:start;border:1px solid var(--ax-line);border-left:3px solid var(--ax-blue);background:#fff;border-radius:0 8px 8px 0;padding:10px 11px;margin-bottom:7px}
+    .tai-viz-action.flagged{border-left-color:var(--ax-red);background:#FEFAFA}
+    .tai-viz-action-icon{font-size:.75rem;padding-top:1px;color:var(--ax-blue)}
+    .tai-viz-action.flagged .tai-viz-action-icon{color:var(--ax-red)}
+    .tai-viz-action-task{font-size:.78rem;font-weight:700;color:var(--ax-ink);line-height:1.45}
+    .tai-viz-action-meta{font-size:.61rem;color:var(--ax-muted);margin-top:4px}
+    .tai-viz-action-status{font-size:.58rem;font-weight:800;color:var(--ax-muted);background:#F2F5F7;border:1px solid var(--ax-line);padding:4px 6px;border-radius:6px;white-space:nowrap}
+    .tai-viz-sent{display:grid;grid-template-columns:36px 1fr auto;gap:10px;align-items:center;border-bottom:1px solid var(--ax-line);padding:9px 0}
+    .tai-viz-sent:last-child{border-bottom:0}
+    .tai-viz-sent-icon{font-size:1rem;text-align:center}
+    .tai-viz-sent-name{font-size:.75rem;font-weight:700;color:var(--ax-ink)}
+    .tai-viz-sent-label{font-size:.61rem;color:var(--ax-muted);margin-top:2px}
+    .tai-viz-badge{font-size:.57rem;font-weight:800;letter-spacing:.06em;padding:4px 7px;border-radius:6px}
+    .tai-viz-badge.positive{background:var(--ax-green-bg);color:var(--ax-green)}
+    .tai-viz-badge.neutral{background:#F2F5F7;color:#687583}
+    .tai-viz-badge.negative{background:var(--ax-red-bg);color:var(--ax-red)}
+    .tai-viz-speaker{display:grid;grid-template-columns:38px 1fr 54px;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--ax-line)}
+    .tai-viz-speaker:last-child{border-bottom:0}
+    .tai-viz-avatar{width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--avatar-color) 12%,#fff);border:1px solid color-mix(in srgb,var(--avatar-color) 40%,#fff);color:var(--avatar-color);font-size:.66rem;font-weight:800}
+    .tai-viz-speaker-name{font-size:.74rem;font-weight:700;color:var(--ax-ink)}
+    .tai-viz-speaker-tone{font-size:.59rem;color:var(--ax-muted);margin-top:2px}
+    .tai-viz-speaker-bar{height:6px;background:#E9EEF2;border-radius:99px;overflow:hidden;margin-top:6px}
+    .tai-viz-speaker-fill{height:100%;border-radius:99px;background:var(--speaker-color)}
+    .tai-viz-speaker-pct{font-size:.63rem;font-weight:800;color:var(--speaker-color);text-align:right}
+    .tai-viz-insight-chips{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:12px}
+    .tai-viz-insight-chip{border:1px solid var(--ax-line);background:#fff;border-radius:8px;padding:10px}
+    .tai-viz-insight-chip.jp{background:var(--ax-jp-bg);border-color:#DDD1E2}
+    .tai-viz-insight-chip-label{font-size:.56rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--ax-faint)}
+    .tai-viz-insight-chip-value{font-size:.9rem;font-weight:800;color:var(--ax-ink);margin-top:5px}
+    .tai-viz-insight-chip-foot{font-size:.56rem;color:var(--ax-muted);margin-top:2px}
+    .tai-viz-signal{border:1px solid var(--ax-line);border-left:3px solid var(--ax-amber);background:#fff;border-radius:0 8px 8px 0;padding:10px 11px;margin-bottom:7px}
+    .tai-viz-signal.high{border-left-color:var(--ax-red);background:#FFFBFB}
+    .tai-viz-signal-phrase{font-size:.77rem;font-weight:800;color:var(--ax-ink)}
+    .tai-viz-signal-meta{font-size:.6rem;color:var(--ax-muted);margin-top:3px}
+    .tai-viz-signal-exp{font-size:.68rem;color:#55616D;line-height:1.55;margin-top:5px}
+    .tai-viz-jp-format{border:1px solid #DCCFE1;background:#FBF9FC;border-radius:9px;overflow:hidden;margin-bottom:12px}
+    .tai-viz-jp-format-head{background:var(--ax-navy);color:#fff;padding:9px 11px;display:flex;justify-content:space-between;gap:10px;align-items:center}
+    .tai-viz-jp-format-title{font-size:.63rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
+    .tai-viz-jp-format-sub{font-size:.57rem;opacity:.7}
+    .tai-viz-jp-format-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:0}
+    .tai-viz-jp-format-cell{padding:9px 5px;text-align:center;border-right:1px solid #E5DDEA}
+    .tai-viz-jp-format-cell:last-child{border-right:0}
+    .tai-viz-jp-format-ja{font-family:'Noto Sans JP',sans-serif;font-size:.72rem;font-weight:700;color:var(--ax-jp)}
+    .tai-viz-jp-format-en{font-size:.53rem;color:#917F99;margin-top:2px}
+    .tai-viz-banner{display:flex;align-items:center;gap:10px;border:1px solid var(--ax-line);background:#F7F9FA;border-radius:8px;padding:10px 12px;margin-top:12px}
+    .tai-viz-banner-title{font-size:.68rem;font-weight:800;color:var(--ax-ink)}
+    .tai-viz-banner-sub{font-size:.61rem;color:var(--ax-muted);margin-top:2px}
+    .tai-viz-gijiroku{margin-top:14px}
+    .tai-viz-gijiroku-head{background:var(--ax-navy);color:#fff;padding:12px 14px;display:flex;justify-content:space-between;gap:10px}
+    .tai-viz-gijiroku-label{font-size:.58rem;letter-spacing:.11em;text-transform:uppercase;opacity:.72}
+    .tai-viz-gijiroku-title{font-family:'Noto Sans JP',sans-serif;font-size:.88rem;font-weight:700;margin-top:3px}
+    .tai-viz-gijiroku-body{padding:13px;background:#FBF9FC}
+    .tai-viz-gijiroku-section{font-size:.58rem;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--ax-jp);margin:9px 0 6px}
+    .tai-viz-attendee{display:inline-flex;background:#F0EAF3;border:1px solid #DDD0E3;border-radius:6px;padding:3px 7px;font-size:.57rem;color:var(--ax-jp);margin:2px 4px 2px 0}
+    .tai-viz-table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--ax-line);border-radius:7px;overflow:hidden}
+    .tai-viz-table th{padding:7px 8px;background:#F2EEF4;color:var(--ax-jp);font-size:.56rem;text-align:left}
+    .tai-viz-table td{padding:7px 8px;font-size:.62rem;color:var(--ax-ink);border-top:1px solid var(--ax-line)}
+    .tai-viz-eval-summary{display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:center;background:#F7F9FA;border:1px solid var(--ax-line);border-radius:9px;padding:14px;margin-bottom:12px}
+    .tai-viz-eval-score{font-size:2rem;font-weight:800;letter-spacing:-.04em}
+    .tai-viz-eval-label{font-size:.62rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
+    .tai-viz-eval-sub{font-size:.67rem;color:var(--ax-muted);margin-top:4px;line-height:1.45}
+    .tai-viz-eval-card{border:1px solid var(--ax-line);border-radius:9px;padding:12px 13px;margin-bottom:8px;background:#fff}
+    .tai-viz-eval-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:9px}
+    .tai-viz-eval-name{font-size:.76rem;font-weight:800;color:var(--ax-ink)}
+    .tai-viz-eval-meta{font-size:.58rem;color:var(--ax-muted);margin-top:3px}
+    .tai-viz-eval-score-wrap{display:flex;gap:7px;align-items:center}
+    .tai-viz-eval-score-mini{font-size:1rem;font-weight:800}
+    .tai-viz-grade{font-size:.58rem;font-weight:800;color:#fff;border-radius:5px;padding:3px 7px}
+    .tai-viz-metrics{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px}
+    .tai-viz-metric{background:#F7F9FA;border:1px solid var(--ax-line);border-radius:6px;padding:7px 5px;text-align:center}
+    .tai-viz-metric-label{font-size:.52rem;color:var(--ax-faint);text-transform:uppercase;letter-spacing:.06em}
+    .tai-viz-metric-value{font-size:.72rem;font-weight:800;color:var(--ax-ink);margin-top:3px}
+    @media(max-width:900px){.tai-viz-grid{grid-template-columns:repeat(2,1fr)}.tai-viz-main-grid{grid-template-columns:1fr}.tai-viz-metrics{grid-template-columns:repeat(3,1fr)}}
+    @media(max-width:640px){.tai-analytics-head{flex-direction:column}.tai-viz-grid{grid-template-columns:repeat(2,1fr)}.tai-viz-health-layout,.tai-viz-bilingual{grid-template-columns:1fr}.tai-viz-insight-chips,.tai-viz-jp-stat-grid{grid-template-columns:1fr 1fr}.tai-viz-jp-format-grid{grid-template-columns:repeat(3,1fr)}.tai-viz-jp-format-cell:nth-child(3){border-right:0}.tai-viz-action{grid-template-columns:22px 1fr}.tai-viz-action-status{grid-column:2;justify-self:start}.tai-viz-metrics{grid-template-columns:repeat(2,1fr)}}
+</style>'''
 
 def _build_gijiroku_preview(R: dict, language: str) -> str:
     def _clean_val(v):
@@ -66,102 +208,57 @@ def _build_gijiroku_preview(R: dict, language: str) -> str:
         plan = formatter.format(analysis=R)
 
         attendee_chips = "".join(
-            f"<span style='display:inline-block;background:rgba(125,78,138,0.10);border:1px solid #D0B0C8;"
-            f"border-radius:999px;padding:3px 12px;font-size:0.72rem;color:#7D4E8A;margin:2px 4px 2px 0;'>"
-            f"{_clean_val(s)}</span>"
+            f"<span class='tai-viz-attendee'>{_clean_val(s)}</span>"
             for s in plan.shussekisha[:6]
         )
-
         agenda_items = "".join(
-            f"<div style='display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;'>"
-            f"<span style='background:#7D4E8A;color:#fff;border-radius:5px;padding:1px 7px;"
-            f"font-size:0.6rem;font-weight:700;flex-shrink:0;margin-top:2px'>{i:02d}</span>"
-            f"<span style='font-size:0.82rem;color:#3C2416;line-height:1.5;'>{_clean_val(item)}</span>"
-            f"</div>"
+            f"<div class='tai-viz-keypoint'><span class='tai-viz-keypoint-num'>{i:02d}</span><span class='tai-viz-keypoint-text'>{_clean_val(item)}</span></div>"
             for i, item in enumerate(plan.gidai[:3], 1)
         )
-
         action_rows = "".join(
-            f"<tr><td style='padding:5px 10px;font-size:0.75rem;color:#7A5040;border-bottom:1px solid #EFE2D8;'>{a.owner}</td>"
-            f"<td style='padding:5px 10px;font-size:0.75rem;color:#3C2416;border-bottom:1px solid #EFE2D8;'>{a.task}"
-            + ("" if not a.flag else "<span style='color:#963030'> ⚠</span>") + "</td>"
-            f"<td style='padding:5px 10px;font-size:0.75rem;color:#A87868;border-bottom:1px solid #EFE2D8;'>{a.deadline}</td></tr>"
+            f"<tr><td>{a.owner}</td><td>{a.task}{'' if not a.flag else ' ⚠'}</td><td>{a.deadline}</td></tr>"
             for a in plan.action_items[:4]
         )
 
         soft = R.get("soft_rejections", {}) or {}
         risk = soft.get("risk_level", "NONE")
-        risk_colors = {"CRITICAL":"#7C3AED","HIGH":"#963030","MEDIUM":"#986820","LOW":"#BE4060","MINIMAL":"#A87868","NONE":"#2D7A55"}
-        risk_bgs    = {"CRITICAL":"#F5F3FF","HIGH":"#FAF0F0","MEDIUM":"#FAF0E0","LOW":"#FEF6F8","MINIMAL":"#FDF0EA","NONE":"#EDF3EF"}
-        risk_clr = risk_colors.get(risk, "#2D7A55")
-        risk_bg  = risk_bgs.get(risk, "#EDF3EF")
+        risk_colors = {"CRITICAL":"#6C4CA1","HIGH":"#A64B4B","MEDIUM":"#9B6A27","LOW":"#B55478","MINIMAL":"#8D7265","NONE":"#357A62"}
+        risk_clr = risk_colors.get(risk, "#357A62")
 
         tokki = ""
         if plan.tokki_jiko:
-            tokki = (
-                f"<div style='margin-top:12px;padding:8px 12px;background:#FAF0F0;"
-                f"border-left:3px solid #963030;border-radius:0 8px 8px 0;font-size:0.75rem;color:#963030;'>"
-                f"⚠ {plan.tokki_jiko}</div>"
-            )
+            tokki = f"<div class='tai-viz-warning' style='margin-top:10px;border-left-color:#A64B4B;color:#7E3D3D'>⚠ {plan.tokki_jiko}</div>"
 
         return f"""
-<div style='margin-top:20px;border:1px solid #D0B0C8;border-radius:14px;overflow:hidden;background:#FDFAFF;'>
-  <div style='background:linear-gradient(135deg,#7D4E8A 0%,#A06CB5 100%);padding:14px 18px;display:flex;align-items:center;justify-content:space-between;'>
-    <div>
-      <div style='font-size:0.6rem;color:rgba(255,255,255,0.7);letter-spacing:0.15em;text-transform:uppercase;margin-bottom:3px;'>議事録 · Japanese Formal Business Minutes</div>
-      <div style='font-size:0.95rem;font-weight:700;color:#fff;font-family:"Noto Sans JP",sans-serif;'>{plan.kaigi_mei}</div>
-    </div>
-    <div style='text-align:right;'>
-      <div style='font-size:0.68rem;color:rgba(255,255,255,0.75);'>{plan.nichiji}</div>
-      <div style='font-size:0.65rem;color:rgba(255,255,255,0.6);margin-top:2px;'>{plan.basho}</div>
-    </div>
+<div class='tai-viz-gijiroku'>
+  <div class='tai-viz-gijiroku-head'>
+    <div><div class='tai-viz-gijiroku-label'>議事録 · Japanese Formal Business Minutes</div><div class='tai-viz-gijiroku-title'>{plan.kaigi_mei}</div></div>
+    <div style='text-align:right;font-size:.58rem;opacity:.72'>{plan.nichiji}<br>{plan.basho}</div>
   </div>
-  <div style='padding:16px 18px;'>
-    <div style='font-size:0.6rem;font-weight:700;color:#7D4E8A;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:7px;'>出席者 · Attendees</div>
-    <div style='margin-bottom:14px;'>{attendee_chips}</div>
-    <div style='display:grid;grid-template-columns:1fr auto;gap:16px;margin-bottom:14px;align-items:start;'>
-      <div>
-        <div style='font-size:0.6rem;font-weight:700;color:#7D4E8A;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:8px;'>議題 · Agenda</div>
-        {agenda_items}
-      </div>
-      <div style='min-width:100px;text-align:center;'>
-        <div style='font-size:0.6rem;font-weight:700;color:#7D4E8A;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:7px;'>リスク · Risk Level</div>
-        <div style='background:{risk_bg};border:1px solid {risk_clr}33;border-radius:8px;padding:8px 12px;'>
-          <div style='font-size:1rem;font-weight:800;color:{risk_clr};'>{risk}</div>
-          <div style='font-size:0.6rem;color:#A87868;margin-top:2px;'>{soft.get("total_signals",0)} signals</div>
-        </div>
-      </div>
+  <div class='tai-viz-gijiroku-body'>
+    <div class='tai-viz-gijiroku-section'>出席者 · Attendees</div>
+    <div>{attendee_chips}</div>
+    <div style='display:grid;grid-template-columns:1fr auto;gap:12px;align-items:start;'>
+      <div><div class='tai-viz-gijiroku-section'>議題 · Agenda</div>{agenda_items}</div>
+      <div><div class='tai-viz-gijiroku-section'>リスク · Risk</div><div class='tai-viz-pill' style='border-color:{risk_clr}55;color:{risk_clr};justify-content:center'>{risk} · {soft.get('total_signals',0)} signals</div></div>
     </div>
-    <div style='font-size:0.6rem;font-weight:700;color:#7D4E8A;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:8px;'>アクションアイテム · Action Items</div>
-    <div style='border:1px solid #EFE2D8;border-radius:8px;overflow:hidden;'>
-      <table style='width:100%;border-collapse:collapse;'>
-        <thead>
-          <tr style='background:#F5EEF8;'>
-            <th style='padding:6px 10px;font-size:0.6rem;font-weight:700;color:#7D4E8A;text-align:left;'>担当者 Owner</th>
-            <th style='padding:6px 10px;font-size:0.6rem;font-weight:700;color:#7D4E8A;text-align:left;'>タスク Task</th>
-            <th style='padding:6px 10px;font-size:0.6rem;font-weight:700;color:#7D4E8A;text-align:left;'>期限 Deadline</th>
-          </tr>
-        </thead>
-        <tbody>{action_rows}</tbody>
-      </table>
-    </div>
+    <div class='tai-viz-gijiroku-section'>アクションアイテム · Action Items</div>
+    <table class='tai-viz-table'><thead><tr><th>担当者 Owner</th><th>タスク Task</th><th>期限 Deadline</th></tr></thead><tbody>{action_rows}</tbody></table>
     {tokki}
-    <div style='margin-top:12px;font-size:0.68rem;color:#A87868;'>次回予定 · Next Meeting: {plan.jikai_yotei}</div>
+    <div style='font-size:.58rem;color:#8B7C92;margin-top:9px'>次回予定 · Next Meeting: {plan.jikai_yotei}</div>
   </div>
 </div>"""
     except Exception:
         return ""
 
-
 def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | None) -> str:
-    COLORS    = ["#E8829A","#F4A07A","#C9924A","#5A7D6B","#A8897C","#7A5C50"]
-    SENT_ICON = {"positive":"🌸","neutral":"🌿","negative":"🍂"}
+    COLORS    = ["#557A96", "#B55478", "#6E4C7A", "#357A62", "#9B6A27", "#7C8A96"]
+    SENT_ICON = {"positive":"↑", "neutral":"•", "negative":"↓"}
 
     ji       = R.get("japan_insights", {})
     speakers = sorted(R.get("speakers", []), key=lambda s: s.get("talk_time_pct", 0), reverse=True)
     soft     = R.get("soft_rejections", {}) or {}
 
-    # ── Termination detection ─────────────────────────────────────────────────
     termination_detected = (
         soft.get("termination_detected", False) or
         R.get("meeting_type") == "contract_termination"
@@ -173,7 +270,7 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
         risk_pts= {"NONE":25,"MINIMAL":20,"LOW":15,"MEDIUM":8,"HIGH":0,"CRITICAL":0}
 
         sents   = R.get("sentiment", [])
-        w       = {"positive":1.0,"neutral":0.6,"negative":0.1}
+        w       = {"positive":1.0, "neutral":0.6, "negative":0.1}
         s_pts   = round((sum(w.get(s.get("score","neutral").lower(),0.5) for s in sents)/len(sents)*30) if sents else 15)
 
         items   = R.get("action_items", [])
@@ -190,33 +287,25 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
         h_pts   = round((1 - ver2.get("overall_hallucination_risk", 0)) * 20)
         score   = min(s_pts + a_pts + r_pts + h_pts, 100)
 
-        # Approval gate — pending decision, cap at 55
         approval_gate_detected_health = soft.get('approval_gate_detected', False)
 
-        # Termination cap — never show "good" for a contract termination
         if termination_detected:
             score = min(score, 22)
-            color = "#7C3AED"
+            color = "#6C4CA1"
             label = "Contract Terminated"
             bd = [("Sentiment",s_pts,30),("Clarity",a_pts,25),("Comm Risk",0,25),("AI Confidence",h_pts,20)]
         elif approval_gate_detected_health:
             score = min(score, 55)
-            color = "#D97706"
+            color = "#9B6A27"
             label = "Approval Pending"
             bd = [("Sentiment",s_pts,30),("Action Clarity",a_pts,25),("Comm Risk",r_pts,25),("AI Confidence",h_pts,20)]
         else:
-            color = ("#2D9E6B" if score >= 80 else "#B87830" if score >= 60 else "#D96080" if score >= 40 else "#C84040")
-            label = ("Productive Meeting" if score >= 80 else "Mostly Aligned" if score >= 60
-                     else "Needs Follow-up" if score >= 40 else "High Risk")
+            color = ("#357A62" if score >= 80 else "#9B6A27" if score >= 60 else "#B55478" if score >= 40 else "#A64B4B")
+            label = ("Productive Meeting" if score >= 80 else "Mostly Aligned" if score >= 60 else "Needs Follow-up" if score >= 40 else "High Risk")
             bd = [("Sentiment",s_pts,30),("Action Clarity",a_pts,25),("Comm Risk",r_pts,25),("AI Confidence",h_pts,20)]
 
         bars = "".join(
-            f"<div style='margin-bottom:8px'>"
-            f"<div style='display:flex;justify-content:space-between;margin-bottom:3px'>"
-            f"<span style='font-size:0.68rem;color:#7A5040'>{lb}</span>"
-            f"<span style='font-size:0.68rem;color:{color};font-weight:600'>{pt}/{tot}</span></div>"
-            f"<div style='height:5px;background:rgba(60,36,22,0.10);border-radius:999px'>"
-            f"<div style='height:100%;width:{round(pt/tot*100)}%;background:{color};border-radius:999px;'></div></div></div>"
+            f"<div class='tai-viz-health-bar-row'><span class='tai-viz-health-bar-label'>{lb}</span><div class='tai-viz-health-track'><div class='tai-viz-health-fill' style='--health-color:{color};width:{round(pt/tot*100)}%'></div></div><span class='tai-viz-health-score'>{pt}/{tot}</span></div>"
             for lb, pt, tot in bd
         )
         return score, color, bars
@@ -229,45 +318,31 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
     keigo_val = ji.get("keigo_level","—").title() if features.get("show_japan_insights") else language_display_name(language).split(" ",1)[-1]
     keigo_lbl = "Formality" if features.get("show_japan_insights") else "Language"
 
-    def _tile(val, lbl, icon):
+    def _tile(val, lbl, icon, foot=""):
         return (
-            f"<div class='tai-tile'>"
-            f"<div class='tai-tile-icon'>{icon}</div>"
-            f"<div class='tai-tile-val'>{val}</div>"
-            f"<div class='tai-tile-lbl'>{lbl}</div>"
-            f"</div>"
+            f"<div class='tai-viz-kpi'><div class='tai-viz-kpi-top'><span class='tai-viz-kpi-label'>{lbl}</span><span class='tai-viz-kpi-icon'>{icon}</span></div>"
+            f"<div class='tai-viz-kpi-value'>{val}</div><div class='tai-viz-kpi-foot'>{foot}</div></div>"
         )
 
     tiles = (
-        _tile(spk_count, "Speakers", "🎤") +
-        _tile(act_count, "Actions", "✅") +
-        _tile(cs_val, "Code Switches", "🌐") +
-        _tile(keigo_val, keigo_lbl, "🏯")
+        _tile(spk_count, "Speakers", "◌", "detected participants") +
+        _tile(act_count, "Action Items", "✓", "tasks extracted") +
+        _tile(cs_val, "Code Switches", "⇄", "language transitions") +
+        _tile(keigo_val, keigo_lbl, "JP", "Japanese register" if features.get("show_japan_insights") else "detected language")
     )
 
-    # ── PII banner ────────────────────────────────────────────────────────────
     pii_html = ""
     if pii_rep and pii_rep.get("total_pii_found", 0) > 0:
         n = pii_rep["total_pii_found"]
-        pii_html = (
-            f"<div class='tai-pii-pill'>🔒 APPI — "
-            f"{n} item{'s' if n!=1 else ''} anonymized before analysis</div>"
-        )
+        pii_html = f"<div class='tai-viz-pill green' style='margin-bottom:10px'>✓ APPI · {n} item{'s' if n!=1 else ''} anonymized before analysis</div>"
 
-    # ── Unlabeled transcript warning ──────────────────────────────────────────
     unlabeled_html = ""
     if R.get("_unlabeled_transcript"):
         unlabeled_html = (
-            "<div style='background:#FFFBEB;border-left:4px solid #D97706;"
-            "border-radius:0 10px 10px 0;padding:0.9rem 1.2rem;margin-bottom:1rem;"
-            "font-size:0.82rem;color:#78350F;line-height:1.6;'>"
-            "⚠ <strong>No speaker labels detected</strong> — each paragraph was assigned to a generic speaker. "
-            "For best results, prefix each line with the speaker's name: "
-            "<code style='background:#FEF3C7;border-radius:4px;padding:1px 5px;'>Name: their words here</code>"
-            "</div>"
+            "<div class='tai-viz-warning'>⚠ <span><strong>No speaker labels detected</strong> — each paragraph was assigned to a generic speaker. "
+            "For best results, prefix each line with the speaker's name: <code>Name: their words here</code></span></div>"
         )
 
-    # ── Tab 1: Summary ────────────────────────────────────────────────────────
     def _clean_val(v):
         if isinstance(v, dict): return " ".join(str(val) for val in v.values() if val)
         if isinstance(v, list): return " ".join(str(val) for val in v if val)
@@ -282,462 +357,169 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
     if full_sum:
         if is_japanese and en_summary and en_summary.strip() != full_sum.strip():
             sum_html += (
-                f"<div class='tai-summary-box'>"
-                f"<div class='tai-summary-label'>📋 Meeting Overview</div>"
-                f"<div class='tai-bilingual-block'>"
-                f"<span class='tai-lang-label tai-lang-ja'>JA</span>"
-                f"<div class='tai-bilingual-ja'>{full_sum}</div>"
-                f"<span class='tai-lang-label tai-lang-en'>EN</span>"
-                f"<div class='tai-bilingual-en'>{en_summary}</div>"
-                f"</div>"
-                f"</div>"
+                "<div class='tai-viz-summary'><div class='tai-viz-summary-title'>Meeting Overview · 会議概要</div>"
+                "<div class='tai-viz-bilingual'>"
+                f"<div class='tai-viz-lang-block'><div class='tai-viz-lang-tag ja'>日本語 · JA</div><div class='tai-viz-lang-text' style='font-family:\"Noto Sans JP\",sans-serif'>{full_sum}</div></div>"
+                f"<div class='tai-viz-lang-block'><div class='tai-viz-lang-tag en'>English · EN</div><div class='tai-viz-lang-text'>{en_summary}</div></div>"
+                "</div></div>"
             )
         elif is_japanese and not en_summary:
-            sum_html += (
-                f"<div class='tai-summary-box'>"
-                f"<div class='tai-summary-label'>📋 Meeting Overview</div>"
-                f"<span class='tai-lang-label tai-lang-ja'>JA</span>"
-                f"<p style='margin:0;line-height:1.9;font-size:0.85rem;font-family:Noto Sans JP,sans-serif;color:#3C2416'>{full_sum}</p>"
-                f"</div>"
-            )
+            sum_html += f"<div class='tai-viz-summary'><div class='tai-viz-summary-title'>Meeting Overview · 会議概要</div><div class='tai-viz-lang-block'><div class='tai-viz-lang-tag ja'>日本語 · JA</div><div class='tai-viz-lang-text' style='font-family:\"Noto Sans JP\",sans-serif'>{full_sum}</div></div></div>"
         else:
-            sum_html += (
-                f"<div class='tai-summary-box'>"
-                f"<div class='tai-summary-label'>📋 Meeting Overview</div>"
-                f"<p style='margin:0;line-height:1.75;font-size:0.85rem;color:#3C2416'>{full_sum}</p>"
-                f"</div>"
-            )
+            sum_html += f"<div class='tai-viz-summary'><div class='tai-viz-summary-title'>Meeting Overview</div><div class='tai-viz-lang-text'>{full_sum}</div></div>"
 
     if bullets:
-        sum_html += f"<div class='tai-section-label'>{len(bullets)} Key Points</div>"
+        sum_html += f"<div class='tai-viz-section'>{len(bullets)} Key Points</div>"
         for i, b in enumerate(bullets, 1):
             has_cjk = any('\u4e00' <= c <= '\u9fff' or '\u3040' <= c <= '\u309f' or '\u30a0' <= c <= '\u30ff' for c in str(b))
-            bullet_font = "font-family:'Noto Sans JP',sans-serif;" if has_cjk else ""
-            sum_html += (
-                f"<div class='tai-bullet-card'>"
-                f"<span class='tai-bullet-num'>{i:02d}</span>"
-                f"<span style='color:#3C2416;font-size:0.88rem;line-height:1.65;{bullet_font}'>{b}</span>"
-                f"</div>"
-            )
+            font = "font-family:'Noto Sans JP',sans-serif;" if has_cjk else ""
+            sum_html += f"<div class='tai-viz-keypoint'><span class='tai-viz-keypoint-num'>{i:02d}</span><span class='tai-viz-keypoint-text' style='{font}'>{b}</span></div>"
     elif not full_sum:
-        sum_html += "<div style='color:#A87868;font-size:0.85rem;padding:1rem 0'>No summary extracted. Try a longer transcript.</div>"
+        sum_html += "<div style='color:#7A8694;font-size:.78rem;padding:10px 0'>No summary extracted. Try a longer transcript.</div>"
 
     gijiroku_preview = _build_gijiroku_preview(R, language) if features.get("show_japan_insights") else ""
     if gijiroku_preview:
         sum_html += gijiroku_preview
 
-    # ── Tab 2: Actions ────────────────────────────────────────────────────────
     items    = R.get("action_items", [])
     v_count  = sum(1 for i in items if not i.get("hallucination_flag"))
     f_count  = len(items) - v_count
-    act_html = (
-        f"<div class='tai-section-label'>{len(items)} Items · "
-        f"<span style='color:#2D9E6B'>✓ {v_count} verified</span>"
-        + (f" · <span style='color:#C84040'>⚑ {f_count} flagged</span>" if f_count else "")
-        + "</div>"
-    )
+    act_html = f"<div class='tai-viz-section'>{len(items)} Items · <span style='color:#357A62'>✓ {v_count} verified</span>" + (f" · <span style='color:#A64B4B'>⚑ {f_count} flagged</span>" if f_count else "") + "</div>"
     act_html += "".join(
         (
-            "<div class='tai-action-card" +
-            (" tai-action-flagged" if i.get("hallucination_flag") else "") +
-            "'>"
-            "<div style='font-size:1.1rem;padding-top:2px'>" +
-            ("⚑" if i.get("hallucination_flag") else "◆") +
-            "</div>"
-            "<div style='flex:1'>"
-            "<div style='font-weight:600;color:#3C2416;font-size:0.9rem;margin-bottom:4px'>" + str(i.get("task","")) + "</div>"
-            "<div style='font-size:0.76rem;color:#A87868'>"
-            "Owner: <strong style='color:#7A5040'>" + str(i.get("owner","TBD")) + "</strong>"
-            " &nbsp;·&nbsp; Deadline: <strong style='color:#7A5040'>" + str(i.get("deadline","TBD")) + "</strong>" +
-            (f" &nbsp;·&nbsp; {i.get('confidence',0):.0%} confidence" if i.get("confidence") else "") +
-            (f"<div style='color:#963030;font-size:0.72rem;margin-top:3px'>⚠ {i.get('flag_reason','')}</div>" if i.get("flag_reason") else "") +
-            "</div></div></div>"
-        )
-        for i in items
-    ) if items else "<div style='color:#A87868;font-size:0.85rem;padding:1rem 0'>No action items extracted.</div>"
+            "<div class='tai-viz-action" + (" flagged" if i.get("hallucination_flag") else "") + "'>"
+            "<div class='tai-viz-action-icon'>" + ("⚑" if i.get("hallucination_flag") else "◆") + "</div>"
+            "<div><div class='tai-viz-action-task'>" + str(i.get("task","")) + "</div>"
+            "<div class='tai-viz-action-meta'>Owner: <strong>" + str(i.get("owner","TBD")) + "</strong> · Deadline: <strong>" + str(i.get("deadline","TBD")) + "</strong>" + (f" · {i.get('confidence',0):.0%} confidence" if i.get("confidence") else "") + (f"<div style='color:#A64B4B;margin-top:3px'>⚠ {i.get('flag_reason','')}</div>" if i.get("flag_reason") else "") + "</div></div>"
+            "<div class='tai-viz-action-status'>" + ("FLAGGED" if i.get("hallucination_flag") else "EXTRACTED") + "</div></div>"
+        ) for i in items
+    ) if items else "<div style='color:#7A8694;font-size:.78rem;padding:10px 0'>No action items extracted.</div>"
 
-    # ── Tab 3: Sentiment ──────────────────────────────────────────────────────
-    sent_html = "<div class='tai-section-label'>Speaker Sentiment</div>"
-    # Add note about sentiment scoring model when termination detected
+    sent_html = "<div class='tai-viz-section'>Speaker Sentiment · Communicative Register</div>"
     if termination_detected:
-        sent_html += (
-            "<div style='background:#F5F3FF;border-left:3px solid #7C3AED;"
-            "border-radius:0 8px 8px 0;padding:0.7rem 1rem;margin-bottom:1rem;"
-            "font-size:0.78rem;color:#4C1D95;line-height:1.6;'>"
-            "Sentiment scored on <strong>communicative register</strong> — "
-            "cooperative/deferential/gracious = neutral, not negative. "
-            "Professional acceptance of a termination is not hostility."
-            "</div>"
-        )
+        sent_html += "<div class='tai-viz-banner' style='background:#F5F1FB;border-color:#D9CEE9'><div>ⓘ</div><div><div class='tai-viz-banner-title'>Register-aware sentiment</div><div class='tai-viz-banner-sub'>Cooperative, deferential and gracious language is treated as neutral rather than negative.</div></div></div>"
     sent_html += "".join(
-        (
-            "<div class='tai-sent-row'>"
-            "<span style='font-size:1.2rem'>" + SENT_ICON.get(s.get("score","neutral").lower(),"🌿") + "</span>"
-            "<div style='flex:1'>"
-            "<div style='font-weight:600;color:#3C2416;font-size:0.88rem'>" + str(s.get("speaker","")) + "</div>"
-            "<div style='font-size:0.75rem;color:#A87868;font-style:italic;margin-top:1px'>" + str(s.get("label","")) + "</div>"
-            "</div>"
-            "<span class='tai-sent-badge tai-sent-" + s.get("score","neutral").lower() + "'>" + s.get("score","neutral").upper() + "</span>"
-            "</div>"
-        )
+        f"<div class='tai-viz-sent'><span class='tai-viz-sent-icon'>{SENT_ICON.get(s.get('score','neutral').lower(),'•')}</span><div><div class='tai-viz-sent-name'>{s.get('speaker','')}</div><div class='tai-viz-sent-label'>{s.get('label','')}</div></div><span class='tai-viz-badge {s.get('score','neutral').lower()}'>{s.get('score','neutral').upper()}</span></div>"
         for s in R.get("sentiment", [])
     )
 
-    # ── Tab 4: Speakers ───────────────────────────────────────────────────────
-    spk_html = "<div class='tai-section-label'>Talk Time Distribution</div>"
+    spk_html = "<div class='tai-viz-section'>Talk Time Distribution</div>"
     for idx2, spk in enumerate(speakers):
         nm  = spk.get("name", f"Speaker {idx2+1}")
         pct = spk.get("talk_time_pct", 0)
         tone= spk.get("tone","—")
         col = COLORS[idx2 % len(COLORS)]
         spk_html += (
-            f"<div class='tai-spk-row'>"
-            f"{_avatar(nm, col)}"
-            f"<div style='flex:1;min-width:0'>"
-            f"<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:6px'>"
-            f"<span style='font-weight:600;color:#3C2416;font-size:0.88rem'>{nm}</span>"
-            f"<span style='font-size:0.75rem;color:{col};font-weight:600'>{pct}%</span></div>"
-            f"<div style='height:6px;background:rgba(60,36,22,0.10);border-radius:999px'>"
-            f"<div style='height:100%;width:{pct}%;background:{col};border-radius:999px;box-shadow:0 0 8px {col}66;'></div></div>"
-            f"<div style='font-size:0.7rem;color:#A87868;margin-top:4px'>{tone}</div>"
-            f"</div>"
-            f"{_svg_donut(pct, col, 52)}"
-            f"</div>"
+            f"<div class='tai-viz-speaker'><div>{_avatar(nm,col)}</div><div><div class='tai-viz-speaker-name'>{nm}</div><div class='tai-viz-speaker-tone'>{tone}</div><div class='tai-viz-speaker-bar'><div class='tai-viz-speaker-fill' style='--speaker-color:{col};width:{pct}%'></div></div></div><div style='text-align:right'>{_svg_donut(pct,col,48)}</div></div>"
         )
 
-    # ── Tab 5: Insights ───────────────────────────────────────────────────────
     ins_html = ""
     if features.get("show_japan_insights"):
         keigo   = ji.get("keigo_level","—")
         k_src   = ji.get("keigo_source","llm")
-        kc      = {"high":"#BE4060","medium":"#986820","low":"#A87868"}.get(keigo,"#7A5040")
+        kc      = {"high":"#B55478","medium":"#9B6A27","low":"#8D7265"}.get(keigo,"#6E4C7A")
         sigs    = ji.get("nemawashi_signals",[])
         risk    = soft.get("risk_level","NONE") if soft else "NONE"
-        risk_colors = {"CRITICAL":"#7C3AED","HIGH":"#963030","MEDIUM":"#986820","LOW":"#BE4060","MINIMAL":"#A87868","NONE":"#2D7A55"}
-        rclr    = risk_colors.get(risk, "#2D7A55")
+        risk_colors = {"CRITICAL":"#6C4CA1","HIGH":"#A64B4B","MEDIUM":"#9B6A27","LOW":"#B55478","MINIMAL":"#8D7265","NONE":"#357A62"}
+        rclr    = risk_colors.get(risk, "#357A62")
         cs_cnt  = ji.get("code_switch_count",0)
 
-        # ── Approval Gate banner ─────────────────────────────────────────────
         if approval_gate_detected and not termination_detected:
             ag_sigs = soft.get("approval_gate_signals", [])
-            # Determine decision status from signals
-            has_tech_commercial = any("technical" in s.get("phrase","").lower() or
-                                      "技術" in s.get("phrase","") for s in ag_sigs)
-            has_personal_vs_org = any("personally" in s.get("phrase","").lower() or
-                                      "board" in s.get("phrase","").lower() or
-                                      "headquarters" in s.get("phrase","").lower() for s in ag_sigs)
-            has_committee = any("committee" in s.get("phrase","").lower() or
-                                "委員会" in s.get("phrase","") or
-                                "稟議" in s.get("phrase","") for s in ag_sigs)
-
-            # Decision status chips
+            has_tech_commercial = any("technical" in s.get("phrase","").lower() or "技術" in s.get("phrase","") for s in ag_sigs)
+            has_personal_vs_org = any("personally" in s.get("phrase","").lower() or "board" in s.get("phrase","").lower() or "headquarters" in s.get("phrase","").lower() for s in ag_sigs)
+            has_committee = any("committee" in s.get("phrase","").lower() or "委員会" in s.get("phrase","") or "稟議" in s.get("phrase","") for s in ag_sigs)
             status_chips = ""
             if has_tech_commercial:
-                status_chips += (
-                    "<div style='display:inline-flex;align-items:center;gap:6px;"
-                    "background:#ECFDF5;border:1px solid #6EE7B7;border-radius:8px;"
-                    "padding:5px 12px;margin:3px 6px 3px 0;font-size:0.78rem;font-weight:700;color:#065F46;'>"
-                    "✅ Technical Review Approved</div>"
-                    "<div style='display:inline-flex;align-items:center;gap:6px;"
-                    "background:#FFFBEB;border:1px solid #FCD34D;border-radius:8px;"
-                    "padding:5px 12px;margin:3px 6px 3px 0;font-size:0.78rem;font-weight:700;color:#92400E;'>"
-                    "⏳ Commercial Approval Pending</div>"
-                )
+                status_chips += "<span class='tai-viz-pill green'>✓ Technical Review Approved</span><span class='tai-viz-pill warn'>⌛ Commercial Approval Pending</span>"
             if has_personal_vs_org:
-                status_chips += (
-                    "<div style='display:inline-flex;align-items:center;gap:6px;"
-                    "background:#EFF6FF;border:1px solid #93C5FD;border-radius:8px;"
-                    "padding:5px 12px;margin:3px 6px 3px 0;font-size:0.78rem;font-weight:700;color:#1E40AF;'>"
-                    "👤 Personal Support Only</div>"
-                    "<div style='display:inline-flex;align-items:center;gap:6px;"
-                    "background:#FFF7ED;border:1px solid #FDBA74;border-radius:8px;"
-                    "padding:5px 12px;margin:3px 6px 3px 0;font-size:0.78rem;font-weight:700;color:#9A3412;'>"
-                    "⏳ Organizational Decision Pending</div>"
-                )
+                status_chips += "<span class='tai-viz-pill'>👤 Personal Support Only</span><span class='tai-viz-pill warn'>⌛ Organizational Decision Pending</span>"
             if has_committee:
-                status_chips += (
-                    "<div style='display:inline-flex;align-items:center;gap:6px;"
-                    "background:#F5F3FF;border:1px solid #C4B5FD;border-radius:8px;"
-                    "padding:5px 12px;margin:3px 6px 3px 0;font-size:0.78rem;font-weight:700;color:#5B21B6;'>"
-                    "🏛 Committee Review Required</div>"
-                )
-
-            # Authority hierarchy (only for technical/commercial split)
+                status_chips += "<span class='tai-viz-pill jp'>🏛 Committee Review Required</span>"
             hierarchy_html = ""
             if has_tech_commercial:
-                hierarchy_html = (
-                    "<div style='margin:1rem 0 0.5rem;font-size:0.6rem;font-weight:800;"
-                    "color:#D97706;letter-spacing:0.12em;text-transform:uppercase;'>Decision Authority Hierarchy</div>"
-                    "<div style='background:#FFFBEB;border:1px solid #FCD34D;border-radius:10px;"
-                    "padding:12px 14px;font-size:0.78rem;color:#78350F;line-height:2.1;'>"
-                    "<span style='font-weight:700'>Engineering Department</span>"
-                    "<span style='color:#D97706;margin:0 6px;'>→</span>"
-                    "Technical Recommendation Only"
-                    "<br>"
-                    "<span style='font-weight:700'>Procurement / 調達部</span>"
-                    "<span style='color:#D97706;margin:0 6px;'>→</span>"
-                    "Commercial &amp; Contract Review"
-                    "<br>"
-                    "<span style='font-weight:700'>Purchasing Committee / 購買委員会</span>"
-                    "<span style='color:#D97706;margin:0 6px;'>→</span>"
-                    "<span style='color:#D97706;font-weight:800;'>Final Decision Authority ✦</span>"
-                    "</div>"
-                )
+                hierarchy_html = "<div class='tai-viz-banner' style='background:#FBF5E9;border-color:#E8D5A6'><div>↳</div><div><div class='tai-viz-banner-title'>Decision Authority Hierarchy</div><div class='tai-viz-banner-sub'><strong>Engineering</strong> → Technical recommendation · <strong>Procurement / 調達部</strong> → Commercial review · <strong>購買委員会</strong> → Final decision authority</div></div></div>"
             elif has_personal_vs_org:
-                hierarchy_html = (
-                    "<div style='margin:1rem 0 0.5rem;font-size:0.6rem;font-weight:800;"
-                    "color:#D97706;letter-spacing:0.12em;text-transform:uppercase;'>Authority Clarification</div>"
-                    "<div style='background:#FFFBEB;border:1px solid #FCD34D;border-radius:10px;"
-                    "padding:12px 14px;font-size:0.78rem;color:#78350F;line-height:2.1;'>"
-                    "<span style='font-weight:700'>Meeting Participant</span>"
-                    "<span style='color:#D97706;margin:0 6px;'>→</span>"
-                    "Personal support expressed"
-                    "<br>"
-                    "<span style='font-weight:700'>Board / HQ / Executive Committee</span>"
-                    "<span style='color:#D97706;margin:0 6px;'>→</span>"
-                    "<span style='color:#D97706;font-weight:800;'>Actual Decision Authority ✦</span>"
-                    "</div>"
-                )
+                hierarchy_html = "<div class='tai-viz-banner' style='background:#FBF5E9;border-color:#E8D5A6'><div>↳</div><div><div class='tai-viz-banner-title'>Authority Clarification</div><div class='tai-viz-banner-sub'><strong>Meeting participant</strong> → Personal support · <strong>Board / HQ / Executive Committee</strong> → Actual decision authority</div></div></div>"
+            ins_html += f"<div class='tai-viz-warning' style='border-left-color:#9B6A27;background:#FBF5E9;color:#775522'><strong>Approval Gate Detected</strong><span><div style='margin-top:5px'>{status_chips}</div>{hierarchy_html}<div style='margin-top:8px'>{soft.get('cultural_note','In Japanese organizations, technical and commercial approval are separate processes.')}</div></span></div>"
 
-            ins_html += (
-                f"<div style='background:#FFFBEB;border:2px solid #D97706;"
-                f"border-radius:12px;padding:1.2rem 1.4rem;margin-bottom:1.5rem;'>"
-                f"<div style='font-size:0.7rem;font-weight:800;color:#D97706;"
-                f"letter-spacing:0.12em;text-transform:uppercase;margin-bottom:0.9rem;'>"
-                f"⏳ Approval Gate Detected — Decision Not Final</div>"
-                f"<div style='margin-bottom:0.8rem;'>{status_chips}</div>"
-                f"{hierarchy_html}"
-                f"<div style='font-size:0.78rem;color:#78350F;line-height:1.65;"
-                f"border-top:1px solid #FDE68A;padding-top:0.9rem;margin-top:0.8rem;'>"
-                f"{soft.get('cultural_note','In Japanese organizations, technical and commercial approval are separate processes.')}"
-                f"</div>"
-                f"</div>"
-            )
-
-        # ── Termination detected banner ───────────────────────────────────────
         if termination_detected:
             term_sigs = soft.get("termination_signals", [])
-            term_phrases = "".join(
-                f"<div style='margin-bottom:8px;'>"
-                f"<div style='font-size:0.82rem;font-weight:700;color:#5B21B6;"
-                f"font-family:Noto Sans JP,sans-serif;'>⛔ {s['phrase']}</div>"
-                f"<div style='font-size:0.72rem;color:#6B7280;margin-top:2px;'>"
-                f"{s.get('english','')} · Speaker: {s.get('speaker','Unknown')}</div>"
-                f"</div>"
-                for s in term_sigs
-            ) if term_sigs else (
-                "<div style='font-size:0.82rem;color:#5B21B6;'>"
-                "Contract termination language detected in transcript.</div>"
-            )
-            ins_html += (
-                f"<div style='background:#F5F3FF;border:2px solid #7C3AED;"
-                f"border-radius:12px;padding:1.2rem 1.4rem;margin-bottom:1.5rem;'>"
-                f"<div style='font-size:0.7rem;font-weight:800;color:#7C3AED;"
-                f"letter-spacing:0.12em;text-transform:uppercase;margin-bottom:0.8rem;'>"
-                f"⛔ Explicit Contract Termination Detected</div>"
-                f"{term_phrases}"
-                f"<div style='font-size:0.78rem;color:#4C1D95;line-height:1.65;"
-                f"border-top:1px solid #DDD6FE;padding-top:0.8rem;margin-top:0.6rem;'>"
-                f"{soft.get('cultural_note', 'This is an explicit, irrevocable termination — not a soft refusal. The polite keigo delivery is cultural courtesy, not ambiguity.')}"
-                f"</div>"
-                f"</div>"
-            )
+            term_phrases = "".join(f"<div class='tai-viz-signal' style='border-left-color:#6C4CA1;background:#FAF8FD'><div class='tai-viz-signal-phrase' style='color:#5B4386'>⛔ {s['phrase']}</div><div class='tai-viz-signal-meta'>{s.get('english','')} · Speaker: {s.get('speaker','Unknown')}</div></div>" for s in term_sigs) if term_sigs else "<div class='tai-viz-signal' style='border-left-color:#6C4CA1;background:#FAF8FD'><div class='tai-viz-signal-phrase'>Contract termination language detected in transcript.</div></div>"
+            ins_html += f"<div class='tai-viz-warning' style='border-left-color:#6C4CA1;background:#F4F0FB;color:#57407A'><strong>Explicit Contract Termination Detected</strong><span>{term_phrases}<div style='margin-top:8px'>{soft.get('cultural_note', 'This is an explicit, irrevocable termination — not a soft refusal. The polite keigo delivery is cultural courtesy, not ambiguity.')}</div></span></div>"
 
         ins_html += (
-            "<div style='display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px'>"
-            "<div class='tai-insight-chip'>"
-            "<div style='font-size:0.6rem;color:#A87868;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:2px'>Keigo Register</div>"
-            f"<div style='font-size:1.1rem;font-weight:700;color:{kc}'>{keigo.upper()}</div>"
-            f"<div style='font-size:0.62rem;color:#C8A898'>via {k_src}</div>"
-            "</div>"
-            "<div class='tai-insight-chip'>"
-            "<div style='font-size:0.6rem;color:#A87868;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:2px'>Rejection Risk</div>"
-            f"<div style='font-size:1.1rem;font-weight:700;color:{rclr}'>{risk}</div>"
-            f"<div style='font-size:0.62rem;color:#C8A898'>{soft.get('total_signals',0)} signals</div>"
-            "</div>"
-            "<div class='tai-insight-chip'>"
-            "<div style='font-size:0.6rem;color:#A87868;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:2px'>Code Switches</div>"
-            f"<div style='font-size:1.1rem;font-weight:700;color:#E88060'>{cs_cnt}</div>"
-            "<div style='font-size:0.62rem;color:#C8A898'>language switches</div>"
-            "</div>"
+            "<div class='tai-viz-insight-chips'>"
+            f"<div class='tai-viz-insight-chip jp'><div class='tai-viz-insight-chip-label'>Keigo Register</div><div class='tai-viz-insight-chip-value' style='color:{kc}'>{keigo.upper()}</div><div class='tai-viz-insight-chip-foot'>via {k_src}</div></div>"
+            f"<div class='tai-viz-insight-chip'><div class='tai-viz-insight-chip-label'>Rejection Risk</div><div class='tai-viz-insight-chip-value' style='color:{rclr}'>{risk}</div><div class='tai-viz-insight-chip-foot'>{soft.get('total_signals',0)} signals</div></div>"
+            f"<div class='tai-viz-insight-chip'><div class='tai-viz-insight-chip-label'>Code Switches</div><div class='tai-viz-insight-chip-value'>{cs_cnt}</div><div class='tai-viz-insight-chip-foot'>language switches</div></div>"
             "</div>"
         )
 
         if sigs:
-            ins_html += f"<div class='tai-section-label'>Indirect Consensus Signals · {len(sigs)} detected</div>"
-            ins_html += "".join("<div class='tai-nemawashi-pill'>◆ " + s + "</div>" for s in sigs)
+            ins_html += f"<div class='tai-viz-section'>Indirect Consensus Signals · {len(sigs)} detected</div>"
+            ins_html += "".join(f"<div class='tai-viz-pill jp' style='margin:0 5px 5px 0'>◆ {s}</div>" for s in sigs)
 
         if soft and soft.get("total_signals",0) > 0:
-            ins_html += "<div class='tai-section-label' style='margin-top:16px'>Soft Rejection Analysis</div>"
+            ins_html += "<div class='tai-viz-section' style='margin-top:13px'>Soft Rejection Analysis</div>"
             for sig in soft.get("high_signals",[]):
-                ins_html += (
-                    f"<div class='tai-sig-high'>"
-                    f"<div style='font-weight:700;font-size:0.9rem'>🚨 {sig['phrase']}</div>"
-                    f"<div style='font-size:0.76rem;color:#7A5040;margin-top:4px'>{sig['reading']} · {sig['speaker']} · {sig['confidence']:.0%}</div>"
-                    f"<div style='font-size:0.75rem;color:#3C2416;margin-top:6px;line-height:1.5'>{sig['explanation']}</div>"
-                    f"</div>"
-                )
+                ins_html += f"<div class='tai-viz-signal high'><div class='tai-viz-signal-phrase'>🚨 {sig['phrase']}</div><div class='tai-viz-signal-meta'>{sig['reading']} · {sig['speaker']} · {sig['confidence']:.0%}</div><div class='tai-viz-signal-exp'>{sig['explanation']}</div></div>"
             for sig in soft.get("medium_signals",[]):
-                ins_html += (
-                    f"<div class='tai-sig-med'>"
-                    f"<div style='font-weight:700;font-size:0.9rem'>⚠ {sig['phrase']}</div>"
-                    f"<div style='font-size:0.76rem;color:#7A5040;margin-top:4px'>{sig['reading']} · {sig['speaker']} · {sig['confidence']:.0%}</div>"
-                    f"<div style='font-size:0.75rem;color:#3C2416;margin-top:6px;line-height:1.5'>{sig['explanation']}</div>"
-                    f"</div>"
-                )
+                ins_html += f"<div class='tai-viz-signal'><div class='tai-viz-signal-phrase'>⚠ {sig['phrase']}</div><div class='tai-viz-signal-meta'>{sig['reading']} · {sig['speaker']} · {sig['confidence']:.0%}</div><div class='tai-viz-signal-exp'>{sig['explanation']}</div></div>"
             if not termination_detected:
-                ins_html += f"<div style='font-size:0.73rem;color:#A87868;font-style:italic;margin-top:8px'>{soft.get('cultural_note','')}</div>"
+                ins_html += f"<div style='font-size:.65rem;color:#7A8694;font-style:italic;margin-top:7px'>{soft.get('cultural_note','')}</div>"
     else:
-        ins_html = "<div style='color:#A87868;font-size:0.85rem;padding:1rem 0;line-height:1.7'>Cultural intelligence features apply to Japanese and Hindi transcripts.</div>"
+        ins_html = "<div style='color:#7A8694;font-size:.78rem;padding:10px 0;line-height:1.7'>Cultural intelligence features apply to Japanese and Hindi transcripts.</div>"
 
     insight_label = features.get('insight_tab_label', '🌐 Insights') or "Insights"
 
-    # 議事録 format banner
     gijiroku_format_banner = ""
     if features.get("show_japan_insights"):
-        gijiroku_format_banner = (
-            '<div style="margin-bottom:16px;border:1px solid #D0B0C8;border-radius:12px;overflow:hidden;">'
-            +   '<div style="background:linear-gradient(135deg,#7D4E8A,#A06CB5);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;">'
-            +     '<div style="font-size:0.72rem;font-weight:700;color:#fff;letter-spacing:0.1em;text-transform:uppercase;">🗾 議事録 Format · Japanese Business Minutes</div>'
-            +     '<div style="font-size:0.65rem;color:rgba(255,255,255,0.7);">Standard enterprise document structure</div>'
-            +   '</div>'
-            +   '<div style="padding:16px;background:#FDFAFF;display:grid;grid-template-columns:repeat(5, 1fr);gap:8px;text-align:center;align-items:center;">'
-            +     ''.join(f"<div style='padding:6px 4px;'><div style='font-size:0.78rem;font-weight:700;color:#7D4E8A;font-family:Noto Sans JP,sans-serif;'>{ja}</div><div style='font-size:0.6rem;color:#A87868;margin-top:2px;'>{en}</div></div>" for ja, en in [("会議名","Meeting name"),("出席者","Attendees"),("議題","Agenda"),("決定事項","Decisions"),("アクション","Action items")])
-            +   '</div>'
-            + '</div>'
-        )
+        cells = ''.join(f"<div class='tai-viz-jp-format-cell'><div class='tai-viz-jp-format-ja'>{ja}</div><div class='tai-viz-jp-format-en'>{en}</div></div>" for ja,en in [("会議名","Meeting name"),("出席者","Attendees"),("議題","Agenda"),("決定事項","Decisions"),("アクション","Action items")])
+        gijiroku_format_banner = f"<div class='tai-viz-jp-format'><div class='tai-viz-jp-format-head'><div class='tai-viz-jp-format-title'>🗾 議事録 Format · Japanese Business Minutes</div><div class='tai-viz-jp-format-sub'>Enterprise document structure</div></div><div class='tai-viz-jp-format-grid'>{cells}</div></div>"
 
-    export_banner = """
-    <div style='margin-top:20px; padding:18px; background:linear-gradient(135deg, rgba(125,78,138,0.04), rgba(160,108,181,0.06)); border:1px solid #D0B0C8; border-radius:12px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;'>
-        <div>
-            <div style='font-size:0.9rem; font-weight:700; color:#7D4E8A; margin-bottom:4px;'>✨ Analysis Complete</div>
-            <div style='font-size:0.75rem; color:#A87868;'>Your meeting intelligence is ready. Export full documents below.</div>
-        </div>
-    </div>
-    """
+    export_banner = "<div class='tai-viz-banner'><div style='font-size:1rem'>✓</div><div><div class='tai-viz-banner-title'>Analysis complete</div><div class='tai-viz-banner-sub'>Meeting intelligence is ready for export.</div></div></div>"
+
     deal_outcome = R.get("deal_outcome", {}) or {}
     outcome_banner = ""
     try:
         from analysis.deal_outcome_detector import compute_meeting_outcome
         outcome = compute_meeting_outcome(soft, deal_outcome)
         outcome_banner = (
-            '<div style="margin-bottom:16px;border:1px solid ' + outcome["color"] + '33;'
-            'border-radius:12px;padding:14px 18px;display:flex;align-items:center;gap:14px;'
-            'background:' + outcome["color"] + '0D;">'
-            + '<div style="font-size:1.8rem;line-height:1;">' + outcome["emoji"] + '</div>'
-            + '<div style="flex:1;min-width:0;">'
-            + '<div style="font-size:0.62rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;'
-              'color:' + outcome["color"] + ';margin-bottom:2px;">Meeting Outcome</div>'
-            + '<div style="font-size:1.05rem;font-weight:800;color:#3C2416;">' + outcome["label"] + '</div>'
-            + '<div style="font-size:0.76rem;color:#7A5040;margin-top:3px;line-height:1.4;">' + outcome["meaning"] + '</div>'
-            + '</div></div>'
+            '<div class="tai-viz-outcome" style="--outcome-color:' + outcome["color"] + ';--outcome-bg:' + outcome["color"] + '0D;--outcome-border:' + outcome["color"] + '33;">'
+            + '<div class="tai-viz-outcome-icon">' + outcome["emoji"] + '</div>'
+            + '<div><div class="tai-viz-label">Meeting Outcome</div><div class="tai-viz-outcome-title">' + outcome["label"] + '</div><div class="tai-viz-outcome-meaning">' + outcome["meaning"] + '</div></div></div>'
         )
     except Exception:
         pass
-    
+
     return (
-        '<div class="tai-results">'
+        '<div class="tai-results tai-analytics-shell">'
+        + _analytics_css()
+        + '<div class="tai-analytics-head"><div><div class="tai-analytics-kicker">Meeting Intelligence · Analysis Complete</div><h2 class="tai-analytics-title">Meeting Intelligence Overview</h2><div class="tai-analytics-sub">Structured signals across conversation, actions, language, risk and Japanese business communication.</div></div><div class="tai-analytics-status"><span class="tai-analytics-dot"></span> Live Analysis</div></div>'
         + outcome_banner
         + pii_html
         + unlabeled_html
-        + '<div class="tai-tiles">' + tiles + '</div>'
+        + '<div class="tai-viz-grid">' + tiles + '</div>'
+        + '<div class="tai-viz-main-grid">'
+        + '<div class="tai-viz-card"><div class="tai-viz-card-head"><div class="tai-viz-card-title">Meeting Health</div><div class="tai-viz-card-caption">Composite signal</div></div><div class="tai-viz-health-layout"><div>' + _health_ring(score, hc) + '</div><div class="tai-viz-health-bars">' + hbars + '</div></div></div>'
+        + (f'<div class="tai-viz-card tai-viz-jp-card"><div class="tai-viz-card-head"><div class="tai-viz-card-title">Japanese Intelligence</div><span class="tai-viz-jp-badge">日本語 · JA</span></div><div style="font-size:.7rem;color:#77667D;line-height:1.55">Business-context signals are surfaced alongside standard meeting metrics.</div><div class="tai-viz-jp-stat-grid"><div class="tai-viz-jp-stat"><div class="tai-viz-jp-stat-label">Keigo</div><div class="tai-viz-jp-stat-value">{keigo_val}</div><div class="tai-viz-jp-stat-foot">formality</div></div><div class="tai-viz-jp-stat"><div class="tai-viz-jp-stat-label">Risk</div><div class="tai-viz-jp-stat-value" style="color:{hc}">{soft.get("risk_level","NONE")}</div><div class="tai-viz-jp-stat-foot">signals</div></div><div class="tai-viz-jp-stat"><div class="tai-viz-jp-stat-label">Switches</div><div class="tai-viz-jp-stat-value">{cs_val}</div><div class="tai-viz-jp-stat-foot">code switches</div></div></div></div>' if features.get("show_japan_insights") else '')
+        + '</div>'
         + gijiroku_format_banner
-        + '<div class="tai-health">'
-        +   '<div class="tai-health-left">' + _health_ring(score, hc) + '</div>'
-        +   '<div class="tai-health-right">'
-        +     '<div class="tai-health-title">Meeting Health Breakdown</div>'
-        +     hbars
-        +   '</div>'
-        + '</div>'
         + '<div class="tai-radio-tabs">'
-        +   '<input type="radio" name="tai-tabs" id="tai-radio-sum" checked>'
-        +   '<input type="radio" name="tai-tabs" id="tai-radio-act">'
-        +   '<input type="radio" name="tai-tabs" id="tai-radio-sent">'
-        +   '<input type="radio" name="tai-tabs" id="tai-radio-spk">'
-        +   '<input type="radio" name="tai-tabs" id="tai-radio-ins">'
-        +   '<div class="tai-tab-bar">'
-        +     '<label class="tai-tab-label" for="tai-radio-sum">📝 Summary</label>'
-        +     '<label class="tai-tab-label" for="tai-radio-act">✅ Actions</label>'
-        +     '<label class="tai-tab-label" for="tai-radio-sent">🌸 Sentiment</label>'
-        +     '<label class="tai-tab-label" for="tai-radio-spk">🎤 Speakers</label>'
-        +     '<label class="tai-tab-label" for="tai-radio-ins">' + insight_label + '</label>'
-        +   '</div>'
-        +   '<div class="tai-panel">'
-        +     '<div id="tai-sum"  class="tai-tab-content">' + sum_html  + '</div>'
-        +     '<div id="tai-act"  class="tai-tab-content">' + act_html  + '</div>'
-        +     '<div id="tai-sent" class="tai-tab-content">' + sent_html + '</div>'
-        +     '<div id="tai-spk"  class="tai-tab-content">' + spk_html  + '</div>'
-        +     '<div id="tai-ins"  class="tai-tab-content">' + ins_html  + '</div>'
-        +     export_banner
-        +   '</div>'
-        + '</div>'
+        + '<input type="radio" name="tai-tabs" id="tai-radio-sum" checked><input type="radio" name="tai-tabs" id="tai-radio-act"><input type="radio" name="tai-tabs" id="tai-radio-sent"><input type="radio" name="tai-tabs" id="tai-radio-spk"><input type="radio" name="tai-tabs" id="tai-radio-ins">'
+        + '<div class="tai-tab-bar"><label class="tai-tab-label" for="tai-radio-sum">Overview</label><label class="tai-tab-label" for="tai-radio-act">Actions</label><label class="tai-tab-label" for="tai-radio-sent">Sentiment</label><label class="tai-tab-label" for="tai-radio-spk">Speakers</label><label class="tai-tab-label" for="tai-radio-ins">' + insight_label + '</label></div>'
+        + '<div class="tai-panel"><div id="tai-sum" class="tai-tab-content">' + sum_html + '</div><div id="tai-act" class="tai-tab-content">' + act_html + '</div><div id="tai-sent" class="tai-tab-content">' + sent_html + '</div><div id="tai-spk" class="tai-tab-content">' + spk_html + '</div><div id="tai-ins" class="tai-tab-content">' + ins_html + '</div>' + export_banner + '</div></div>'
         + '''<script>
 (function(){
-  var TAB_KEY = 'tai-active-tab';
-  var ids = ['tai-radio-sum','tai-radio-act','tai-radio-sent','tai-radio-spk','tai-radio-ins'];
-  var panels = ['tai-sum','tai-act','tai-sent','tai-spk','tai-ins'];
-  function activateTab(radioId) {
-    ids.forEach(function(id, idx) {
-      var radio = document.getElementById(id);
-      var panel = document.getElementById(panels[idx]);
-      if (radio && panel) {
-        if (id === radioId) {
-          radio.checked = true;
-          panel.style.display = 'block';
-        } else {
-          radio.checked = false;
-          panel.style.display = 'none';
-        }
-      }
-    });
-    document.querySelectorAll('.tai-tab-label').forEach(function(lbl) {
-      var forId = lbl.getAttribute('for');
-      if (forId === radioId) {
-        lbl.style.color = '#BE4060';
-        lbl.style.borderBottomColor = '#D96080';
-        lbl.style.fontWeight = '600';
-        lbl.style.background = 'rgba(190,64,96,0.04)';
-      } else {
-        lbl.style.color = '';
-        lbl.style.borderBottomColor = '';
-        lbl.style.fontWeight = '';
-        lbl.style.background = '';
-      }
-    });
-    try { sessionStorage.setItem(TAB_KEY, radioId); } catch(e) {}
-  }
-  function init() {
-    var saved = null;
-    try { saved = sessionStorage.getItem(TAB_KEY); } catch(e) {}
-    if (saved && ids.indexOf(saved) !== -1) {
-      activateTab(saved);
-    } else {
-      activateTab('tai-radio-sum');
-    }
-    document.querySelectorAll('.tai-tab-label').forEach(function(lbl) {
-      lbl.addEventListener('click', function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        activateTab(lbl.getAttribute('for'));
-      });
-    });
-    ids.forEach(function(id) {
-      var radio = document.getElementById(id);
-      if (radio) {
-        radio.addEventListener('change', function() {
-          if (radio.checked) activateTab(id);
-        });
-      }
-    });
-  }
-  if (document.getElementById('tai-radio-sum')) { init(); }
-  else { setTimeout(init, 100); }
+  var TAB_KEY='tai-active-tab';var ids=['tai-radio-sum','tai-radio-act','tai-radio-sent','tai-radio-spk','tai-radio-ins'];var panels=['tai-sum','tai-act','tai-sent','tai-spk','tai-ins'];
+  function activateTab(radioId){ids.forEach(function(id,idx){var radio=document.getElementById(id);var panel=document.getElementById(panels[idx]);if(radio&&panel){if(id===radioId){radio.checked=true;panel.style.display='block';}else{radio.checked=false;panel.style.display='none';}}});document.querySelectorAll('.tai-tab-label').forEach(function(lbl){var forId=lbl.getAttribute('for');if(forId===radioId){lbl.style.color='#17212B';lbl.style.fontWeight='800';lbl.style.background='#EEF2F5';}else{lbl.style.color='';lbl.style.fontWeight='';lbl.style.background='';}});try{sessionStorage.setItem(TAB_KEY,radioId);}catch(e){}}
+  function init(){var saved=null;try{saved=sessionStorage.getItem(TAB_KEY);}catch(e){}activateTab(saved&&ids.indexOf(saved)!==-1?saved:'tai-radio-sum');document.querySelectorAll('.tai-tab-label').forEach(function(lbl){lbl.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();activateTab(lbl.getAttribute('for'));});});ids.forEach(function(id){var radio=document.getElementById(id);if(radio)radio.addEventListener('change',function(){if(radio.checked)activateTab(id);});});}
+  if(document.getElementById('tai-radio-sum'))init();else setTimeout(init,100);
 })()
 </script>'''
         + '</div>'
     )
-
-
 def compute_health_score(R: dict) -> dict:
     soft  = R.get("soft_rejections", {}) or {}
     termination_detected = (
@@ -789,6 +571,11 @@ def _eval_grade_color(grade: str) -> str:
     }.get((grade or "").upper(), "#7A5040")
 
 
+
+def _eval_grade_color(grade: str) -> str:
+    return {"A": "#357A62", "B": "#6E8C43", "C": "#9B6A27", "D": "#B55478", "F": "#A64B4B"}.get((grade or "").upper(), "#667482")
+
+
 def build_evaluation_html(reports: list, mlflow_logged: bool) -> str:
     """
     reports: list of {"tc_id", "tc_name", "provider", "duration_ms", "report": <evaluate() output>}
@@ -796,34 +583,22 @@ def build_evaluation_html(reports: list, mlflow_logged: bool) -> str:
                    logs to http://127.0.0.1:5000 automatically when so).
     """
     if not reports:
-        return (
-            "<div style='text-align:center;padding:2.5rem 1rem;color:#A87868;font-size:0.9rem;'>"
-            "No evaluation results — the run may have failed before producing any report."
-            "</div>"
-        )
+        return _analytics_css() + "<div class='tai-analytics-shell'><div style='text-align:center;padding:2.5rem 1rem;color:#667482;font-size:.82rem'>No evaluation results — the run may have failed before producing any report.</div></div>"
 
     n = len(reports)
     avg_overall = round(sum(r["report"]["overall_score"] for r in reports) / n, 1)
-    avg_color = ("#2D9E6B" if avg_overall >= 80 else "#B87830" if avg_overall >= 60
-                 else "#D96080" if avg_overall >= 40 else "#C84040")
+    avg_color = ("#357A62" if avg_overall >= 80 else "#9B6A27" if avg_overall >= 60 else "#B55478" if avg_overall >= 40 else "#A64B4B")
 
     summary_html = (
-        "<div style='display:flex;align-items:center;gap:18px;flex-wrap:wrap;"
-        "border:1px solid " + avg_color + "33;border-radius:14px;padding:18px 22px;"
-        "background:" + avg_color + "0D;margin-bottom:20px;'>"
-        "<div style='font-size:2.2rem;font-weight:800;color:" + avg_color + ";line-height:1;'>"
-        f"{avg_overall}%</div>"
-        "<div style='flex:1;min-width:200px;'>"
-        "<div style='font-size:0.62rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;"
-        "color:" + avg_color + ";margin-bottom:3px;'>Average Overall Score · " + str(n) + " test case" + ("s" if n != 1 else "") + "</div>"
-        "<div style='font-size:0.8rem;color:#7A5040;'>"
-        + (
-            "✅ Logged to MLflow — <a href='http://127.0.0.1:5000' target='_blank' "
-            "style='color:" + avg_color + ";font-weight:700;'>view run history →</a>"
-            if mlflow_logged else
+        _analytics_css() + "<div class='tai-analytics-shell'>"
+        "<div class='tai-analytics-head'><div><div class='tai-analytics-kicker'>MLOps · Evaluation Analytics</div><h2 class='tai-analytics-title'>Evaluation Overview</h2><div class='tai-analytics-sub'>Ground-truth quality signals across summary, actions, sentiment and Japanese communication.</div></div>"
+        "<div class='tai-analytics-status' style='color:" + avg_color + "'><span class='tai-analytics-dot'></span> Suite Complete</div></div>"
+        "<div class='tai-viz-eval-summary'>"
+        "<div class='tai-viz-eval-score' style='color:" + avg_color + "'>" + f"{avg_overall}%" + "</div>"
+        "<div><div class='tai-viz-eval-label' style='color:" + avg_color + "'>Average Overall Score · " + str(n) + " test case" + ("s" if n != 1 else "") + "</div><div class='tai-viz-eval-sub'>" + (
+            "✓ Logged to MLflow — <a href='http://127.0.0.1:5000' target='_blank' style='color:" + avg_color + ";font-weight:800'>view run history →</a>" if mlflow_logged else
             "⚠ MLflow not detected on this run — results shown here only, not persisted."
-        )
-        + "</div></div></div>"
+        ) + "</div></div></div>"
     )
 
     cards_html = ""
@@ -842,45 +617,17 @@ def build_evaluation_html(reports: list, mlflow_logged: bool) -> str:
             ji = rep["japan_insights"]
             metrics.append(("Keigo", ji.get("keigo", {}).get("grade", "—")))
             nm = ji.get("nemawashi", {})
-            metrics.append(("Nemawashi P/R", f"{nm.get('precision', 0):.0%}/{nm.get('recall', 0):.0%}"
-                             if isinstance(nm.get("precision"), float) else "—"))
+            metrics.append(("Nemawashi P/R", f"{nm.get('precision', 0):.0%}/{nm.get('recall', 0):.0%}" if isinstance(nm.get('precision'), float) else "—"))
 
-        metric_chips = "".join(
-            "<div style='flex:1;min-width:90px;text-align:center;padding:8px 6px;"
-            "background:#FDFAFF;border:1px solid #EFE2D8;border-radius:8px;'>"
-            "<div style='font-size:0.58rem;color:#A87868;letter-spacing:0.08em;"
-            "text-transform:uppercase;margin-bottom:3px;'>" + lbl + "</div>"
-            "<div style='font-size:0.92rem;font-weight:800;color:#3C2416;'>" + str(val) + "</div>"
-            "</div>"
-            for lbl, val in metrics
-        )
-
+        metric_chips = "".join(f"<div class='tai-viz-metric'><div class='tai-viz-metric-label'>{lbl}</div><div class='tai-viz-metric-value'>{val}</div></div>" for lbl,val in metrics)
         hallu = ""
         if "hallucination_bonus" in rep:
-            hallu = (
-                "<div style='font-size:0.7rem;color:#A87868;margin-top:8px;'>"
-                "Hallucination risk: <strong style='color:#7A5040;'>"
-                + str(rep.get("hallucination_risk", "UNKNOWN")) + "</strong>"
-                " · bonus +" + f"{rep.get('hallucination_bonus', 0):.0%}" + "</div>"
-            )
-
+            hallu = f"<div class='tai-viz-eval-meta' style='margin-top:7px'>Hallucination risk: <strong>{rep.get('hallucination_risk','UNKNOWN')}</strong> · bonus +{rep.get('hallucination_bonus',0):.0%}</div>"
         cards_html += (
-            "<div style='border:1px solid #EFE2D8;border-radius:12px;padding:16px 18px;margin-bottom:12px;'>"
-            "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;'>"
-            "<div>"
-            "<div style='font-weight:700;color:#3C2416;font-size:0.95rem;'>" + str(r.get("tc_name", r.get("tc_id", "Test case"))) + "</div>"
-            "<div style='font-size:0.68rem;color:#A87868;margin-top:2px;'>"
-            + str(r.get("tc_id", "")) + " · provider: " + str(r.get("provider", "unknown"))
-            + " · " + f"{r.get('duration_ms', 0):.0f}ms"
-            + "</div></div>"
-            "<div style='display:flex;align-items:center;gap:10px;'>"
-            "<div style='font-size:1.4rem;font-weight:800;color:" + gcolor + ";'>" + str(score) + "%</div>"
-            "<div style='font-size:0.8rem;font-weight:800;color:#fff;background:" + gcolor + ";"
-            "border-radius:8px;padding:3px 10px;'>" + str(grade) + "</div>"
-            "</div></div>"
-            "<div style='display:flex;gap:8px;flex-wrap:wrap;'>" + metric_chips + "</div>"
-            + hallu +
-            "</div>"
+            "<div class='tai-viz-eval-card'><div class='tai-viz-eval-head'><div><div class='tai-viz-eval-name'>" + str(r.get("tc_name", r.get("tc_id", "Test case"))) + "</div>"
+            "<div class='tai-viz-eval-meta'>" + str(r.get("tc_id", "")) + " · provider: " + str(r.get("provider", "unknown")) + " · " + f"{r.get('duration_ms',0):.0f}ms" + "</div></div>"
+            "<div class='tai-viz-eval-score-wrap'><div class='tai-viz-eval-score-mini' style='color:" + gcolor + "'>" + str(score) + "%</div><div class='tai-viz-grade' style='background:" + gcolor + "'>" + str(grade) + "</div></div></div>"
+            "<div class='tai-viz-metrics'>" + metric_chips + "</div>" + hallu + "</div>"
         )
 
-    return summary_html + cards_html
+    return summary_html + cards_html + "</div>"
