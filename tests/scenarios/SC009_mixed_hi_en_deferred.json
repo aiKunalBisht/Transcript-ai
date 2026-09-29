@@ -1,0 +1,29 @@
+{
+  "id": "SC009",
+  "name": "Mixed HI/EN code-switched — deferral with budget concern",
+  "language": "mixed",
+  "expected_outcome": "DEFERRED",
+  "expected_risk": "MEDIUM",
+  "transcript": "[00:00:06] Mehta: Good morning everyone. So we have reviewed your software proposal.\n[00:00:13] David: Good morning. We hope it meets your requirements.\n[00:00:18] Mehta: Haan, technically toh bahut achha hai. But dekhte hain — budget ke baare mein thoda mushkil lagta hai.\n[00:00:28] David: I understand. Is the budget the primary concern or are there other factors?\n[00:00:34] Mehta: Budget ek issue hai, aur phir management approval bhi lena padega. Abhi confirm nahi kar sakta. Ek baar sochenge aur next week bata denge.\n[00:00:46] David: Of course. Would it help if we sent a revised pricing proposal with a phased implementation option?\n[00:00:53] Mehta: Haan, that would be helpful. Phased approach se budget planning easier hogi. Yeh option present kar sakte ho kya?\n[00:01:02] David: Absolutely. We will send a phased pricing proposal by Wednesday.\n[00:01:08] Mehta: Theek hai. Wednesday tak bhejo, main team ko dikhata hoon aur Friday tak reply kar denge.\n[00:01:16] David: That works perfectly. We look forward to your feedback.",
+  "ground_truth": {
+    "summary": [
+      "Mehta found the proposal technically strong but cited budget constraints as a concern.",
+      "Management approval is also required before any commitment can be made.",
+      "David will send a phased pricing proposal by Wednesday; Mehta will respond by Friday."
+    ],
+    "action_items": [
+      {"task": "Send phased pricing proposal", "owner": "David", "deadline": "Wednesday"},
+      {"task": "Review with team and provide feedback", "owner": "Mehta", "deadline": "Friday"}
+    ],
+    "sentiment": [
+      {"speaker": "Mehta", "score": "neutral",  "label": "guarded"},
+      {"speaker": "David", "score": "positive", "label": "cooperative"}
+    ],
+    "sentiment_acceptable": {
+      "Mehta": ["neutral", "positive"],
+      "David": ["positive", "neutral"]
+    },
+    "soft_rejection_tier": "MEDIUM",
+    "deal_outcome": "DEFERRED"
+  }
+}

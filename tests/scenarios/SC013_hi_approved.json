@@ -1,0 +1,29 @@
+{
+  "id": "SC013",
+  "name": "Hindi business meeting — clear approval",
+  "language": "hi",
+  "expected_outcome": "APPROVED",
+  "expected_risk": "NONE",
+  "transcript": "[00:00:05] Kapoor: Namaste. Aaj ki meeting mein aapka swagat hai.\n[00:00:11] Priya: Namaste Kapoor ji. Thank you for this opportunity.\n[00:00:16] Kapoor: Humne aapka proposal carefully padha. Bahut impressed hain.\n[00:00:22] Priya: Bahut khushi hui yeh sun ke. Koi questions hain?\n[00:00:28] Kapoor: Nahi, sab clear hai. Haan bilkul, aage badhte hain. Hum is partnership ke liye ready hain.\n[00:00:36] Priya: Yeh sunke bahut achha laga. Kab se shuru karna chahenge?\n[00:00:42] Kapoor: Agले mahine se shuru kar sakte hain. Contract is hafte sign kar lete hain. Aaj shaam tak legal team ko bhejta hoon documents.\n[00:00:53] Priya: Perfect. Main aaj shaam tak implementation plan bhi bhej deti hoon.\n[00:01:00] Kapoor: Bilkul theek hai. Yeh partnership dono companies ke liye bahut faydemand hogi.\n[00:01:07] Priya: Main bhi yahi sochti hoon. Thank you Kapoor ji.",
+  "ground_truth": {
+    "summary": [
+      "Kapoor confirmed approval of the partnership proposal, expressing strong satisfaction.",
+      "Contract will be signed this week; implementation begins next month.",
+      "Priya will send the implementation plan by this evening."
+    ],
+    "action_items": [
+      {"task": "Send contract documents to legal team", "owner": "Kapoor", "deadline": "Today evening"},
+      {"task": "Send implementation plan",              "owner": "Priya",  "deadline": "Today evening"}
+    ],
+    "sentiment": [
+      {"speaker": "Kapoor", "score": "positive", "label": "enthusiastic"},
+      {"speaker": "Priya",  "score": "positive", "label": "satisfied"}
+    ],
+    "sentiment_acceptable": {
+      "Kapoor": ["positive"],
+      "Priya":  ["positive", "neutral"]
+    },
+    "soft_rejection_tier": "NONE",
+    "deal_outcome": "APPROVED"
+  }
+}

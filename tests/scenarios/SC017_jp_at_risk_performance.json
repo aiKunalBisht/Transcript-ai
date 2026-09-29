@@ -1,0 +1,29 @@
+{
+  "id": "SC017",
+  "name": "JP client complaint — performance failure, AT_RISK",
+  "language": "ja",
+  "expected_outcome": "AT_RISK",
+  "expected_risk": "HIGH",
+  "transcript": "[00:00:06] 顧客担当: 今回のプロジェクトの遅延について、非常に深刻に受け止めています。\n[00:00:15] 担当者: 大変申し訳ございません。詳しくご説明いただけますか。\n[00:00:20] 顧客担当: 結果は私たちの期待に達していませんでした。スケジュールは3週間遅延しており、システムが何時間も停止しています。このような状況は受け入れられません。\n[00:00:35] 担当者: 誠に申し訳ございません。原因を調査しており、是正措置を講じています。\n[00:00:43] 顧客担当: 改善が見られない場合は、契約を見直すことを検討せざるを得ません。金曜日までに改善計画をご提示いただけますか。\n[00:00:55] 担当者: 承知いたしました。金曜日までに詳細な改善計画と対応スケジュールをご提供いたします。書面での確約もお送りします。\n[00:01:06] 顧客担当: ありがとうございます。書面でのコミットメントは必須です。これ以上の遅延は許容できません。\n[00:01:15] 担当者: 必ず金曜日までにお届けします。ご信頼にお応えできるよう全力を尽くします。",
+  "ground_truth": {
+    "summary": [
+      "Client cited three-week schedule delays and system downtime as unacceptable performance failures.",
+      "Client threatened contract reconsideration if no improvement is demonstrated.",
+      "Vendor committed to delivering a written improvement plan with schedule by Friday."
+    ],
+    "action_items": [
+      {"task": "Submit written improvement plan and schedule", "owner": "担当者",  "deadline": "Friday"},
+      {"task": "Provide written commitment letter",            "owner": "担当者",  "deadline": "Friday"}
+    ],
+    "sentiment": [
+      {"speaker": "顧客担当", "score": "negative", "label": "frustrated"},
+      {"speaker": "担当者",   "score": "neutral",  "label": "conciliatory"}
+    ],
+    "sentiment_acceptable": {
+      "顧客担当": ["negative"],
+      "担当者":   ["neutral", "positive"]
+    },
+    "soft_rejection_tier": "HIGH",
+    "deal_outcome": "AT_RISK"
+  }
+}

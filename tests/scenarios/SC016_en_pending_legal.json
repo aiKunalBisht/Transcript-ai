@@ -1,0 +1,30 @@
+{
+  "id": "SC016",
+  "name": "EN procurement call — approval gate, legal review pending",
+  "language": "en",
+  "expected_outcome": "PENDING",
+  "expected_risk": "MEDIUM",
+  "transcript": "[00:00:06] Rachel: Thank you for the proposal. Our business team is very interested in moving forward.\n[00:00:13] Vendor: That is great to hear. Are there any remaining concerns?\n[00:00:18] Rachel: Not on our side technically. However, I need to check with legal before we can commit to anything. Our legal team needs to review the data processing agreement.\n[00:00:30] Vendor: Of course. Is there a timeline for the legal review?\n[00:00:35] Rachel: Legal reviews typically take one to two weeks. I need to check with them to confirm. I cannot approve this myself — it is above my authority.\n[00:00:46] Vendor: Understood. Is there anything we can do to expedite the process?\n[00:00:51] Rachel: If you have a standard data processing agreement template we could use as a starting point, that would help speed things up.\n[00:01:00] Vendor: Absolutely. I will send our standard DPA template by end of day.\n[00:01:06] Rachel: Perfect. Once I have that I will pass it to legal and let you know their timeline.\n[00:01:13] Vendor: Sounds good. We will wait for your confirmation before scheduling any next steps.",
+  "ground_truth": {
+    "summary": [
+      "Rachel's team is interested but legal review of the data processing agreement is required before commitment.",
+      "Rachel does not have authority to approve independently — legal clearance needed.",
+      "Vendor will send a standard DPA template today to accelerate the legal review."
+    ],
+    "action_items": [
+      {"task": "Send standard DPA template",               "owner": "Vendor", "deadline": "End of day"},
+      {"task": "Submit DPA to legal for review",           "owner": "Rachel", "deadline": "Upon receiving DPA"},
+      {"task": "Confirm legal review timeline to vendor",  "owner": "Rachel", "deadline": "After legal confirmation"}
+    ],
+    "sentiment": [
+      {"speaker": "Rachel", "score": "positive", "label": "hopeful"},
+      {"speaker": "Vendor", "score": "positive", "label": "cooperative"}
+    ],
+    "sentiment_acceptable": {
+      "Rachel": ["positive", "neutral"],
+      "Vendor": ["positive", "neutral"]
+    },
+    "soft_rejection_tier": "MEDIUM",
+    "deal_outcome": "PENDING"
+  }
+}

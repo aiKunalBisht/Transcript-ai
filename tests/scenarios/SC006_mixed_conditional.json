@@ -1,0 +1,29 @@
+{
+  "id": "SC006",
+  "name": "Mixed JA/EN — conditional approval with approval gate",
+  "language": "mixed",
+  "expected_outcome": "CONDITIONAL",
+  "expected_risk": "HIGH",
+  "transcript": "[00:00:08] Nakamura: Good morning. Thank you for presenting the proposal today.\n[00:00:14] Alex: Good morning Nakamura-san. We are very excited about this opportunity.\n[00:00:20] Nakamura: 提案内容については前向きに検討しています。ただし、いくつかの条件があります。\n[00:00:30] Alex: Of course. Please share your conditions.\n[00:00:36] Nakamura: まず、価格を10%引き下げていただく必要があります。また、実装スケジュールを6週間短縮できますか。\n[00:00:48] Alex: The 10% reduction is something we can discuss. The timeline compression will be challenging but we can explore it. Can I ask — if we meet these conditions, do we have your approval?\n[00:01:00] Nakamura: 条件を満たしていただければ、我々としては進める意向があります。ただし、最終的な承認は稟議が必要です。購買委員会の承認を得てから正式にお伝えします。\n[00:01:15] Alex: Understood. When does the purchasing committee meet?\n[00:01:20] Nakamura: 来週の水曜日です。それまでに修正提案をいただけますか。\n[00:01:27] Alex: Absolutely. We will send a revised proposal with the adjusted pricing by Monday.",
+  "ground_truth": {
+    "summary": [
+      "Nakamura expressed conditional interest, requiring a 10% price reduction and timeline compression.",
+      "Final approval requires ringi process through the purchasing committee meeting next Wednesday.",
+      "Alex will send a revised proposal with adjusted pricing by Monday."
+    ],
+    "action_items": [
+      {"task": "Send revised proposal with adjusted pricing", "owner": "Alex", "deadline": "Monday"},
+      {"task": "Purchasing committee review and approval", "owner": "Nakamura", "deadline": "Next Wednesday"}
+    ],
+    "sentiment": [
+      {"speaker": "Nakamura", "score": "neutral",  "label": "guarded"},
+      {"speaker": "Alex",     "score": "positive", "label": "hopeful"}
+    ],
+    "sentiment_acceptable": {
+      "Nakamura": ["neutral", "positive"],
+      "Alex":     ["positive", "neutral"]
+    },
+    "soft_rejection_tier": "HIGH",
+    "deal_outcome": "CONDITIONAL"
+  }
+}

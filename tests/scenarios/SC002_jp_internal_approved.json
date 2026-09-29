@@ -1,0 +1,30 @@
+{
+  "id": "SC002",
+  "name": "JP internal project review — clear approval",
+  "language": "ja",
+  "expected_outcome": "APPROVED",
+  "expected_risk": "NONE",
+  "transcript": "[00:00:05] 田中部長: 皆さん、おはようございます。本日のプロジェクトレビューを始めましょう。\n[00:00:15] 佐藤: はい。第二四半期のシステム移行プロジェクトについてご報告します。すべての主要マイルストーンを達成しました。\n[00:00:28] 田中部長: 素晴らしい。具体的な成果を教えてください。\n[00:00:34] 佐藤: データベースの移行が完了し、システムの稼働率が99.8%を達成しています。ユーザー満足度も向上しています。\n[00:00:48] 田中部長: よくできました。第三四半期の計画はどうなっていますか。\n[00:00:54] 佐藤: 第三四半期はUIの改善と追加機能の実装を予定しています。予算内で実行できます。\n[00:01:05] 田中部長: 承認します。この計画で進めてください。鈴木さん、リソース配分をお願いします。\n[00:01:13] 鈴木: 承知しました。今週中にリソース配分計画を作成して共有します。\n[00:01:22] 田中部長: ありがとうございます。それでは第三四半期の計画を正式に承認します。ぜひ進めましょう。",
+  "ground_truth": {
+    "summary": [
+      "Q2 system migration project achieved all major milestones with 99.8% uptime.",
+      "Tanaka formally approved the Q3 plan covering UI improvements and new feature implementation.",
+      "Suzuki will prepare a resource allocation plan by end of this week."
+    ],
+    "action_items": [
+      {"task": "Create and share resource allocation plan", "owner": "鈴木", "deadline": "This week"}
+    ],
+    "sentiment": [
+      {"speaker": "田中部長", "score": "positive", "label": "satisfied"},
+      {"speaker": "佐藤",    "score": "positive", "label": "confident"},
+      {"speaker": "鈴木",    "score": "neutral",  "label": "cooperative"}
+    ],
+    "sentiment_acceptable": {
+      "田中部長": ["positive"],
+      "佐藤":    ["positive", "neutral"],
+      "鈴木":    ["neutral", "positive"]
+    },
+    "soft_rejection_tier": "NONE",
+    "deal_outcome": "APPROVED"
+  }
+}

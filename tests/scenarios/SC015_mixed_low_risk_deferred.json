@@ -1,0 +1,29 @@
+{
+  "id": "SC015",
+  "name": "Mixed EN/JP — mild hedging, low risk deferral",
+  "language": "mixed",
+  "expected_outcome": "DEFERRED",
+  "expected_risk": "LOW",
+  "transcript": "[00:00:06] Tanaka: Thank you for sharing the updated roadmap.\n[00:00:12] Sam: Of course. Does the direction align with what you were expecting?\n[00:00:17] Tanaka: Yes, mostly. We are still evaluating a few aspects. I think we need a bit more time to review the technical specifications.\n[00:00:27] Sam: Completely understandable. Is there a specific section that needs more clarity?\n[00:00:33] Tanaka: The integration section is what we want to review more carefully. 少し時間をいただけますか。来週には結論が出ると思います。\n[00:00:45] Sam: Of course. Take the time you need. Is there any additional information I can provide that would help?\n[00:00:52] Tanaka: A technical FAQ document would be helpful if you have one.\n[00:00:57] Sam: I will send that over today. And I will check back with you next Wednesday if that works.\n[00:01:04] Tanaka: Next Wednesday is fine. We should have clarity by then.\n[00:01:09] Sam: Perfect. Looking forward to your thoughts.",
+  "ground_truth": {
+    "summary": [
+      "Tanaka is still evaluating the technical specifications, particularly the integration section.",
+      "A decision is expected by next week; Sam will follow up next Wednesday.",
+      "Sam will send a technical FAQ document today to support the review."
+    ],
+    "action_items": [
+      {"task": "Send technical FAQ document", "owner": "Sam",   "deadline": "Today"},
+      {"task": "Complete technical review",   "owner": "Tanaka","deadline": "Next week"}
+    ],
+    "sentiment": [
+      {"speaker": "Tanaka", "score": "neutral", "label": "inquisitive"},
+      {"speaker": "Sam",    "score": "positive","label": "cooperative"}
+    ],
+    "sentiment_acceptable": {
+      "Tanaka": ["neutral", "positive"],
+      "Sam":    ["positive", "neutral"]
+    },
+    "soft_rejection_tier": "LOW",
+    "deal_outcome": "DEFERRED"
+  }
+}

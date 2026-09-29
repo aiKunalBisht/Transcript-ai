@@ -1,0 +1,29 @@
+{
+  "id": "SC005",
+  "name": "Hindi business call — classic deferral",
+  "language": "hi",
+  "expected_outcome": "DEFERRED",
+  "expected_risk": "MEDIUM",
+  "transcript": "[00:00:05] Sharma: Namaste Ravi bhai. Aaj ki meeting mein aapka swagat hai.\n[00:00:12] Ravi: Namaste Sharma ji. Aapka proposal padha. Bahut achha hai.\n[00:00:18] Sharma: Toh kya aap agree karte hain is partnership ke liye?\n[00:00:24] Ravi: Dekhte hain. Abhi confirm nahi kar sakta. Upar se baat karni padegi pehle.\n[00:00:32] Sharma: Kab tak answer de sakte hain?\n[00:00:38] Ravi: Kal pakka bata denge. Thoda time chahiye management se discuss karne ke liye. Yeh decision akele nahi le sakta.\n[00:00:50] Sharma: Koi baat nahi. Main ek detailed proposal send kar deta hoon aaj shaam tak, jisse aapki meeting mein help ho.\n[00:00:58] Ravi: Haan bilkul. Proposal bhej do. Main team ko dikhaunga aur phir decide karenge.\n[00:01:08] Sharma: Theek hai. Main aaj shaam tak bhej deta hoon. Aur agar koi question ho toh call karo.\n[00:01:15] Ravi: Zaroor. Sochenge aur aapko update denge.",
+  "ground_truth": {
+    "summary": [
+      "Ravi appreciated the proposal but cannot confirm without management approval.",
+      "Ravi promised an update the next day after discussing with the team.",
+      "Sharma will send a detailed proposal by evening to support the internal meeting."
+    ],
+    "action_items": [
+      {"task": "Send detailed proposal", "owner": "Sharma", "deadline": "Today evening"},
+      {"task": "Discuss with management and provide update", "owner": "Ravi", "deadline": "Tomorrow"}
+    ],
+    "sentiment": [
+      {"speaker": "Sharma", "score": "positive", "label": "hopeful"},
+      {"speaker": "Ravi",   "score": "neutral",  "label": "politely_evasive"}
+    ],
+    "sentiment_acceptable": {
+      "Sharma": ["positive", "neutral"],
+      "Ravi":   ["neutral", "positive"]
+    },
+    "soft_rejection_tier": "MEDIUM",
+    "deal_outcome": "DEFERRED"
+  }
+}

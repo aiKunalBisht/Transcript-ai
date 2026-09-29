@@ -1,0 +1,29 @@
+{
+  "id": "SC003",
+  "name": "EN client escalation — contract at risk",
+  "language": "en",
+  "expected_outcome": "AT_RISK",
+  "expected_risk": "HIGH",
+  "transcript": "[00:00:05] Client: We need to talk about the system performance issues. This is completely unacceptable.\n[00:00:12] Manager: I understand your frustration. Can you describe what you are experiencing?\n[00:00:18] Client: The system has been down for three hours this morning. This is the second time this month. Our operations are completely blocked.\n[00:00:28] Manager: I sincerely apologize. We are investigating the root cause right now.\n[00:00:35] Client: This cannot continue. We have SLA commitments to our own clients. If this is not resolved by Friday, we will have to reconsider our contract with you.\n[00:00:47] Manager: I completely understand. I will escalate this to our engineering director immediately. We will provide a written root cause analysis by Thursday.\n[00:00:58] Client: Thursday is acceptable, but we also need a written commitment on the remediation plan and timeline. We cannot keep accepting verbal assurances.\n[00:01:10] Manager: Absolutely. I will send both the root cause analysis and a written remediation commitment by Thursday end of day.\n[00:01:18] Client: Good. We need to see this resolved permanently, not just patched temporarily.",
+  "ground_truth": {
+    "summary": [
+      "Client reported a three-hour system outage — the second incident this month — causing operational disruption.",
+      "Client threatened contract reconsideration if the issue is not resolved by Friday.",
+      "Manager committed to sending a written root cause analysis and remediation plan by Thursday end of day."
+    ],
+    "action_items": [
+      {"task": "Send written root cause analysis", "owner": "Manager", "deadline": "Thursday"},
+      {"task": "Send written remediation commitment and timeline", "owner": "Manager", "deadline": "Thursday"}
+    ],
+    "sentiment": [
+      {"speaker": "Client",  "score": "negative", "label": "frustrated"},
+      {"speaker": "Manager", "score": "neutral",  "label": "conciliatory"}
+    ],
+    "sentiment_acceptable": {
+      "Client":  ["negative"],
+      "Manager": ["neutral", "positive"]
+    },
+    "soft_rejection_tier": "HIGH",
+    "deal_outcome": "AT_RISK"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "id": "SC004",
+  "name": "EN partnership termination — explicit rejection",
+  "language": "en",
+  "expected_outcome": "REJECTED",
+  "expected_risk": "CRITICAL",
+  "transcript": "[00:00:08] Director: Thank you for coming in today. I want to be direct with you about where we stand.\n[00:00:15] Vendor: Of course. We appreciate the transparency.\n[00:00:20] Director: After careful review, we have decided not to continue this partnership. The decision is final and has been approved by our board.\n[00:00:30] Vendor: I am sorry to hear that. Can you share what led to this decision?\n[00:00:36] Director: The system reliability issues over the past quarter, combined with the delayed response times from your support team, have significantly impacted our operations. Despite multiple opportunities to improve, we have not seen sufficient improvement.\n[00:00:52] Vendor: We understand. Is there anything we can do to revisit this decision?\n[00:00:58] Director: I appreciate you asking, but the decision is final. We will not be renewing our contract when it expires next month. Our legal team will send the formal notice by end of week.\n[00:01:10] Vendor: We understand. We will ensure a smooth handover of all data and documentation.\n[00:01:17] Director: Thank you. Please coordinate with our IT team on the transition timeline.",
+  "ground_truth": {
+    "summary": [
+      "Director informed the vendor that the partnership will not be renewed, citing reliability issues and slow support response.",
+      "The board-approved decision is final and irrevocable.",
+      "Legal will send formal notice by end of week; vendor will coordinate with IT on transition."
+    ],
+    "action_items": [
+      {"task": "Send formal non-renewal notice", "owner": "Director", "deadline": "End of week"},
+      {"task": "Coordinate data and documentation handover with IT team", "owner": "Vendor", "deadline": "Not specified"}
+    ],
+    "sentiment": [
+      {"speaker": "Director", "score": "neutral",  "label": "matter_of_fact"},
+      {"speaker": "Vendor",   "score": "negative", "label": "disappointed"}
+    ],
+    "sentiment_acceptable": {
+      "Director": ["neutral", "negative"],
+      "Vendor":   ["negative", "neutral"]
+    },
+    "soft_rejection_tier": "CRITICAL",
+    "deal_outcome": "REJECTED"
+  }
+}

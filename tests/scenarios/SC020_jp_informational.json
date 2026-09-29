@@ -1,0 +1,32 @@
+{
+  "id": "SC020",
+  "name": "JP quarterly business review — informational only",
+  "language": "ja",
+  "expected_outcome": "INFORMATIONAL",
+  "expected_risk": "NONE",
+  "transcript": "[00:00:06] 部長: 第三四半期のレビューを始めましょう。各チームから報告をお願いします。\n[00:00:15] 開発チーム: はい。今四半期は新機能を3つリリースしました。ユーザーからの評価は概ね好評です。バグ修正率も95%を達成しています。\n[00:00:28] 部長: ありがとうございます。営業チームはどうですか。\n[00:00:33] 営業チーム: 今四半期の売上は前四半期比12%増加しました。新規顧客を5社獲得し、既存顧客の継続率は98%でした。\n[00:00:46] 部長: 素晴らしい数字ですね。課題はありましたか。\n[00:00:52] 営業チーム: 一部の地域では競合他社との価格競争が激しくなっています。来四半期に向けて対策を検討中です。\n[00:01:02] 部長: 了解しました。サポートチームの状況は？\n[00:01:07] サポート: 顧客満足度スコアは4.2/5.0でした。平均応答時間は2時間以内を維持しています。\n[00:01:16] 部長: 全体的に順調ですね。来四半期の目標については次回の会議で詳しく議論しましょう。",
+  "ground_truth": {
+    "summary": [
+      "Development team released 3 new features this quarter with 95% bug fix rate and positive user feedback.",
+      "Sales achieved 12% quarter-on-quarter growth, acquiring 5 new clients with 98% retention.",
+      "Support maintained 4.2/5.0 satisfaction score with average response time under 2 hours."
+    ],
+    "action_items": [
+      {"task": "Discuss Q4 targets in detail", "owner": "全員", "deadline": "Next meeting"}
+    ],
+    "sentiment": [
+      {"speaker": "部長",       "score": "positive", "label": "satisfied"},
+      {"speaker": "開発チーム", "score": "positive", "label": "confident"},
+      {"speaker": "営業チーム", "score": "positive", "label": "confident"},
+      {"speaker": "サポート",   "score": "neutral",  "label": "factual"}
+    ],
+    "sentiment_acceptable": {
+      "部長":       ["positive", "neutral"],
+      "開発チーム": ["positive", "neutral"],
+      "営業チーム": ["positive", "neutral"],
+      "サポート":   ["neutral",  "positive"]
+    },
+    "soft_rejection_tier": "NONE",
+    "deal_outcome": "INFORMATIONAL"
+  }
+}

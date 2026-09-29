@@ -1,0 +1,31 @@
+{
+  "id": "SC008",
+  "name": "EN project status update — informational only",
+  "language": "en",
+  "expected_outcome": "INFORMATIONAL",
+  "expected_risk": "NONE",
+  "transcript": "[00:00:05] Sarah: Thanks everyone for joining the weekly status call. Let me run through where we are.\n[00:00:12] Sarah: The data migration is 75% complete. We are on track for the September 30th deadline.\n[00:00:20] James: Good to hear. Any blockers to report?\n[00:00:24] Sarah: One minor dependency on the API team for the authentication module. Tom, can you confirm the ETA?\n[00:00:32] Tom: We are on track. The auth module will be ready by September 25th, which gives you five days of buffer.\n[00:00:40] Sarah: Perfect. On the testing side, we have completed 80% of the test cases. Remaining test cases will be finished by September 27th.\n[00:00:50] James: Great progress. Any budget concerns?\n[00:00:54] Sarah: We are within budget. Current spend is 82% of the allocated amount with two weeks remaining.\n[00:01:02] James: Excellent. Keep up the good work. Please send the weekly status report to the stakeholders by end of day.\n[00:01:10] Sarah: Will do. I will circulate the report by 5pm today.",
+  "ground_truth": {
+    "summary": [
+      "Data migration is 75% complete and on track for the September 30th deadline.",
+      "Auth module dependency will be resolved by September 25th, providing five days of buffer.",
+      "Testing is 80% complete; remaining cases finish by September 27th. Budget spend at 82%."
+    ],
+    "action_items": [
+      {"task": "Complete auth module delivery", "owner": "Tom",   "deadline": "September 25th"},
+      {"task": "Send weekly status report to stakeholders", "owner": "Sarah", "deadline": "Today 5pm"}
+    ],
+    "sentiment": [
+      {"speaker": "Sarah", "score": "positive", "label": "confident"},
+      {"speaker": "James", "score": "positive", "label": "satisfied"},
+      {"speaker": "Tom",   "score": "neutral",  "label": "factual"}
+    ],
+    "sentiment_acceptable": {
+      "Sarah": ["positive", "neutral"],
+      "James": ["positive"],
+      "Tom":   ["neutral", "positive"]
+    },
+    "soft_rejection_tier": "NONE",
+    "deal_outcome": "INFORMATIONAL"
+  }
+}

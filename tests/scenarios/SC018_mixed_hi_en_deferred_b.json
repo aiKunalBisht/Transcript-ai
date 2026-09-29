@@ -1,0 +1,29 @@
+{
+  "id": "SC018",
+  "name": "Mixed HI/EN vendor review — management approval needed",
+  "language": "mixed",
+  "expected_outcome": "DEFERRED",
+  "expected_risk": "MEDIUM",
+  "transcript": "[00:00:07] Singh: Good morning. We have gone through your cloud services proposal in detail.\n[00:00:14] Provider: Good morning Singh ji. We hope it addresses your requirements.\n[00:00:19] Singh: Technically it is very good. But yeh decision akele nahi le sakta. Board se approve karwana padega. Dekhte hain kya hota hai.\n[00:00:30] Provider: Understood. When does the board typically meet?\n[00:00:35] Singh: Next month mein meeting hai. Upar se confirm hone ke baad aapko bata denge. Abhi kuch commit nahi kar sakta.\n[00:00:45] Provider: That is completely fine. Would it help if we prepared an executive summary tailored for your board presentation?\n[00:00:53] Singh: Haan, that would be very useful. Ek slide deck bhi banana padega unke liye.\n[00:01:01] Provider: We will prepare a board-ready executive summary and slide deck. Can you send it by next Friday?\n[00:01:08] Singh: Haan, Friday tak bhej do. Main next week ke andar apni team ko brief kar deta hoon.\n[00:01:16] Provider: Perfect. We will send the executive summary and deck by next Friday.",
+  "ground_truth": {
+    "summary": [
+      "Singh found the proposal technically strong but requires board approval before committing.",
+      "The board meeting is next month; no commitment possible until then.",
+      "Provider will send an executive summary and slide deck by next Friday to support the board presentation."
+    ],
+    "action_items": [
+      {"task": "Prepare and send executive summary and slide deck", "owner": "Provider", "deadline": "Next Friday"},
+      {"task": "Brief internal team and prepare board presentation", "owner": "Singh",    "deadline": "Next week"}
+    ],
+    "sentiment": [
+      {"speaker": "Singh",    "score": "neutral",  "label": "guarded"},
+      {"speaker": "Provider", "score": "positive", "label": "cooperative"}
+    ],
+    "sentiment_acceptable": {
+      "Singh":    ["neutral", "positive"],
+      "Provider": ["positive", "neutral"]
+    },
+    "soft_rejection_tier": "MEDIUM",
+    "deal_outcome": "DEFERRED"
+  }
+}

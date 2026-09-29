@@ -1,0 +1,29 @@
+{
+  "id": "SC007",
+  "name": "JP vendor meeting — approval gate, ringi required",
+  "language": "ja",
+  "expected_outcome": "PENDING",
+  "expected_risk": "HIGH",
+  "transcript": "[00:00:05] 山田: 本日はご提案をご説明いただき、ありがとうございます。内容については十分理解いたしました。\n[00:00:16] 営業担当: ありがとうございます。ご不明な点はございましたか。\n[00:00:22] 山田: 技術的な内容については問題ありません。ただ、契約の承認については、稟議が必要ですので、今日はお返事できません。\n[00:00:35] 営業担当: 承知いたしました。稟議のプロセスはどのくらいお時間がかかりますか。\n[00:00:42] 山田: 通常2週間程度です。役員会の承認が必要ですので、少々お時間をいただきます。個人的にはこの提案を支持していますが、最終決定は組織として行います。\n[00:00:57] 営業担当: もちろんでございます。稟議に必要な追加資料がございましたら、いつでもご提供いたします。\n[00:01:05] 山田: ありがとうございます。価格の詳細と導入事例をいただけますか。稟議書の作成に必要です。\n[00:01:14] 営業担当: 承知いたしました。本日中にお送りいたします。\n[00:01:19] 山田: よろしくお願いします。稟議が通りましたら、すぐにご連絡いたします。",
+  "ground_truth": {
+    "summary": [
+      "Yamada understood the proposal technically but cannot approve today — ringi process required.",
+      "Executive board approval typically takes two weeks; Yamada personally supports the proposal.",
+      "Sales rep will send pricing details and case studies today to support the ringi document."
+    ],
+    "action_items": [
+      {"task": "Send pricing details and implementation case studies", "owner": "営業担当", "deadline": "Today"},
+      {"task": "Complete ringi approval process", "owner": "山田", "deadline": "Within 2 weeks"}
+    ],
+    "sentiment": [
+      {"speaker": "山田",    "score": "neutral",  "label": "guarded"},
+      {"speaker": "営業担当", "score": "positive", "label": "cooperative"}
+    ],
+    "sentiment_acceptable": {
+      "山田":    ["neutral", "positive"],
+      "営業担当": ["positive", "neutral"]
+    },
+    "soft_rejection_tier": "HIGH",
+    "deal_outcome": "PENDING"
+  }
+}

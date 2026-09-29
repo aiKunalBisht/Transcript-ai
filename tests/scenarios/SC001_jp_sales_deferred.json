@@ -1,0 +1,29 @@
+{
+  "id": "SC001",
+  "name": "JP sales call — nemawashi soft rejection",
+  "language": "mixed",
+  "expected_outcome": "DEFERRED",
+  "expected_risk": "MEDIUM",
+  "transcript": "[00:00:08] Yamamoto: Good morning Sarah. Thank you for joining today's call.\n[00:00:14] Sarah: Good morning Yamamoto-san. I am excited to discuss the Q3 proposal.\n[00:00:22] Yamamoto: はい、Q3のご提案について検討いたしました。内容は非常に興味深いと思いますが、少し社内で確認が必要かもしれません。\n[00:00:38] Sarah: Of course. Can you share which parts need internal review?\n[00:00:45] Yamamoto: 主に予算の承認と、上長への説明が必要です。前向きに検討したいと思いますが、もう少しお時間をいただけますか。\n[00:01:02] Sarah: Absolutely. When do you think you will have an update for us?\n[00:01:09] Yamamoto: 来週の月曜日までに内部で確認して、ご連絡いたします。担当者と相談してから判断したいと思います。\n[00:01:22] Sarah: That works perfectly. I will prepare a revised budget summary and send it by Friday so you have it before your internal meeting.\n[00:01:30] Yamamoto: ありがとうございます。それは非常に助かります。それでは来週ご連絡いたします。\n[00:01:38] Sarah: Looking forward to it. Thank you for your time today.",
+  "ground_truth": {
+    "summary": [
+      "Yamamoto reviewed the Q3 proposal and expressed interest but needs internal budget approval.",
+      "Yamamoto will consult with superiors and respond by next Monday.",
+      "Sarah will prepare a revised budget summary and send it by Friday."
+    ],
+    "action_items": [
+      {"task": "Prepare and send revised budget summary", "owner": "Sarah",    "deadline": "Friday"},
+      {"task": "Consult with superiors and provide update", "owner": "Yamamoto", "deadline": "Next Monday"}
+    ],
+    "sentiment": [
+      {"speaker": "Yamamoto", "score": "neutral",  "label": "politely_evasive"},
+      {"speaker": "Sarah",    "score": "positive", "label": "hopeful"}
+    ],
+    "sentiment_acceptable": {
+      "Yamamoto": ["neutral", "positive"],
+      "Sarah":    ["positive", "neutral"]
+    },
+    "soft_rejection_tier": "MEDIUM",
+    "deal_outcome": "DEFERRED"
+  }
+}

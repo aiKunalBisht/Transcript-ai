@@ -1,0 +1,29 @@
+{
+  "id": "SC014",
+  "name": "JP contract negotiation — conditional with pricing gate",
+  "language": "ja",
+  "expected_outcome": "CONDITIONAL",
+  "expected_risk": "HIGH",
+  "transcript": "[00:00:07] 橋本: 本日の提案について、詳しく説明していただきありがとうございます。\n[00:00:15] 営業: ありがとうございます。ご質問はありますか。\n[00:00:19] 橋本: 提案内容は良いと思います。ただし、価格について条件があります。現在のお見積もりより15%削減いただければ、前向きに進めることができます。\n[00:00:33] 営業: 15%の削減は難しい状況ですが、10%であれば検討できるかもしれません。\n[00:00:42] 橋本: 10%では少し難しいかもしれません。12%以上でなければ、社内での承認が困難です。\n[00:00:52] 営業: 承知いたしました。12%の削減で合意できましたら、契約を締結する準備はございますか。\n[00:01:00] 橋本: はい、12%の削減が実現すれば、契約を進めることに合意いたします。ただし、最終的には稟議が必要です。価格が確定次第、社内手続きを開始します。\n[00:01:14] 営業: 承知いたしました。12%の削減で修正見積もりを本日中にお送りいたします。\n[00:01:21] 橋本: よろしくお願いします。見積もりを確認次第、稟議を開始します。",
+  "ground_truth": {
+    "summary": [
+      "Hashimoto agreed to proceed on condition of a 12% price reduction.",
+      "Final approval still requires internal ringi process once pricing is confirmed.",
+      "Sales will send a revised estimate with 12% reduction today."
+    ],
+    "action_items": [
+      {"task": "Send revised estimate with 12% reduction", "owner": "営業",  "deadline": "Today"},
+      {"task": "Begin internal ringi approval process",    "owner": "橋本",  "deadline": "Upon receiving estimate"}
+    ],
+    "sentiment": [
+      {"speaker": "橋本",  "score": "neutral",  "label": "guarded"},
+      {"speaker": "営業",  "score": "positive", "label": "cooperative"}
+    ],
+    "sentiment_acceptable": {
+      "橋本": ["neutral", "positive"],
+      "営業": ["positive", "neutral"]
+    },
+    "soft_rejection_tier": "HIGH",
+    "deal_outcome": "CONDITIONAL"
+  }
+}

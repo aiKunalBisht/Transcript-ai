@@ -1,0 +1,30 @@
+{
+  "id": "SC012",
+  "name": "Mixed EN/JP escalation — contract at risk with deadline ultimatum",
+  "language": "mixed",
+  "expected_outcome": "AT_RISK",
+  "expected_risk": "HIGH",
+  "transcript": "[00:00:07] Client: We need to address the delivery delays seriously. This is not acceptable.\n[00:00:14] Kenji: 大変申し訳ございません。ご不便をおかけしております。\n[00:00:20] Client: Kenji-san, this is the third delay this quarter. We needed this system live last Friday.\n[00:00:28] Kenji: はい、サーバーの問題が発生しました。現在対応中です。\n[00:00:35] Client: I need a written commitment from you that this will be resolved by Monday. If this is not resolved by Monday, we will have to reconsider our contract.\n[00:00:46] Kenji: 書面でのコミットメントをご提供いたします。月曜日までに必ずシステムを稼働させます。\n[00:00:55] Client: We also need a compensation proposal for the downtime we have experienced. Our operations have been impacted.\n[00:01:03] Kenji: 承知いたしました。補償案については本日中に上司に確認して、明日までにご提案いたします。\n[00:01:13] Client: Good. Monday for the system launch and tomorrow for the compensation proposal. We are watching this very closely.",
+  "ground_truth": {
+    "summary": [
+      "Client cited three delivery delays this quarter and demanded system launch by Monday.",
+      "Client threatened contract reconsideration if the Monday deadline is not met.",
+      "Kenji committed to a written system launch commitment and will propose compensation by tomorrow."
+    ],
+    "action_items": [
+      {"task": "Provide written commitment for system launch", "owner": "Kenji",  "deadline": "Today"},
+      {"task": "Submit compensation proposal",                "owner": "Kenji",  "deadline": "Tomorrow"},
+      {"task": "Launch system",                               "owner": "Kenji",  "deadline": "Monday"}
+    ],
+    "sentiment": [
+      {"speaker": "Client", "score": "negative", "label": "frustrated"},
+      {"speaker": "Kenji",  "score": "neutral",  "label": "conciliatory"}
+    ],
+    "sentiment_acceptable": {
+      "Client": ["negative"],
+      "Kenji":  ["neutral", "positive"]
+    },
+    "soft_rejection_tier": "HIGH",
+    "deal_outcome": "AT_RISK"
+  }
+}

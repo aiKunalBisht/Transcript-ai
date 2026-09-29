@@ -1,0 +1,29 @@
+{
+  "id": "SC010",
+  "name": "JP formal contract termination — explicit CRITICAL rejection",
+  "language": "ja",
+  "expected_outcome": "REJECTED",
+  "expected_risk": "CRITICAL",
+  "transcript": "[00:00:08] 鈴木部長: 本日はお時間をいただき、ありがとうございます。大変申し上げにくいのですが、重要なご連絡があります。\n[00:00:20] 田中: はい、どうぞ。\n[00:00:23] 鈴木部長: 弊社としては、現在のパートナーシップは継続しないことを決定いたしました。この決定は取締役会で承認されており、最終的なものです。\n[00:00:38] 田中: 承知しました。何か改善できることはございましたか。\n[00:00:44] 鈴木部長: 過去6ヶ月間、期待に達していませんでした。システムの安定性と対応速度において、十分な改善は見られませんでした。何度も機会を提供しましたが、状況は変わりませんでした。\n[00:00:59] 田中: 大変申し訳ございませんでした。決定は覆せないでしょうか。\n[00:01:05] 鈴木部長: 契約を更新しないことを決定しましたので、変更はできません。契約は来月末で終了いたします。法務部から正式な通知を送付いたします。\n[00:01:18] 田中: 承知いたしました。円滑な引き継ぎのため、最善を尽くします。\n[00:01:24] 鈴木部長: ありがとうございます。ITチームと引き継ぎ日程を調整してください。",
+  "ground_truth": {
+    "summary": [
+      "鈴木部長 formally announced the termination of the partnership, citing six months of unmet performance expectations.",
+      "The board-approved decision is final; the contract will end next month.",
+      "Legal will send formal notice; Tanaka will coordinate a smooth handover with the IT team."
+    ],
+    "action_items": [
+      {"task": "Send formal contract termination notice", "owner": "鈴木部長", "deadline": "Not specified"},
+      {"task": "Coordinate handover timeline with IT team", "owner": "田中", "deadline": "Not specified"}
+    ],
+    "sentiment": [
+      {"speaker": "鈴木部長", "score": "neutral",  "label": "matter_of_fact"},
+      {"speaker": "田中",    "score": "negative", "label": "disappointed"}
+    ],
+    "sentiment_acceptable": {
+      "鈴木部長": ["neutral", "negative"],
+      "田中":    ["negative", "neutral"]
+    },
+    "soft_rejection_tier": "CRITICAL",
+    "deal_outcome": "REJECTED"
+  }
+}

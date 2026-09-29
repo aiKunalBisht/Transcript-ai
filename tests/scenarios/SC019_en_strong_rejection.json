@@ -1,0 +1,26 @@
+{
+  "id": "SC019",
+  "name": "EN vendor selection — explicit rejection, not right fit",
+  "language": "en",
+  "expected_outcome": "REJECTED",
+  "expected_risk": "HIGH",
+  "transcript": "[00:00:06] Michael: Thank you for your time throughout this evaluation process.\n[00:00:12] Vendor: Thank you. We are eager to hear your decision.\n[00:00:16] Michael: After a thorough evaluation, we have decided to go in a different direction. That won't work for us at this stage.\n[00:00:25] Vendor: I am sorry to hear that. Can you share what led to this decision?\n[00:00:30] Michael: The pricing structure is not the right fit for our current budget. Additionally, your implementation timeline does not align with our go-live requirements. We need to be live by Q2 and your proposal shows Q3 at the earliest.\n[00:00:45] Vendor: Is there any flexibility on the timeline that we could explore?\n[00:00:50] Michael: We have made our decision. We need a vendor who can commit to Q2. The gap is too large to bridge at this point. We appreciate your detailed proposal.\n[00:01:02] Vendor: We understand. Is there any possibility of being considered for future opportunities?\n[00:01:08] Michael: We will keep you on record for future consideration. But for this project, the decision is final.",
+  "ground_truth": {
+    "summary": [
+      "Michael rejected the vendor citing misalignment on both pricing and implementation timeline.",
+      "The vendor cannot meet the required Q2 go-live deadline, with Q3 being the earliest.",
+      "The decision is final; vendor may be considered for future opportunities."
+    ],
+    "action_items": [],
+    "sentiment": [
+      {"speaker": "Michael", "score": "neutral",  "label": "matter_of_fact"},
+      {"speaker": "Vendor",  "score": "negative", "label": "disappointed"}
+    ],
+    "sentiment_acceptable": {
+      "Michael": ["neutral", "negative"],
+      "Vendor":  ["negative", "neutral"]
+    },
+    "soft_rejection_tier": "HIGH",
+    "deal_outcome": "REJECTED"
+  }
+}
