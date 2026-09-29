@@ -528,7 +528,7 @@ class FineSentimentAnalyzer:
     """
 
     _SCORE_THRESHOLD: float = 0.10   # min normalized score to include in signals
-    _PRIMARY_TOPK:    int   = 4      # top labels to consider for primary / secondary
+    _PRIMARY_TOPK:    int   = 6      # top labels to consider for primary / secondary
     _TENSION_CUTOFF:  float = -0.40  # valence below this → tension moment
     _POSITIVE_CUTOFF: float = +0.42  # valence above this → consensus candidate
 

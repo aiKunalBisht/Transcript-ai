@@ -103,9 +103,14 @@ Analyze each supplied speaker across their substantive participation.
 Sentiment = expressed interpersonal/emotional stance.
 Tone = communication style; keep it independent from sentiment.
 
-Choose 1 primary sentiment and 0-2 secondary labels.
+Choose 1 primary sentiment and 0-4 secondary labels.
 Choose 1 primary tone and 0-2 secondary tones.
-Use secondary labels only when they add distinct information.
+For complex or high-stakes interactions — conflict, rejection, escalation,
+deal failure — list every distinct emotion the speaker shows simultaneously.
+A client threatening contract termination may be frustrated, disappointed,
+anxious, and dismissive all at once. List all four.
+Only omit secondary labels when the speaker's emotional state is genuinely
+one-dimensional.
 
 Important boundaries:
 - factual = mainly informational, little emotional signal
@@ -182,6 +187,14 @@ EVIDENCE
 Speaker sentiment and tone require 1-2 short exact transcript quotes.
 Quotes must exist verbatim in the transcript and directly support the label.
 Never paraphrase evidence.
+
+EVIDENCE LANGUAGE
+evidence_quotes must be exact verbatim text from the transcript.
+Preserve the original language — do NOT translate quotes.
+For multilingual transcripts, include evidence from each language present.
+Japanese evidence stays in Japanese script.
+Hindi/Hinglish evidence stays in its original romanized or Devanagari form.
+If a speaker code-switches mid-sentence, quote the full mixed utterance.
 
 JAPANESE
 Preserve Japanese evidence exactly.
@@ -400,7 +413,7 @@ ANALYSIS_SCHEMA: dict[str, Any] = {
                             "type": "string",
                             "enum": list(SENTIMENT_LABELS),
                         },
-                        "maxItems": 2,
+                        "maxItems": 4,
                     },
                     "valence": {
                         "type": "number",

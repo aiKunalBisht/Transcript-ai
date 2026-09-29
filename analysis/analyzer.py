@@ -425,7 +425,14 @@ def build_prompt(text: str, language: str) -> tuple[str, str]:
         summary_instr = _summary_instruction(len(text.split())),
         japan_schema  = _japan_schema_str if include_japan else "",
     )
-    user_prompt = build_user_prompt(text, is_degenerate=is_degenerate)
+    user_prompt = build_user_prompt(
+        text,
+        is_degenerate = is_degenerate,
+        lang_hint     = _language_hint(has_japanese, has_hinglish, language),
+        speakers_hint = speakers_hint,
+        summary_instr = _summary_instruction(len(text.split())),
+        japan_enabled = include_japan,
+    )
     return system_prompt, user_prompt
 
 
@@ -1505,7 +1512,7 @@ def _no_api_sentiment_block(
                     arc.emotion_distribution.items(),
                     key=lambda kv: -kv[1],
                 ) if lbl != label
-            ][:2]
+            ][:4]
             trend = arc.trend
         else:
             score = "neutral"; label = "factual"; secondary = []
@@ -1588,7 +1595,7 @@ def _sentiment_backstop_block(result: dict, text: str) -> None:
                         arc.emotion_distribution.items(),
                         key=lambda kv: -kv[1],
                     ) if lbl != arc.dominant
-                ][:2])
+                ][:4])
                 s.setdefault("valence", arc.mean_valence)
                 s.setdefault("tone",    overall_tone)
                 s.setdefault("trend",   arc.trend)
@@ -1704,7 +1711,7 @@ def _validate_and_fill(data: dict) -> dict:
             for lbl in (raw_sec if isinstance(raw_sec, list) else [])
             if lbl.strip().lower().replace(" ", "_").replace("-", "_")
             in (_ALL_FINE_GRAINED or set())
-        ][:2]
+        ][:4]
 
         try:
             s["valence"] = max(-1.0, min(1.0, float(s.get("valence", 0.0))))

@@ -118,6 +118,95 @@ _RESULT_UI_CSS = r'''
 '''
 
 
+# ── Multi-emotion sentiment helpers ───────────────────────────────────────────
+
+_SENT_POSITIVE = {
+    "enthusiastic", "confident", "agreeable", "appreciative",
+    "hopeful", "relieved", "encouraging", "satisfied",
+}
+_SENT_NEGATIVE = {
+    "frustrated", "irritated", "anxious", "disappointed", "dismissive",
+    "defensive", "skeptical", "overwhelmed", "resigned", "sarcastic",
+    "passive_aggressive", "condescending",
+}
+_SENT_COMPLEX = {"politely_evasive", "deflecting"}
+
+def _emotion_chip(label: str, is_primary: bool = False) -> str:
+    if label in _SENT_POSITIVE:
+        bg, color, border = "#D1FAE5", "#065F46", "#6EE7B7"
+    elif label in _SENT_NEGATIVE:
+        bg, color, border = "#FEF2F2", "#991B1B", "#FCA5A5"
+    elif label in _SENT_COMPLEX:
+        bg, color, border = "#F5F3FF", "#5B21B6", "#C4B5FD"
+    else:
+        bg, color, border = "#F3F4F6", "#4B5563", "#D1D5DB"
+    display = label.replace("_", " ").title()
+    sz  = "0.78rem" if is_primary else "0.69rem"
+    wt  = "700"     if is_primary else "600"
+    pad = "4px 11px" if is_primary else "3px 8px"
+    return (
+        f"<span style='display:inline-flex;align-items:center;background:{bg};"
+        f"color:{color};border:1px solid {border};border-radius:999px;"
+        f"padding:{pad};font-size:{sz};font-weight:{wt};white-space:nowrap'>"
+        f"{display}</span>"
+    )
+
+def _sent_valence_bar(valence) -> str:
+    try:
+        v = max(-1.0, min(1.0, float(valence)))
+    except (TypeError, ValueError):
+        v = 0.0
+    pos        = (v + 1) / 2 * 100
+    fill_color = "#EF4444" if v < -0.35 else "#22C55E" if v > 0.35 else "#94A3B8"
+    if pos <= 50:
+        left, width = pos, 50 - pos
+    else:
+        left, width = 50.0, pos - 50
+    return (
+        f"<div style='margin:8px 0 4px'>"
+        f"<div style='display:flex;justify-content:space-between;"
+        f"font-size:0.58rem;color:#A87868;margin-bottom:3px'>"
+        f"<span>← negative</span>"
+        f"<span style='color:{fill_color};font-weight:700'>valence {v:+.2f}</span>"
+        f"<span>positive →</span></div>"
+        f"<div style='height:5px;background:rgba(60,36,22,0.10);border-radius:999px;"
+        f"position:relative;overflow:hidden'>"
+        f"<div style='position:absolute;left:50%;top:0;height:100%;width:1px;"
+        f"background:#A87868;opacity:0.4'></div>"
+        f"<div style='position:absolute;left:{left:.1f}%;width:{width:.1f}%;"
+        f"height:100%;background:{fill_color};border-radius:999px;opacity:0.85'></div>"
+        f"</div></div>"
+    )
+
+_TRAJ_MAP = {
+    "improving":             ("↗", "#22C55E"),
+    "declining":             ("↘", "#EF4444"),
+    "worsening":             ("↘", "#EF4444"),
+    "stable":                ("→", "#94A3B8"),
+    "volatile":              ("↕", "#F59E0B"),
+    "mixed":                 ("↔", "#F59E0B"),
+    "insufficient_evidence": ("—", "#94A3B8"),
+}
+
+def _evidence_quote_html(evidence_quotes: list) -> str:
+    out = ""
+    for eq in (evidence_quotes or [])[:2]:
+        text = str(eq).strip()[:200]
+        if not text:
+            continue
+        has_cjk = any('\u4e00' <= c <= '\u9fff' or '\u3040' <= c <= '\u30ff' for c in text)
+        has_dev = any('\u0900' <= c <= '\u097f' for c in text)
+        qfont   = ("font-family:'Noto Sans JP',sans-serif;" if has_cjk else
+                   "font-family:'Noto Sans Devanagari',sans-serif;" if has_dev else "")
+        out += (
+            f"<div style='background:#F9F5FF;border-left:2px solid #C4B5FD;"
+            f"border-radius:0 6px 6px 0;padding:5px 10px;margin:6px 0 0;"
+            f"font-size:0.74rem;color:#4C1D95;{qfont}font-style:italic;"
+            f"line-height:1.55;word-break:break-word'>\"{text}\"</div>"
+        )
+    return out
+
+
 
 def _svg_donut(pct: int, color: str, size: int = 56) -> str:
     r = (size - 8) // 2
@@ -463,9 +552,8 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
         for i in items
     ) if items else "<div style='color:#A87868;font-size:0.85rem;padding:1rem 0'>No action items extracted.</div>"
 
-    # ── Tab 3: Sentiment ──────────────────────────────────────────────────────
-    sent_html = "<div class='tai-section-label'>Speaker Sentiment</div>"
-    # Add note about sentiment scoring model when termination detected
+    # ── Tab 3: Sentiment ──────────────────────────────────────────────────────────
+    sent_html = "<div class='tai-section-label'>Speaker Sentiment · Multi-Emotion Analysis</div>"
     if termination_detected:
         sent_html += (
             "<div style='background:#F5F3FF;border-left:3px solid #7C3AED;"
@@ -476,19 +564,56 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
             "Professional acceptance of a termination is not hostility."
             "</div>"
         )
-    sent_html += "".join(
-        (
-            "<div class='tai-sent-row'>"
-            "<span style='font-size:1.2rem'>" + SENT_ICON.get(s.get("score","neutral").lower(),"🌿") + "</span>"
-            "<div style='flex:1'>"
-            "<div style='font-weight:600;color:#3C2416;font-size:0.88rem'>" + str(s.get("speaker","")) + "</div>"
-            "<div style='font-size:0.75rem;color:#A87868;font-style:italic;margin-top:1px'>" + str(s.get("label","")) + "</div>"
-            "</div>"
-            "<span class='tai-sent-badge tai-sent-" + s.get("score","neutral").lower() + "'>" + s.get("score","neutral").upper() + "</span>"
-            "</div>"
+
+    for s in R.get("sentiment", []):
+        score      = (s.get("score") or "neutral").lower()
+        label      = s.get("label", "factual")
+        secondary  = [lbl for lbl in (s.get("secondary_labels") or []) if lbl != label][:4]
+        valence    = s.get("valence", 0.0)
+        trajectory = s.get("trajectory") or s.get("trend", "stable")
+        risk       = (s.get("risk_to_relationship") or "none").lower()
+        evidence   = s.get("evidence_quotes") or []
+
+        icon                 = SENT_ICON.get(score, "🌿")
+        traj_icon, traj_clr  = _TRAJ_MAP.get(trajectory, ("—", "#94A3B8"))
+
+        chips_html = _emotion_chip(label, is_primary=True)
+        for sec in secondary:
+            chips_html += " " + _emotion_chip(sec, is_primary=False)
+
+        risk_html = ""
+        if risk in ("high", "medium"):
+            rclr = "#DC2626" if risk == "high" else "#D97706"
+            risk_html = (
+                f"<div style='margin-top:7px;display:inline-flex;align-items:center;"
+                f"gap:4px;background:{rclr}11;border:1px solid {rclr}44;"
+                f"border-radius:6px;padding:2px 8px;font-size:0.65rem;"
+                f"font-weight:700;color:{rclr}'>⚠ Relationship Risk: {risk.title()}</div>"
+            )
+
+        sent_html += (
+            f"<div style='background:#FDFAFF;border:1px solid #E9DCE1;"
+            f"border-radius:14px;padding:14px 16px;margin-bottom:10px;'>"
+            # Header row
+            f"<div style='display:flex;align-items:flex-start;gap:10px;margin-bottom:8px'>"
+            f"<span style='font-size:1.3rem;line-height:1.2'>{icon}</span>"
+            f"<div style='flex:1;min-width:0'>"
+            f"<div style='font-weight:700;color:#3C2416;font-size:0.9rem'>{s.get('speaker','')}</div>"
+            f"<div style='font-size:0.65rem;color:{traj_clr};margin-top:2px'>"
+            f"{traj_icon} {trajectory.replace('_',' ')}</div>"
+            f"</div>"
+            f"<span class='tai-sent-badge tai-sent-{score}'>{score.upper()}</span>"
+            f"</div>"
+            # Emotion chips
+            f"<div style='display:flex;flex-wrap:wrap;gap:5px;margin-bottom:2px'>{chips_html}</div>"
+            # Valence bar
+            + _sent_valence_bar(valence)
+            # Evidence quotes (original language preserved)
+            + _evidence_quote_html(evidence)
+            # Risk badge
+            + risk_html
+            + "</div>"
         )
-        for s in R.get("sentiment", [])
-    )
 
     # ── Tab 4: Speakers ───────────────────────────────────────────────────────
     spk_html = "<div class='tai-section-label'>Talk Time Distribution</div>"
