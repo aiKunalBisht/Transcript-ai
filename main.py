@@ -305,8 +305,6 @@ _oauth = _setup_auth(app)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-from api.api import app as _rest_api
-app.mount("/api", _rest_api)
 
 
 # ── Speaker label detection ───────────────────────────────────────────────────
@@ -826,6 +824,8 @@ async def analyze_text_route(
         return HTMLResponse(content=html + tag)
 
     except Exception as exc:
+        print(f"[ANALYZE ERROR] {exc}", flush=True)
+        import traceback; traceback.print_exc()
         return HTMLResponse(content=_err(str(exc)), status_code=500)
 
 

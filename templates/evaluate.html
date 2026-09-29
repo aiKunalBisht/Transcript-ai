@@ -1,17 +1,31 @@
 {% extends "base.html" %}
 {% set active_page = "evaluate" %}
 {% block title %}TranscriptAI · Evaluation{% endblock %}
-
 {% block content %}
 <style>
-.tai-eval-spinner {
-  display:inline-block; width:28px; height:28px;
-  border:3px solid var(--border); border-top-color:var(--sakura-deep);
-  border-radius:50%; animation:tai-eval-spin 0.8s linear infinite;
-}
-@keyframes tai-eval-spin { to { transform:rotate(360deg); } }
+.tai-eval-spinner{display:inline-block;width:28px;height:28px;border:3px solid var(--border);border-top-color:var(--sakura-deep);border-radius:50%;animation:tai-eval-spin .8s linear infinite}
+@keyframes tai-eval-spin{to{transform:rotate(360deg)}}
+.tai-header{position:relative;overflow:hidden;padding:30px 32px 28px!important;margin-bottom:22px!important;border:1px solid rgba(224,92,122,.18)!important;border-radius:24px!important;background:radial-gradient(circle at 92% 12%,rgba(224,92,122,.13),transparent 24%),radial-gradient(circle at 8% 100%,rgba(49,46,129,.07),transparent 30%),rgba(255,255,255,.96)!important;box-shadow:0 14px 42px rgba(49,46,129,.08)!important}
+.tai-header:after{content:"✿";position:absolute;right:30px;top:18px;font-size:54px;color:rgba(224,92,122,.16);transform:rotate(12deg);pointer-events:none}
+.tai-header-icon{width:48px!important;height:48px!important;display:flex!important;align-items:center!important;justify-content:center!important;border-radius:15px!important;background:linear-gradient(135deg,#fff1f4,#f2efff)!important;border:1px solid rgba(224,92,122,.16)!important;box-shadow:0 8px 20px rgba(224,92,122,.10)!important}
+.tai-header-kicker{margin-top:14px!important;color:#c84468!important;font-size:.75rem!important;font-weight:850!important;letter-spacing:.12em!important;text-transform:uppercase!important}
+.tai-header h1{margin:4px 0 8px!important;color:#312e81!important;font-weight:900!important;letter-spacing:-.035em!important}
+[x-data]>.card{border:1px solid rgba(49,46,129,.11)!important;border-radius:20px!important;box-shadow:0 10px 30px rgba(49,46,129,.06)!important}
+[x-data]>.card:first-of-type{padding:20px 22px!important;background:linear-gradient(135deg,#fff,#fff8fa)!important}
+[x-data]>.card:first-of-type .tai-btn{position:relative;min-height:56px!important;min-width:220px!important;padding:0 24px!important;border:0!important;border-radius:15px!important;background:linear-gradient(135deg,#c84468,#e05c7a)!important;color:#fff!important;font-size:15px!important;font-weight:850!important;letter-spacing:.01em!important;box-shadow:0 10px 24px rgba(200,68,104,.27)!important;transition:transform .18s ease,box-shadow .18s ease!important}
+[x-data]>.card:first-of-type .tai-btn:before{content:"✿";margin-right:9px;font-size:16px}
+[x-data]>.card:first-of-type .tai-btn:hover:not(:disabled){transform:translateY(-2px)!important;box-shadow:0 15px 30px rgba(200,68,104,.32)!important}
+[x-data]>.card:first-of-type .tai-btn:disabled{opacity:.72!important;cursor:wait!important}
+[x-data]>.card:nth-of-type(2),[x-data]>.card:nth-of-type(3){min-height:150px!important;display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;border:1px dashed rgba(224,92,122,.22)!important;background:linear-gradient(145deg,#fff,#fff8fa)!important}
+[x-data]>.card:nth-of-type(2):before{content:"✿";display:block;margin-bottom:8px;color:#e05c7a;font-size:28px;opacity:.7}
+.tai-eval-spinner{border-color:rgba(49,46,129,.13)!important;border-top-color:#e05c7a!important}
+[x-data]>.card:nth-of-type(3){border-style:solid!important;border-color:rgba(224,92,122,.20)!important;background:linear-gradient(145deg,#fff7f9,#fff)!important}
+[x-data]>.card:nth-of-type(3) .tai-eval-spinner{width:42px!important;height:42px!important;border-width:4px!important}
+[x-data]>.card:nth-of-type(4){border-left:0!important;border:1px solid rgba(200,64,64,.16)!important;border-radius:18px!important;background:linear-gradient(135deg,#fff5f5,#fff)!important}
+[x-data]>div[x-html]{animation:tai-eval-results-in .28s ease-out both}
+@keyframes tai-eval-results-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:700px){.tai-header{padding:24px 20px 22px!important;border-radius:20px!important}.tai-header:after{right:18px;top:14px;font-size:42px}[x-data]>.card:first-of-type{padding:18px!important}[x-data]>.card:first-of-type .tai-btn{width:100%!important;min-width:0!important}}
 </style>
-
 <div class="tai-header">
   <div class="tai-header-icon">🧪</div>
   <div class="tai-header-kicker">MLOps · Quality Assurance</div>
@@ -22,26 +36,19 @@
     keigo register and nemawashi detection. Nothing is shown below until you run it.
   </div>
 </div>
-
 <div x-data="{ running:false, hasRun:false, resultHtml:'', errorMsg:'' }">
-
   {% if not eval_available %}
   <div class="card" style="border-left:4px solid var(--red,#C84040); background:rgba(200,64,64,0.06);">
-    <strong style="color:#C84040; font-size:1.05rem; display:block; margin-bottom:6px;">
-      Evaluation module unavailable
-    </strong>
+    <strong style="color:#C84040; font-size:1.05rem; display:block; margin-bottom:6px;">Evaluation module unavailable</strong>
     <span style="color:var(--ink-mid); font-size:0.88rem; line-height:1.6;">
       Couldn't import <code>utils/evaluator.py</code> or <code>tests/test_data.py</code>.
       Check the server logs for the import error.
     </span>
   </div>
   {% else %}
-
   <div class="card" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;">
     <div>
-      <div style="font-weight:800;font-size:1.05rem;color:var(--ink);margin-bottom:4px;">
-        Ground-Truth Suite
-      </div>
+      <div style="font-weight:800;font-size:1.05rem;color:var(--ink);margin-bottom:4px;">Ground-Truth Suite</div>
       <div style="font-size:0.82rem;color:var(--ink-mid);">
         {{ test_case_count }} test case{{ 's' if test_case_count != 1 else '' }} · bypasses cache, calls the live provider each run
         {% if mlflow_available %} · results auto-log to MLflow{% endif %}
@@ -62,33 +69,21 @@
       </span>
     </button>
   </div>
-
-  <!-- Idle state — nothing has been run yet -->
-  <div class="card" x-show="!hasRun && !running && !errorMsg" x-cloak
-       style="text-align:center; padding:2.5rem 1rem; color:var(--ink-soft);">
+  <div class="card" x-show="!hasRun && !running && !errorMsg" x-cloak style="text-align:center; padding:2.5rem 1rem; color:var(--ink-soft);">
     <div style="font-size:2rem;margin-bottom:0.6rem;opacity:0.4;">🧪</div>
     <div style="font-size:0.9rem;">No evaluation has been run yet.</div>
     <div style="font-size:0.78rem;margin-top:4px;">Click "Run Evaluation Suite" above to score the pipeline against ground truth.</div>
   </div>
-
-  <!-- Running state — full-width spinner while the suite executes -->
-  <div class="card" x-show="running" x-cloak
-       style="text-align:center; padding:2.5rem 1rem;">
+  <div class="card" x-show="running" x-cloak style="text-align:center; padding:2.5rem 1rem;">
     <div class="tai-eval-spinner" style="margin-bottom:1rem;"></div>
     <div style="font-size:0.88rem;color:var(--ink-mid);">
       Running {{ test_case_count }} test case{{ 's' if test_case_count != 1 else '' }} against the live provider — this can take 10–30 seconds.
     </div>
   </div>
-
-  <!-- Error state -->
-  <div class="card" x-show="errorMsg" x-cloak
-       style="border-left:4px solid var(--red,#C84040); background:rgba(200,64,64,0.06);">
+  <div class="card" x-show="errorMsg" x-cloak style="border-left:4px solid var(--red,#C84040); background:rgba(200,64,64,0.06);">
     <span style="color:#C84040; font-size:0.88rem;" x-text="errorMsg"></span>
   </div>
-
-  <!-- Results — only ever populated by a real run, via fetch() above -->
   <div x-show="hasRun && !running" x-cloak style="margin-top:1.2rem;" x-html="resultHtml"></div>
-
   {% endif %}
 </div>
 {% endblock %}

@@ -423,7 +423,7 @@ def build_prompt(text: str, language: str) -> tuple[str, str]:
         lang_hint     = _language_hint(has_japanese, has_hinglish, language),
         speakers_hint = speakers_hint,
         summary_instr = _summary_instruction(len(text.split())),
-        japan_schema  = _japan_schema_str(include_japan),
+        japan_schema  = _japan_schema_str if include_japan else "",
     )
     user_prompt = build_user_prompt(text, is_degenerate=is_degenerate)
     return system_prompt, user_prompt

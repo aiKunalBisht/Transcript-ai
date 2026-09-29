@@ -4,46 +4,19 @@
 {% block meta_description %}TranscriptAI detects Japanese soft rejections (nemawashi, 難しいですね, 対応しかねます), keigo formality, Hindi indirect signals, and meeting outcomes across Japanese, English, and Hindi transcripts. APPI-compliant. Free to try.{% endblock %}
 
 {% block content %}
-
-<div class="tai-header" style="padding-bottom:1.15rem;">
-  <div class="tai-header-icon">◫</div>
-  <div class="tai-header-kicker">Meeting Intelligence Workspace</div>
-  <h1>Meeting Analysis</h1>
-  <div style="font-size:0.95rem;color:var(--ink-soft);max-width:760px;line-height:1.7;">
-    Turn a meeting transcript into a structured intelligence report — decisions, actions, speakers,
-    communication risk, and Japanese business signals in one place.
-  </div>
-  <div class="tai-header-badges" style="margin-top:1rem;">
-    <span class="tai-hbadge" style="color:var(--sakura-deep);background:var(--sakura-pale);border-color:var(--sakura-light);">Japanese Intelligence</span>
-    <span class="tai-hbadge" style="color:var(--green);background:var(--green-bg);border-color:#A7F3D0;">APPI Aware</span>
-    <span class="tai-hbadge" style="color:var(--gold);background:var(--amber-bg);border-color:var(--gold-light);">EN · JA · HI</span>
-    <span class="tai-hbadge" style="color:var(--ink-mid);background:var(--surface-soft);border-color:var(--border-mid);">Decision &amp; Action Analytics</span>
+<div class="tai-header">
+  <div class="tai-header-icon">🎙️</div>
+  <div class="tai-header-kicker">Intelligent Audio Processing</div>
+  <h1>Transcript AI</h1>
+  <div class="tai-header-badges">
+    <span class="tai-hbadge" style="color:var(--sakura-deep);background:var(--sakura-pale);border-color:var(--sakura-light);">✨ AI-Powered</span>
+    <span class="tai-hbadge" style="color:var(--green);background:var(--green-bg);border-color:#A7F3D0;">🛡️ APPI Compliant</span>
+    <span class="tai-hbadge" style="color:var(--gold);background:var(--amber-bg);border-color:var(--gold-light);">🌐 Multi-language</span>
+    <span class="tai-hbadge" style="color:var(--ink-mid);background:var(--washi);border-color:var(--border-mid);">Formality · Indirect Signals</span>
   </div>
 </div>
 
-<!-- Output map: static, UI-only, no data logic. -->
-<div class="card" style="padding:0;overflow:hidden;margin-bottom:1.5rem;">
-  <div style="display:grid;grid-template-columns:repeat(4,1fr);">
-    <div style="padding:1rem 1.1rem;border-right:1px solid var(--border);">
-      <div style="font-size:0.62rem;font-weight:800;color:var(--ink-faint);letter-spacing:0.12em;text-transform:uppercase;">01 · Overview</div>
-      <div style="font-size:0.9rem;font-weight:700;color:var(--ink);margin-top:0.35rem;">Summary &amp; decisions</div>
-    </div>
-    <div style="padding:1rem 1.1rem;border-right:1px solid var(--border);">
-      <div style="font-size:0.62rem;font-weight:800;color:var(--ink-faint);letter-spacing:0.12em;text-transform:uppercase;">02 · Actions</div>
-      <div style="font-size:0.9rem;font-weight:700;color:var(--ink);margin-top:0.35rem;">Owners &amp; deadlines</div>
-    </div>
-    <div style="padding:1rem 1.1rem;border-right:1px solid var(--border);">
-      <div style="font-size:0.62rem;font-weight:800;color:var(--ink-faint);letter-spacing:0.12em;text-transform:uppercase;">03 · Communication</div>
-      <div style="font-size:0.9rem;font-weight:700;color:var(--ink);margin-top:0.35rem;">Sentiment &amp; risk</div>
-    </div>
-    <div style="padding:1rem 1.1rem;">
-      <div style="font-size:0.62rem;font-weight:800;color:var(--ink-faint);letter-spacing:0.12em;text-transform:uppercase;">04 · 日本語</div>
-      <div style="font-size:0.9rem;font-weight:700;color:var(--ink);margin-top:0.35rem;">Keigo · 根回し · 議事録</div>
-    </div>
-  </div>
-</div>
-
-<div class="sh" style="margin-top:1.2rem;">Transcript Input</div>
+<div class="sh" style="margin-top: 1rem;">Transcript Input</div>
 
 <div x-data="{
        uploading: false,
@@ -71,128 +44,72 @@
        }
      }"
      class="tai-input-grid"
-     style="margin-bottom:1rem;grid-template-columns:minmax(0,0.82fr) minmax(0,1.18fr);gap:1rem;">
+     style="margin-bottom: 1.5rem;">
 
-  <!-- Source panel -->
-  <div class="card" style="margin:0;padding:1.25rem;">
-    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;margin-bottom:1rem;">
-      <div>
-        <div style="font-size:0.7rem;font-weight:800;color:var(--ink-faint);letter-spacing:0.12em;text-transform:uppercase;">Source</div>
-        <div style="font-size:1rem;font-weight:800;color:var(--ink);margin-top:0.3rem;">Upload a meeting file</div>
-      </div>
-      <div style="font-size:0.62rem;font-weight:800;color:var(--green);background:var(--green-bg);border:1px solid #A7F3D0;border-radius:999px;padding:0.35rem 0.6rem;white-space:nowrap;">LIVE INPUT</div>
-    </div>
-
-    <div class="tai-upload" style="min-height:240px;display:flex;flex-direction:column;justify-content:center;align-items:center;">
+  <!-- Upload Block -->
+  <div>
+    <div style="font-size:0.85rem;font-weight:600;color:var(--ink-mid);margin-bottom:0.6rem;">Upload media</div>
+    <div class="tai-upload">
       <input type="file" accept=".txt,.vtt,.json,.mp3,.wav,.m4a,.mp4,.webm,.ogg" @change="handleFile($event)">
-      <div style="width:54px;height:54px;border:1px solid var(--border);background:var(--surface-soft);display:flex;align-items:center;justify-content:center;border-radius:14px;font-size:1.45rem;" x-text="uploading ? '⏳' : '↥'"></div>
-      <div class="tai-upload-label" style="margin-top:0.9rem;" x-text="uploading ? 'Transcribing ' + fname + '…' : (fname || 'Choose or drop a file')"></div>
-      <div class="tai-upload-hint">TXT · VTT · JSON · MP3 · WAV · MP4 · WebM</div>
-    </div>
-
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.55rem;margin-top:0.75rem;">
-      <div style="padding:0.65rem 0.75rem;border:1px solid var(--border);background:var(--surface-soft);border-radius:10px;">
-        <div style="font-size:0.62rem;color:var(--ink-faint);font-weight:800;letter-spacing:0.08em;text-transform:uppercase;">Input</div>
-        <div style="font-size:0.82rem;font-weight:700;color:var(--ink);margin-top:0.18rem;">Audio or transcript</div>
-      </div>
-      <div style="padding:0.65rem 0.75rem;border:1px solid var(--border);background:var(--surface-soft);border-radius:10px;">
-        <div style="font-size:0.62rem;color:var(--ink-faint);font-weight:800;letter-spacing:0.08em;text-transform:uppercase;">Language</div>
-        <div style="font-size:0.82rem;font-weight:700;color:var(--ink);margin-top:0.18rem;">Auto-detected</div>
-      </div>
+      <div style="font-size:2.5rem;" x-text="uploading ? '⏳' : '📁'"></div>
+      <div class="tai-upload-label" x-text="uploading ? 'Transcribing ' + fname + '…' : (fname || 'Click or drop a file')"></div>
+      <div class="tai-upload-hint">Audio formats &amp; Text files supported.</div>
     </div>
   </div>
 
-  <!-- Transcript editor -->
-  <div class="card" style="margin:0;padding:1.25rem;">
-    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;margin-bottom:0.8rem;">
-      <div>
-        <div style="font-size:0.7rem;font-weight:800;color:var(--ink-faint);letter-spacing:0.12em;text-transform:uppercase;">Transcript workspace</div>
-        <div style="font-size:1rem;font-weight:800;color:var(--ink);margin-top:0.3rem;">Paste or review the transcript</div>
-      </div>
-      <div style="font-family:'Noto Sans JP',sans-serif;font-size:0.8rem;color:var(--sakura-deep);font-weight:700;">会議分析</div>
-    </div>
-
+  <!-- Textarea Block -->
+  <div>
+    <div style="font-size:0.85rem;font-weight:600;color:var(--ink-mid);margin-bottom:0.6rem;">Paste transcript directly</div>
     <textarea class="tai-textarea" x-model="transcriptText"
-      style="min-height:240px;border-radius:12px;"
-      placeholder="Paste transcript here…
-
-Example:
-田中: 本件については、少し検討が必要です。
-Rahul: Can we confirm the deadline by Friday?
-
-TranscriptAI will analyze Japanese, English, Hindi, and mixed-language meetings."></textarea>
-
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;margin-top:0.75rem;">
-      <div style="font-size:0.75rem;color:var(--ink-soft);">
-        <span style="font-weight:700;color:var(--ink);" x-text="transcriptText.trim().split(/\s+/).filter(Boolean).length"></span>
-        words detected
-      </div>
-      <button type="button" class="tai-clear-btn" @click="transcriptText=''; document.getElementById('results').innerHTML=''; lastResult=null;">
-        Clear transcript
-      </button>
-    </div>
+      placeholder="Paste transcript here…&#10;&#10;Automatically detects Japanese, English, Hindi, and mixed conversational text."></textarea>
   </div>
 </div>
 
-<!-- Sample analysis strip -->
-<div class="card" style="padding:1rem 1.15rem;margin-bottom:1.1rem;">
-  <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
-    <div style="margin-right:auto;">
-      <div style="font-size:0.68rem;font-weight:800;color:var(--ink-faint);letter-spacing:0.12em;text-transform:uppercase;">Demo scenarios</div>
-      <div style="font-size:0.82rem;color:var(--ink-mid);margin-top:0.18rem;">Use a built-in sample to see how the analytics dashboard behaves.</div>
-    </div>
-    <button type="button" class="tai-sample-btn" title="Hindi + English + Japanese" @click="transcriptText = SAMPLE_TRILINGUAL">Trilingual</button>
-    <button type="button" class="tai-sample-btn" title="High-conflict EN+JA" @click="transcriptText = SAMPLE_HIGH_CONFLICT">Conflict</button>
-    <button type="button" class="tai-sample-btn" title="Pure Hinglish standup" @click="transcriptText = SAMPLE_HINGLISH_STANDUP">Hinglish</button>
-  </div>
+<div class="tai-sample-row">
+  <button type="button" class="tai-sample-btn" title="Hindi + English + Japanese" @click="transcriptText = SAMPLE_TRILINGUAL">🌐 Try Trilingual Demo</button>
+  <button type="button" class="tai-sample-btn" title="High-conflict EN+JA" @click="transcriptText = SAMPLE_HIGH_CONFLICT">⚡ Try Conflict Demo</button>
+  <button type="button" class="tai-sample-btn" title="Pure Hinglish standup" @click="transcriptText = SAMPLE_HINGLISH_STANDUP">🗣️ Try Hinglish</button>
+  <button type="button" class="tai-clear-btn" @click="transcriptText=''; document.getElementById('results').innerHTML=''; lastResult=null;">Clear Text</button>
 </div>
 
-<!-- Primary action -->
-<div class="card" style="padding:1rem 1.15rem;margin-bottom:0;background:var(--ink);border-color:var(--ink);">
-  <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
-    <div style="margin-right:auto;">
-      <div style="font-size:0.66rem;font-weight:800;color:#94A3B8;letter-spacing:0.13em;text-transform:uppercase;">Ready to analyze</div>
-      <div style="font-size:0.86rem;color:#E2E8F0;margin-top:0.2rem;">Structured meeting analytics will appear below.</div>
-    </div>
-    <button type="button" class="tai-btn tai-analyze-btn" @click="runAnalyze()"
-            :disabled="transcriptText.trim().length < 20 || analyzing"
-            style="background:#FFFFFF;color:var(--ink);box-shadow:none;">
-      <svg x-show="!analyzing" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-      <span x-text="analyzing ? 'Processing Data…' : 'Analyze Transcript'"></span>
-    </button>
-  </div>
+<div style="margin-top:2rem; display:flex; align-items:center; gap:1.5rem; flex-wrap:wrap;">
+  <button type="button" class="tai-btn tai-analyze-btn" @click="runAnalyze()"
+          :disabled="transcriptText.trim().length < 20 || analyzing">
+    <svg x-show="!analyzing" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+    <span x-text="analyzing ? 'Processing Data…' : 'Analyze Transcript'"></span>
+  </button>
+  
+  <span style="font-size:0.85rem;font-weight:600;color:var(--ink-soft);" x-show="transcriptText.trim().length > 0 && !analyzing" x-cloak>
+    <span x-text="transcriptText.trim().split(/\s+/).filter(Boolean).length"></span> words detected
+  </span>
 </div>
 
 <div x-show="analyzing" x-cloak style="margin-top:1rem;">
-  <div class="tai-progress-track" style="max-width:none;"><div class="tai-progress-fill"></div></div>
-  <div class="tai-loading-caption">Running NLP pipeline · extracting meeting intelligence · checking communication signals…</div>
+  <div class="tai-progress-track"><div class="tai-progress-fill"></div></div>
+  <div class="tai-loading-caption">Running NLP Pipeline. Please wait…</div>
 </div>
 
 <div class="results-wrapper" id="results-top"></div>
 <div id="results"></div>
 
-<div style="margin-top:3rem;padding-top:2rem;border-top:1px solid var(--border);" x-show="hasResult()" x-cloak>
+<div style="margin-top:3rem; padding-top: 2rem; border-top: 1px dashed var(--border);" x-show="hasResult()" x-cloak>
   <div class="sh">Next Steps</div>
-  <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;padding:1rem 1.15rem;">
-    <div>
-      <div style="font-size:0.92rem;font-weight:800;color:var(--ink);">Turn the analysis into deliverables</div>
-      <div style="font-size:0.8rem;color:var(--ink-soft);margin-top:0.2rem;">Export presentation slides, Japanese minutes, Markdown notes, JSON, or TXT.</div>
-    </div>
-    <a href="/export" class="tai-btn-outline" style="text-decoration:none;display:inline-flex;align-items:center;gap:8px;">
-      <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
-      Export Documents
-    </a>
-  </div>
+  <a href="/export" class="tai-btn-outline" style="text-decoration:none;display:inline-flex;align-items:center;gap:8px;">
+    <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+    Export Documents (PPT, MD, JSON)
+  </a>
 </div>
 
-<!-- SEO content block: retained as content, restyled visually. -->
-<section aria-label="About TranscriptAI" class="card" style="margin-top:4rem;padding:1.5rem;">
-  <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;">
-    <div>
-      <div style="font-size:0.7rem;font-weight:800;color:var(--sakura-deep);letter-spacing:0.13em;text-transform:uppercase;">Product Intelligence</div>
-      <h2 style="font-size:1.15rem;font-weight:800;color:var(--ink);margin:0.35rem 0 0;">AI Meeting Analyzer for Japanese &amp; Multilingual Business Communication</h2>
-    </div>
-  </div>
+<!-- ── SEO content block ───────────────────────────────────────────────────────
+     Visible to Google, visually subtle. Explains what TranscriptAI does using
+     the exact keywords people search for. This is the most important on-page
+     SEO element — Google ranks pages based on visible text, not meta tags alone.
+──────────────────────────────────────────────────────────────────────────────── -->
+
+<section aria-label="About TranscriptAI" style="margin-top:4rem;padding:2rem;background:var(--washi);border-radius:14px;border:1px solid var(--border);">
+  <h2 style="font-size:1.1rem;font-weight:800;color:var(--ink);margin-bottom:1rem;">
+    AI Meeting Analyzer for Japanese &amp; Multilingual Business Communication
+  </h2>
 
   <p style="font-size:0.88rem;color:var(--ink-mid);line-height:1.8;margin-bottom:1rem;">
     TranscriptAI is an AI meeting intelligence platform for analyzing meeting transcripts, generating
@@ -210,58 +127,68 @@ TranscriptAI will analyze Japanese, English, Hindi, and mixed-language meetings.
     treating the sentence as a simple action item or approval.
   </p>
 
-  <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;margin-top:1.4rem;">
-    <div style="padding:1rem;border:1px solid var(--border);background:var(--surface-soft);border-radius:12px;">
-      <h3 style="font-size:0.95rem;font-weight:800;color:var(--ink);margin:0 0 0.6rem;">AI Meeting Analysis Features</h3>
-      <ul style="font-size:0.82rem;color:var(--ink-mid);line-height:2;padding-left:1.1rem;margin:0;">
-        <li><strong>Meeting summary analysis</strong> — automatically generate concise summaries from long meeting transcripts</li>
-        <li><strong>Key point extraction</strong> — identify the most important information, discussion points, and meeting highlights</li>
-        <li><strong>Action item extraction</strong> — detect tasks, follow-ups, responsibilities, and next steps from conversations</li>
-        <li><strong>Decision detection</strong> — identify approvals, rejections, pending decisions, conditional decisions, and unresolved topics</li>
-        <li><strong>Meeting outcome analysis</strong> — classify meetings as Approved, Rejected, Conditional, Deferred, Pending, Informational, At Risk, or Unclear</li>
-        <li><strong>Meeting context analysis</strong> — understand the surrounding meaning of statements rather than relying only on individual keywords</li>
-      </ul>
-    </div>
+  <h3 style="font-size:0.95rem;font-weight:700;color:var(--ink);margin:1rem 0 0.5rem;">
+    AI Meeting Analysis Features
+  </h3>
 
-    <div style="padding:1rem;border:1px solid var(--border);background:var(--surface-soft);border-radius:12px;">
-      <h3 style="font-size:0.95rem;font-weight:800;color:var(--ink);margin:0 0 0.6rem;">Japanese Business Communication Analysis</h3>
-      <ul style="font-size:0.82rem;color:var(--ink-mid);line-height:2;padding-left:1.1rem;margin:0;">
-        <li><strong>Nemawashi signals</strong> — detect indirect consensus-building language that can appear before decisions or soft rejection</li>
-        <li><strong>Japanese soft rejection patterns</strong> — detect expressions such as 難しいかもしれません, 対応しかねます, 善処します and other indirect responses</li>
-        <li><strong>Keigo formality analysis</strong> — analyze Japanese formality and politeness levels using morphological analysis</li>
-        <li><strong>Japanese indirect communication</strong> — identify business expressions whose intended meaning may differ from their literal wording</li>
-        <li><strong>はい / understanding vs approval</strong> — distinguish acknowledgement or understanding from actual agreement or approval</li>
-        <li><strong>Approval gate detection</strong> — identify statements such as 稟議が必要です and other indications that additional approval is required</li>
-      </ul>
-    </div>
+  <ul style="font-size:0.85rem;color:var(--ink-mid);line-height:2;padding-left:1.2rem;">
+    <li><strong>Meeting summary analysis</strong> — automatically generate concise summaries from long meeting transcripts</li>
+    <li><strong>Key point extraction</strong> — identify the most important information, discussion points, and meeting highlights</li>
+    <li><strong>Action item extraction</strong> — detect tasks, follow-ups, responsibilities, and next steps from conversations</li>
+    <li><strong>Decision detection</strong> — identify approvals, rejections, pending decisions, conditional decisions, and unresolved topics</li>
+    <li><strong>Meeting outcome analysis</strong> — classify meetings as Approved, Rejected, Conditional, Deferred, Pending, Informational, At Risk, or Unclear</li>
+    <li><strong>Meeting context analysis</strong> — understand the surrounding meaning of statements rather than relying only on individual keywords</li>
+    <li><strong>Conversation and communication analysis</strong> — identify important language patterns, signals, topics, and business communication cues</li>
+    <li><strong>Meeting transcript analysis</strong> — transform raw transcripts into structured business insights</li>
+  </ul>
 
-    <div style="padding:1rem;border:1px solid var(--border);background:var(--surface-soft);border-radius:12px;">
-      <h3 style="font-size:0.95rem;font-weight:800;color:var(--ink);margin:0 0 0.6rem;">Hindi, English &amp; Multilingual Intelligence</h3>
-      <ul style="font-size:0.82rem;color:var(--ink-mid);line-height:2;padding-left:1.1rem;margin:0;">
-        <li><strong>Hindi indirect communication</strong> — analyze expressions such as dekhte hain, kal pakka, kuch na kuch ho jayega and related contextual signals</li>
-        <li><strong>English meeting analysis</strong> — summarize discussions, extract key points, identify decisions, and detect action items</li>
-        <li><strong>Hinglish analysis</strong> — analyze Hindi written or spoken in Roman script alongside English</li>
-        <li><strong>Multilingual meeting analysis</strong> — process conversations involving Japanese, Hindi, English, and mixed-language communication</li>
-        <li><strong>Cross-cultural communication insights</strong> — provide additional context for business communication across languages and cultures</li>
-      </ul>
-    </div>
+  <h3 style="font-size:0.95rem;font-weight:700;color:var(--ink);margin:1rem 0 0.5rem;">
+    Japanese Business Communication Analysis
+  </h3>
 
-    <div style="padding:1rem;border:1px solid var(--border);background:var(--surface-soft);border-radius:12px;">
-      <h3 style="font-size:0.95rem;font-weight:800;color:var(--ink);margin:0 0 0.6rem;">Privacy &amp; Supported Languages</h3>
-      <ul style="font-size:0.82rem;color:var(--ink-mid);line-height:2;padding-left:1.1rem;margin:0 0 0.75rem;">
-        <li><strong>PII masking</strong> — names, phone numbers, email addresses, and other personal information can be masked before external LLM processing</li>
-        <li><strong>Privacy-conscious meeting analysis</strong> — designed for use cases where transcript privacy and sensitive business information matter</li>
-        <li><strong>APPI-aware processing</strong> — built with Japanese privacy considerations in mind</li>
-      </ul>
-      <div style="font-size:0.8rem;color:var(--ink-mid);line-height:1.8;border-top:1px solid var(--border);padding-top:0.75rem;">
-        <strong style="color:var(--ink);">Languages:</strong>
-        Japanese (日本語) · English · Hindi (हिंदी) · Hinglish · Bilingual Japanese-English · Trilingual Japanese-Hindi-English mixed meetings
-      </div>
-    </div>
-  </div>
+  <ul style="font-size:0.85rem;color:var(--ink-mid);line-height:2;padding-left:1.2rem;">
+    <li><strong>Nemawashi signals</strong> — detect indirect consensus-building language that can appear before decisions or soft rejection</li>
+    <li><strong>Japanese soft rejection patterns</strong> — detect expressions such as 難しいかもしれません, 対応しかねます, 善処します and other indirect responses</li>
+    <li><strong>Keigo formality analysis</strong> — analyze Japanese formality and politeness levels using morphological analysis</li>
+    <li><strong>Japanese indirect communication</strong> — identify business expressions whose intended meaning may differ from their literal wording</li>
+    <li><strong>はい / understanding vs approval</strong> — distinguish acknowledgement or understanding from actual agreement or approval</li>
+    <li><strong>Approval gate detection</strong> — identify statements such as 稟議が必要です and other indications that additional approval is required</li>
+  </ul>
 
-  <p style="font-size:0.78rem;color:var(--ink-soft);margin-top:1.2rem;">
-    Built by <a href="https://linkedin.com/in/kunalhere" style="color:var(--sakura-deep);">Kunal Bisht</a>
+  <h3 style="font-size:0.95rem;font-weight:700;color:var(--ink);margin:1rem 0 0.5rem;">
+    Hindi, English &amp; Multilingual Meeting Intelligence
+  </h3>
+
+  <ul style="font-size:0.85rem;color:var(--ink-mid);line-height:2;padding-left:1.2rem;">
+    <li><strong>Hindi indirect communication</strong> — analyze expressions such as dekhte hain, kal pakka, kuch na kuch ho jayega and related contextual signals</li>
+    <li><strong>English meeting analysis</strong> — summarize discussions, extract key points, identify decisions, and detect action items</li>
+    <li><strong>Hinglish analysis</strong> — analyze Hindi written or spoken in Roman script alongside English</li>
+    <li><strong>Multilingual meeting analysis</strong> — process conversations involving Japanese, Hindi, English, and mixed-language communication</li>
+    <li><strong>Cross-cultural communication insights</strong> — provide additional context for business communication across languages and cultures</li>
+  </ul>
+
+  <h3 style="font-size:0.95rem;font-weight:700;color:var(--ink);margin:1rem 0 0.5rem;">
+    Privacy &amp; Secure AI Processing
+  </h3>
+
+  <ul style="font-size:0.85rem;color:var(--ink-mid);line-height:2;padding-left:1.2rem;">
+    <li><strong>PII masking</strong> — names, phone numbers, email addresses, and other personal information can be masked before external LLM processing</li>
+    <li><strong>Privacy-conscious meeting analysis</strong> — designed for use cases where transcript privacy and sensitive business information matter</li>
+    <li><strong>APPI-aware processing</strong> — built with Japanese privacy considerations in mind</li>
+  </ul>
+
+  <h3 style="font-size:0.95rem;font-weight:700;color:var(--ink);margin:1rem 0 0.5rem;">
+    Supported Languages
+  </h3>
+
+  <p style="font-size:0.85rem;color:var(--ink-mid);line-height:1.8;">
+    Japanese (日本語) · English · Hindi (हिंदी) · Hinglish (Hindi in Roman script) ·
+    Bilingual Japanese-English · Trilingual Japanese-Hindi-English mixed meetings
+  </p>
+
+  <p style="font-size:0.78rem;color:var(--ink-soft);margin-top:1rem;">
+    Built by
+    <a href="https://linkedin.com/in/kunalhere" style="color:var(--sakura-deep);">Kunal Bisht</a>
     · AI/ML Engineer · LLM Pipelines &amp; Multilingual NLP ·
     <a href="https://github.com/aiKunalBisht/Transcript-ai" style="color:var(--sakura-deep);">GitHub</a>
     · 93.8% accuracy on bilingual ground-truth test cases
@@ -269,21 +196,267 @@ TranscriptAI will analyze Japanese, English, Hindi, and mixed-language meetings.
 </section>
 
 <style>
-.tai-input-grid { display:grid; }
-@media (max-width:900px) {
-  .tai-input-grid { grid-template-columns:1fr !important; }
+.tai-input-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
 }
-@media (max-width:700px) {
-  .tai-textarea { min-height:180px !important; }
-  .tai-input-grid > .card { padding:1rem !important; }
+@media (max-width: 700px) {
+  .tai-input-grid {
+    grid-template-columns: 1fr;
+    gap: 1.2rem;
+  }
+  .tai-textarea {
+    min-height: 140px;
+  }
 }
-@media (max-width:600px) {
-  .tai-header h1 { font-size:1.65rem; }
-  .tai-input-grid + .card { overflow:hidden; }
-}
-@media (max-width:520px) {
-  .tai-btn.tai-analyze-btn { width:100%; justify-content:center; }
+
+/* Analyze button full-width on small screens */
+@media (max-width: 500px) {
+  .tai-analyze-btn {
+    width: 100%;
+    justify-content: center;
+  }
 }
 </style>
-
 {% endblock %}
+<style id="tai-index-japanese-bold-ui">
+/* ── TranscriptAI Index — bold Japanese/Sakura presentation layer only ── */
+.tai-header {
+  padding: 2rem 0 2.2rem !important;
+  position: relative;
+}
+.tai-header::after {
+  content: '✿';
+  position: absolute;
+  right: 1.5rem;
+  top: 1rem;
+  font-size: 3.8rem;
+  line-height: 1;
+  color: var(--sakura-light);
+  opacity: .18;
+  transform: rotate(-12deg);
+  pointer-events: none;
+}
+.tai-header h1 {
+  font-size: clamp(2.5rem, 5vw, 4rem) !important;
+  letter-spacing: -0.045em !important;
+}
+.tai-header-kicker::before {
+  content: '✿ ';
+  color: var(--sakura-deep);
+}
+.tai-hbadge {
+  min-height: 38px;
+  padding: .65rem 1rem !important;
+  border-radius: 999px !important;
+  font-size: .74rem !important;
+  font-weight: 800 !important;
+  display: inline-flex;
+  align-items: center;
+  box-shadow: 0 5px 14px rgba(60,36,22,.05);
+}
+
+/* Input area becomes a stronger meeting-intelligence workspace */
+.tai-input-grid {
+  gap: 1.25rem !important;
+}
+.tai-input-grid > div {
+  position: relative;
+}
+.tai-input-grid > div > div:first-child {
+  font-size: .74rem !important;
+  font-weight: 800 !important;
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  color: var(--sakura-deep) !important;
+  margin-bottom: .7rem !important;
+}
+.tai-upload,
+.tai-textarea {
+  min-height: 250px !important;
+  border-radius: 20px !important;
+  border-width: 2px !important;
+  box-shadow: 0 12px 30px rgba(60,36,22,.06), inset 0 1px 0 rgba(255,255,255,.75) !important;
+}
+.tai-upload {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 88% 18%, rgba(216,96,128,.12), transparent 27%),
+    linear-gradient(145deg, #fff, #fff7f8) !important;
+}
+.tai-upload::before {
+  content: '✿';
+  position: absolute;
+  top: 14px;
+  right: 18px;
+  color: var(--sakura-light);
+  font-size: 1.5rem;
+  opacity: .7;
+}
+.tai-upload:hover {
+  border-color: var(--sakura) !important;
+  transform: translateY(-3px);
+  box-shadow: 0 18px 34px rgba(216,96,128,.13) !important;
+}
+.tai-textarea:focus {
+  border-color: var(--sakura) !important;
+  box-shadow: 0 0 0 5px rgba(216,96,128,.10), 0 14px 34px rgba(60,36,22,.08) !important;
+}
+
+/* Demo buttons: visibly distinct and tactile */
+.tai-sample-row {
+  gap: .75rem !important;
+  align-items: stretch !important;
+}
+.tai-sample-btn,
+.tai-clear-btn {
+  min-height: 50px !important;
+  padding: .8rem 1.15rem !important;
+  border-radius: 14px !important;
+  font-size: .78rem !important;
+  font-weight: 800 !important;
+  letter-spacing: .01em;
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease !important;
+}
+.tai-sample-btn {
+  border: 1.5px solid var(--sakura-light) !important;
+  background: linear-gradient(180deg, #fff, #fff5f7) !important;
+  color: var(--sakura-deep) !important;
+  box-shadow: 0 7px 16px rgba(216,96,128,.08) !important;
+}
+.tai-sample-btn::first-letter {
+  color: var(--sakura);
+}
+.tai-sample-btn:hover {
+  transform: translateY(-3px) !important;
+  border-color: var(--sakura) !important;
+  background: linear-gradient(180deg, #fff7f8, #ffecef) !important;
+  box-shadow: 0 12px 22px rgba(216,96,128,.16) !important;
+}
+.tai-clear-btn {
+  border: 1.5px solid #dccbc2 !important;
+  background: #fff !important;
+  color: var(--ink-soft) !important;
+}
+.tai-clear-btn:hover {
+  border-color: var(--sakura-light) !important;
+  color: var(--sakura-deep) !important;
+  transform: translateY(-2px) !important;
+}
+
+/* Main Analyze CTA — intentionally larger than every secondary action */
+.tai-analyze-btn {
+  position: relative;
+  min-height: 62px !important;
+  min-width: min(100%, 290px);
+  padding: 1rem 1.55rem !important;
+  border-radius: 16px !important;
+  border: 1px solid rgba(255,255,255,.45) !important;
+  background: linear-gradient(135deg, #D96080 0%, #B83F65 52%, #8E3B5B 100%) !important;
+  color: #fff !important;
+  font-size: .96rem !important;
+  font-weight: 900 !important;
+  letter-spacing: .01em;
+  box-shadow: 0 12px 24px rgba(190,64,96,.27), inset 0 1px 0 rgba(255,255,255,.25) !important;
+  overflow: hidden;
+}
+.tai-analyze-btn::before {
+  content: '✿';
+  position: absolute;
+  right: 14px;
+  top: 7px;
+  font-size: 1.15rem;
+  color: rgba(255,255,255,.62);
+  transform: rotate(10deg);
+  pointer-events: none;
+}
+.tai-analyze-btn::after {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border-radius: 15px;
+  border: 1px solid rgba(255,255,255,.12);
+  pointer-events: none;
+}
+.tai-analyze-btn:hover:not(:disabled) {
+  transform: translateY(-3px) scale(1.01) !important;
+  box-shadow: 0 17px 30px rgba(190,64,96,.33), inset 0 1px 0 rgba(255,255,255,.28) !important;
+}
+.tai-analyze-btn:active:not(:disabled) {
+  transform: translateY(-1px) scale(.995) !important;
+}
+.tai-analyze-btn:disabled {
+  opacity: .52 !important;
+  cursor: not-allowed !important;
+  box-shadow: none !important;
+}
+
+/* Word counter beside Analyze */
+.tai-analyze-btn + span {
+  min-height: 46px;
+  padding: .7rem 1rem;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border-mid);
+  border-radius: 13px;
+  background: rgba(255,255,255,.78);
+  box-shadow: 0 5px 14px rgba(60,36,22,.05);
+}
+
+/* Loading state */
+.tai-progress-track {
+  height: 10px !important;
+  border-radius: 999px !important;
+  background: #f1e6e1 !important;
+  overflow: hidden;
+}
+.tai-progress-fill {
+  background: linear-gradient(90deg, var(--sakura-deep), var(--sakura), #D99BAF) !important;
+  box-shadow: 0 0 14px rgba(216,96,128,.35);
+}
+.tai-loading-caption {
+  font-size: .76rem !important;
+  font-weight: 800 !important;
+  letter-spacing: .08em;
+  color: var(--sakura-deep) !important;
+}
+
+/* Next Steps / export CTA */
+.tai-btn-outline {
+  min-height: 54px !important;
+  padding: .85rem 1.25rem !important;
+  border-radius: 15px !important;
+  border: 1.5px solid var(--indigo-light, #cbbfe3) !important;
+  background: linear-gradient(180deg, #fff, #faf8ff) !important;
+  color: var(--indigo, #5c4a78) !important;
+  font-weight: 850 !important;
+  box-shadow: 0 8px 18px rgba(92,74,120,.09) !important;
+}
+.tai-btn-outline:hover {
+  transform: translateY(-3px) !important;
+  border-color: var(--indigo, #5c4a78) !important;
+  box-shadow: 0 13px 24px rgba(92,74,120,.16) !important;
+}
+
+/* Subtle Japanese section marker before major headings */
+.sh::before {
+  content: '✿';
+  margin-right: .5rem;
+  color: var(--sakura);
+  font-size: .9em;
+}
+
+@media (max-width: 760px) {
+  .tai-header { padding-top: 1.4rem !important; }
+  .tai-header::after { right: .25rem; top: .4rem; font-size: 2.5rem; }
+  .tai-hbadge { min-height: 34px; padding: .55rem .8rem !important; }
+  .tai-upload, .tai-textarea { min-height: 210px !important; }
+  .tai-sample-row { flex-direction: column; }
+  .tai-sample-btn, .tai-clear-btn { width: 100%; justify-content: center; }
+  .tai-analyze-btn { width: 100%; min-width: 0; }
+  .tai-analyze-btn + span { width: 100%; justify-content: center; }
+  .tai-btn-outline { width: 100%; justify-content: center; }
+}
+</style>

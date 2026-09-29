@@ -1,21 +1,36 @@
 # evaluator.py
-# Evaluation layer for TranscriptAI — v5
+# Evaluation layer for TranscriptAI — v6
 #
-# Fix 1: Code-switch counting moved fully to rule-based
-# Fix 2: Fuzzy speaker name matching for sentiment
-# Fix 3: Semantic similarity added alongside ROUGE
-# v3 FIX: NEMAWASHI_KEYWORDS cleaned up — removed false positives
-# v4 FIX: MLflow wired inside evaluate() not module level
-# v5 FIX: rule_based_japan_check() was incomplete — missing return statement,
-#         keigo block, code_switching block. Now receives full prediction dict
-#         so nemawashi precision reads from soft_rejection_detector output
-#         (same source as Streamlit Insights tab) instead of separate keyword set.
+# v5 → v6 changes:
+#
+# E1 FIX: semantic_score renamed to lexical_summary_score throughout.
+#         The score is computed from ROUGE-1 + ROUGE-2 + LCS — that is
+#         lexical/sequential overlap, NOT semantic embedding similarity.
+#         Calling it "semantic_score" was misleading to any engineer reading
+#         the code or the eval report. Renamed everywhere it appears.
+#
+# E2 FIX: evaluate_action_items() now scores owner and deadline separately.
+#         Previously, only task text was matched. A prediction of:
+#           task: "Fix database" / owner: Tanaka / deadline: 2031
+#         against reference:
+#           task: "Fix database" / owner: Suzuki / deadline: tomorrow
+#         was counted as correct because task tokens overlapped.
+#         Now returns: task_f1, owner_accuracy, deadline_accuracy as
+#         separate scores, with matched_pairs tracking for attribution.
+#
+# E3 FIX: _deadlines_match() helper added — loose temporal matching
+#         so "Next Monday" and "Monday next week" don't count as wrong.
+#
+# All v5 fixes preserved:
+#   Rule-based code-switch counter
+#   Fuzzy sentiment speaker matching
+#   Nemawashi reads soft_rejection_detector output
+#   MLflow wired inside evaluate()
 
 import os
 import re
 import unicodedata
 
-# ── MLflow — optional, never crashes if not installed ─────────────────────────
 try:
     import mlflow
     import mlflow.tracking
@@ -53,16 +68,42 @@ def _names_match(name_a: str, name_b: str) -> bool:
     if len(a) >= 3 and len(b) >= 3 and (a[:3] == b[:3]): return True
     return False
 
+def _deadlines_match(pred: str, ref: str) -> bool:
+    """
+    E3 FIX: Loose temporal deadline match.
+    "Next Monday" == "Monday next week" → True
+    "Thursday" in "by Thursday" → True
+    Does not penalize for phrasing differences around the same time reference.
+    """
+    if not pred or not ref:
+        return False
+    pred = pred.lower().strip().rstrip(".")
+    ref  = ref.lower().strip().rstrip(".")
+    if pred == ref:
+        return True
+    # Same weekday reference
+    days = ["monday", "tuesday", "wednesday", "thursday",
+            "friday", "saturday", "sunday"]
+    for day in days:
+        if day in pred and day in ref:
+            return True
+    # Same temporal range
+    for term in ["tomorrow", "today", "this week", "next week", "end of week",
+                 "next month", "this month", "eod", "end of day", "asap"]:
+        if term in pred and term in ref:
+            return True
+    return False
 
-# ── FIX 1: RULE-BASED CODE-SWITCH COUNTER ────────────────────────────────────
+
+# ── RULE-BASED CODE-SWITCH COUNTER ───────────────────────────────────────────
 def count_code_switches(transcript: str) -> int:
     ja_pattern = re.compile(
         r"[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\u3400-\u4DBF]"
     )
     text = re.sub(r"\[\d{2}:\d{2}(?::\d{2})?\]", "", transcript)
     text = re.sub(r"^[\w\u3000-\u9FFF]+[:：]\s*", "", text, flags=re.MULTILINE)
-    tokens    = text.split()
-    switches  = 0
+    tokens   = text.split()
+    switches = 0
     prev_lang = None
     for token in tokens:
         clean = re.sub(r"[^\w\u3040-\u9FFF]", "", token)
@@ -82,11 +123,12 @@ def inject_rule_based_code_switch(prediction: dict, transcript: str) -> dict:
     return prediction
 
 
-# ── FIX 2: FUZZY SENTIMENT SPEAKER MATCHING ──────────────────────────────────
+# ── FUZZY SENTIMENT SPEAKER MATCHING ─────────────────────────────────────────
 def evaluate_sentiment(pred_sentiment: list, ref_sentiment: list,
                        acceptable_map: dict = None) -> dict:
     if not ref_sentiment:
-        return {"accuracy": 0.0, "soft_accuracy": 0.0, "correct": 0, "total": 0, "grade": "N/A"}
+        return {"accuracy": 0.0, "soft_accuracy": 0.0, "correct": 0,
+                "total": 0, "grade": "N/A"}
 
     acceptable_map = acceptable_map or {}
     correct        = 0
@@ -95,8 +137,8 @@ def evaluate_sentiment(pred_sentiment: list, ref_sentiment: list,
     match_details  = []
 
     for ref in ref_sentiment:
-        ref_speaker = ref.get("speaker", "")
-        ref_score   = ref.get("score", "")
+        ref_speaker  = ref.get("speaker", "")
+        ref_score    = ref.get("score", "")
         matched_pred = None
         for pred in pred_sentiment:
             if _names_match(pred.get("speaker", ""), ref_speaker):
@@ -104,9 +146,11 @@ def evaluate_sentiment(pred_sentiment: list, ref_sentiment: list,
                 break
 
         if matched_pred is None:
-            match_details.append({"ref_speaker": ref_speaker, "pred_speaker": "NOT FOUND",
-                                   "ref_score": ref_score, "pred_score": "—",
-                                   "correct": False, "soft_credit": 0.0})
+            match_details.append({
+                "ref_speaker": ref_speaker, "pred_speaker": "NOT FOUND",
+                "ref_score": ref_score, "pred_score": "—",
+                "correct": False, "soft_credit": 0.0
+            })
             continue
 
         pred_score      = matched_pred.get("score", "")
@@ -126,11 +170,13 @@ def evaluate_sentiment(pred_sentiment: list, ref_sentiment: list,
         else:
             credit = 0.0
 
-        match_details.append({"ref_speaker": ref_speaker,
-                               "pred_speaker": matched_pred.get("speaker", ""),
-                               "ref_score": ref_score, "pred_score": pred_score,
-                               "acceptable": accepted_scores,
-                               "correct": is_exact, "soft_credit": credit})
+        match_details.append({
+            "ref_speaker": ref_speaker,
+            "pred_speaker": matched_pred.get("speaker", ""),
+            "ref_score": ref_score, "pred_score": pred_score,
+            "acceptable": accepted_scores,
+            "correct": is_exact, "soft_credit": credit
+        })
 
     accuracy      = round(correct      / total, 3) if total > 0 else 0.0
     soft_accuracy = round(soft_correct / total, 3) if total > 0 else 0.0
@@ -142,7 +188,7 @@ def evaluate_sentiment(pred_sentiment: list, ref_sentiment: list,
     }
 
 
-# ── FIX 3: SEMANTIC SIMILARITY ALONGSIDE ROUGE ───────────────────────────────
+# ── SUMMARY SCORING (lexical overlap — ROUGE + LCS) ──────────────────────────
 def _ja_tokenize(text: str) -> list:
     ja_pattern = re.compile(r"[぀-ゟ゠-ヿ一-鿿]")
     tokens = []; current_en = []
@@ -164,9 +210,17 @@ def _ja_tokenize(text: str) -> list:
     bigrams = ["".join(cjk[i:i+2]) for i in range(len(cjk)-1)]
     return tokens + bigrams
 
-def _semantic_overlap(pred: str, ref: str) -> float:
-    pred_words = _ja_tokenize(pred); ref_words = _ja_tokenize(ref)
-    if not pred_words or not ref_words: return 0.0
+
+def _lexical_overlap(pred: str, ref: str) -> float:
+    """
+    E1 FIX: Renamed from _semantic_overlap — this is lexical, not semantic.
+    Computes weighted ROUGE-1 + ROUGE-2 + LCS over tokenized text.
+    Does NOT use embedding similarity.
+    """
+    pred_words = _ja_tokenize(pred)
+    ref_words  = _ja_tokenize(ref)
+    if not pred_words or not ref_words:
+        return 0.0
     pred_set = set(pred_words); ref_set = set(ref_words)
     overlap1 = len(pred_set & ref_set)
     rouge1   = (2 * overlap1) / (len(pred_set) + len(ref_set)) if (pred_set or ref_set) else 0.0
@@ -177,6 +231,7 @@ def _semantic_overlap(pred: str, ref: str) -> float:
     lcs       = _lcs_length(pred_words, ref_words)
     lcs_ratio = (2 * lcs) / (len(pred_words) + len(ref_words))
     return round((0.4 * rouge1) + (0.3 * rouge2) + (0.3 * lcs_ratio), 3)
+
 
 def _lcs_length(a: list, b: list) -> int:
     m, n = len(a), len(b)
@@ -189,18 +244,34 @@ def _lcs_length(a: list, b: list) -> int:
         prev = curr
     return prev[n]
 
+
 def evaluate_summary(pred_bullets: list, ref_bullets: list) -> dict:
     if not pred_bullets or not ref_bullets:
-        return {"semantic_score": 0.0, "avg_rouge1_f1": 0.0, "per_bullet": [], "grade": "POOR"}
+        return {
+            "lexical_summary_score": 0.0,   # E1 FIX: was semantic_score
+            "avg_rouge1_f1": 0.0,
+            "per_bullet": [],
+            "grade": "POOR"
+        }
 
-    score_matrix = [[_semantic_overlap(pred, ref) for pred in pred_bullets] for ref in ref_bullets]
+    # E1 FIX: use _lexical_overlap (renamed from _semantic_overlap)
+    score_matrix = [
+        [_lexical_overlap(pred, ref) for pred in pred_bullets]
+        for ref in ref_bullets
+    ]
     used_preds = set(); used_refs = set(); assignments = {}
-    all_scores = sorted([(score, r, p) for r, row in enumerate(score_matrix)
-                          for p, score in enumerate(row)], reverse=True)
+    all_scores = sorted(
+        [(score, r, p) for r, row in enumerate(score_matrix)
+         for p, score in enumerate(row)],
+        reverse=True
+    )
     for score, r_idx, p_idx in all_scores:
         if r_idx not in used_refs and p_idx not in used_preds:
-            assignments[r_idx] = p_idx; used_refs.add(r_idx); used_preds.add(p_idx)
-        if len(assignments) == len(ref_bullets): break
+            assignments[r_idx] = p_idx
+            used_refs.add(r_idx)
+            used_preds.add(p_idx)
+        if len(assignments) == len(ref_bullets):
+            break
 
     per_bullet = []
     for r_idx, ref in enumerate(ref_bullets):
@@ -208,20 +279,26 @@ def evaluate_summary(pred_bullets: list, ref_bullets: list) -> dict:
         best_pred  = pred_bullets[p_idx] if p_idx >= 0 else ""
         best_score = score_matrix[r_idx][p_idx] if p_idx >= 0 else 0.0
         per_bullet.append({
-            "reference":      ref[:80] + "…" if len(ref) > 80 else ref,
-            "best_match":     best_pred[:80] + "…" if len(best_pred) > 80 else best_pred,
-            "semantic_score": best_score,
-            "rouge1_f1":      _tokenize_rouge1(best_pred, ref)
+            "reference":            ref[:80] + "…" if len(ref) > 80 else ref,
+            "best_match":           best_pred[:80] + "…" if len(best_pred) > 80 else best_pred,
+            "lexical_score":        best_score,       # E1 FIX: was semantic_score
+            "rouge1_f1":            _tokenize_rouge1(best_pred, ref),
         })
 
-    avg_semantic = round(sum(b["semantic_score"] for b in per_bullet) / len(per_bullet), 3)
-    avg_rouge1   = round(sum(b["rouge1_f1"]      for b in per_bullet) / len(per_bullet), 3)
+    avg_lexical = round(sum(b["lexical_score"] for b in per_bullet) / len(per_bullet), 3)
+    avg_rouge1  = round(sum(b["rouge1_f1"]     for b in per_bullet) / len(per_bullet), 3)
+
     return {
-        "semantic_score": avg_semantic, "avg_rouge1_f1": avg_rouge1,
-        "per_bullet": per_bullet,
-        "note": "semantic_score = weighted ROUGE-1 + ROUGE-2 + LCS. rouge1 = word overlap only.",
-        "grade": _grade(avg_semantic)
+        "lexical_summary_score": avg_lexical,   # E1 FIX: was semantic_score
+        "avg_rouge1_f1":         avg_rouge1,
+        "per_bullet":            per_bullet,
+        "note": (
+            "lexical_summary_score = weighted ROUGE-1 + ROUGE-2 + LCS. "
+            "This is lexical overlap, NOT semantic embedding similarity."
+        ),
+        "grade": _grade(avg_lexical)
     }
+
 
 def _tokenize_rouge1(pred: str, ref: str) -> float:
     pred_t = set(_ja_tokenize(pred)); ref_t = set(_ja_tokenize(ref))
@@ -231,34 +308,102 @@ def _tokenize_rouge1(pred: str, ref: str) -> float:
     return round((2 * p * r / (p + r)) if (p + r) > 0 else 0.0, 3)
 
 
-# ── ACTION ITEMS F1 ───────────────────────────────────────────────────────────
-def evaluate_action_items(pred_items: list, ref_items: list,
-                          ref_items_ja: list = None) -> dict:
+# ── ACTION ITEMS F1 + OWNER + DEADLINE ───────────────────────────────────────
+def evaluate_action_items(
+    pred_items:   list,
+    ref_items:    list,
+    ref_items_ja: list = None,
+) -> dict:
+    """
+    E2 FIX: Now scores task F1, owner accuracy, and deadline accuracy separately.
+
+    task_f1       — token overlap match on task text (unchanged from v5)
+    owner_accuracy — fraction of matched pairs where owner names match
+    deadline_accuracy — fraction of matched pairs where deadlines loosely match
+
+    All three are computed only on matched task pairs, so owner/deadline
+    scores are not penalized for unmatched tasks.
+    """
     if not ref_items:
-        return {"precision": 0.0, "recall": 0.0, "f1": 0.0, "grade": "N/A"}
+        return {
+            "task_precision": 0.0, "task_recall": 0.0, "task_f1": 0.0,
+            "owner_accuracy": None, "deadline_accuracy": None,
+            "grade": "N/A"
+        }
 
     all_ref_items = list(ref_items) + (list(ref_items_ja) if ref_items_ja else [])
-    matched = 0; matched_refs = set()
+    matched       = 0
+    matched_refs  = set()
+    matched_pairs = []   # (pred_item, ref_item) for owner/deadline scoring
 
     for pred in pred_items:
         pred_tokens = set(_ja_tokenize(pred.get("task", "")))
-        best_score = 0.0; best_idx = -1
+        best_score  = 0.0
+        best_idx    = -1
         for idx, ref in enumerate(all_ref_items):
-            if idx in matched_refs: continue
+            if idx in matched_refs:
+                continue
             ref_tokens = set(_ja_tokenize(ref.get("task", "")))
-            if not ref_tokens: continue
+            if not ref_tokens:
+                continue
             score = len(pred_tokens & ref_tokens) / len(ref_tokens)
-            if score > best_score: best_score = score; best_idx = idx
+            if score > best_score:
+                best_score = score
+                best_idx   = idx
         if best_score >= 0.25 and best_idx >= 0:
-            matched += 1; matched_refs.add(best_idx)
+            matched += 1
+            matched_refs.add(best_idx)
+            matched_pairs.append((pred, all_ref_items[best_idx]))
 
     precision = matched / len(pred_items) if pred_items else 0.0
     recall    = matched / len(ref_items)  if ref_items  else 0.0
-    f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
+    task_f1   = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
+
+    # E2 FIX: Owner accuracy on matched pairs
+    owner_correct = 0
+    owner_total   = 0
+    for pred, ref in matched_pairs:
+        ref_owner  = (ref.get("owner") or "").strip()
+        pred_owner = (pred.get("owner") or "").strip()
+        if ref_owner and ref_owner.upper() not in ("TBD", "UNKNOWN", "BOTH", ""):
+            owner_total += 1
+            if _names_match(pred_owner, ref_owner):
+                owner_correct += 1
+
+    owner_accuracy = (
+        round(owner_correct / owner_total, 3) if owner_total > 0 else None
+    )
+
+    # E2 FIX: Deadline accuracy on matched pairs
+    deadline_correct = 0
+    deadline_total   = 0
+    for pred, ref in matched_pairs:
+        ref_dl  = (ref.get("deadline")  or "").strip()
+        pred_dl = (pred.get("deadline") or "").strip()
+        if ref_dl and ref_dl.lower() not in ("tbd", "not specified", "none", ""):
+            deadline_total += 1
+            if _deadlines_match(pred_dl, ref_dl):
+                deadline_correct += 1
+
+    deadline_accuracy = (
+        round(deadline_correct / deadline_total, 3) if deadline_total > 0 else None
+    )
+
     return {
-        "precision": round(precision, 3), "recall": round(recall, 3), "f1": round(f1, 3),
-        "matched": matched, "predicted": len(pred_items), "expected": len(ref_items),
-        "bilingual": ref_items_ja is not None, "grade": _grade(f1)
+        "task_precision":     round(precision, 3),
+        "task_recall":        round(recall, 3),
+        "task_f1":            round(task_f1, 3),
+        "owner_accuracy":     owner_accuracy,
+        "deadline_accuracy":  deadline_accuracy,
+        "matched":            matched,
+        "predicted":          len(pred_items),
+        "expected":           len(ref_items),
+        "bilingual":          ref_items_ja is not None,
+        "note": (
+            "task_f1 = token overlap on task text. "
+            "owner_accuracy and deadline_accuracy are computed only on matched task pairs."
+        ),
+        "grade":              _grade(task_f1)
     }
 
 
@@ -284,34 +429,27 @@ KEIGO_MED_MARKERS = [
 ]
 
 
-def rule_based_japan_check(transcript: str, pred_insights: dict,
-                           prediction: dict = None) -> dict:
-    """
-    v5 FIX: Reads nemawashi from soft_rejection_detector (same as Streamlit UI).
-    Falls back to keyword matching only if soft_rejections not in prediction.
-    Returns complete dict including keigo and code_switching blocks.
-    """
+def rule_based_japan_check(
+    transcript:   str,
+    pred_insights: dict,
+    prediction:   dict = None,
+) -> dict:
     results = {}
 
     # ── Nemawashi ─────────────────────────────────────────────────────────────
     soft         = (prediction or {}).get("soft_rejections", {})
     pred_signals = pred_insights.get("nemawashi_signals", [])
 
-    # Priority 1: soft_rejection_detector output (same as Streamlit Insights tab)
     all_detected = []
     if soft:
         all_detected += [s["phrase"] for s in soft.get("high_signals",   [])]
         all_detected += [s["phrase"] for s in soft.get("medium_signals", [])]
         all_detected += [s["phrase"] for s in soft.get("low_signals",    [])]
-
-    # Priority 2: keyword fallback
     if not all_detected:
         all_detected = [kw for kw in NEMAWASHI_KEYWORDS if kw in transcript]
 
     detected_correctly = [s for s in pred_signals
                           if any(d in s or s in d for d in all_detected)]
-    # If detector found signals and LLM found none, still give credit
-    # (detector IS the ground truth here)
     if all_detected and not detected_correctly:
         detected_correctly = all_detected
 
@@ -362,16 +500,11 @@ def rule_based_japan_check(transcript: str, pred_insights: dict,
     return results
 
 
-# ── MLflow logging helper ──────────────────────────────────────────────────────
+# ── MLflow logging ────────────────────────────────────────────────────────────
 def _log_to_mlflow(report: dict, tc_name: str, provider: str) -> None:
     if not MLFLOW_AVAILABLE:
         return
     try:
-        # C4 fix: URI from env var — not hardcoded to 127.0.0.1:5000.
-        # On HuggingFace the local MLflow server is never running, so
-        # the hardcoded URI caused every eval run to silently log nothing.
-        # If MLFLOW_TRACKING_URI is not set, MLflow uses ./mlruns/ local
-        # file store — works on HF Spaces with no extra server needed.
         tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "")
         if tracking_uri:
             mlflow.set_tracking_uri(tracking_uri)
@@ -380,16 +513,22 @@ def _log_to_mlflow(report: dict, tc_name: str, provider: str) -> None:
             mlflow.log_param("test_case",    tc_name)
             mlflow.log_param("provider",     provider)
             mlflow.log_param("model",        "llama-3.3-70b-versatile")
-            mlflow.log_param("eval_version", report.get("version", "v5"))
+            mlflow.log_param("eval_version", report.get("version", "v6"))
 
-            mlflow.log_metric("overall_score",    report.get("overall_score", 0))
-            mlflow.log_metric("semantic_score",   report["summary"].get("semantic_score", 0))
-            mlflow.log_metric("rouge1_f1",        report["summary"].get("avg_rouge1_f1", 0))
-            mlflow.log_metric("action_f1",        report["action_items"].get("f1", 0))
-            mlflow.log_metric("action_precision", report["action_items"].get("precision", 0))
-            mlflow.log_metric("action_recall",    report["action_items"].get("recall", 0))
-            mlflow.log_metric("sentiment_exact",  report["sentiment"].get("accuracy", 0))
-            mlflow.log_metric("sentiment_soft",   report["sentiment"].get("soft_accuracy", 0))
+            mlflow.log_metric("overall_score",         report.get("overall_score", 0))
+            # E1 FIX: key renamed from semantic_score to lexical_summary_score
+            mlflow.log_metric("lexical_summary_score", report["summary"].get("lexical_summary_score", 0))
+            mlflow.log_metric("rouge1_f1",             report["summary"].get("avg_rouge1_f1", 0))
+            # E2 FIX: log task_f1 + owner_accuracy + deadline_accuracy separately
+            mlflow.log_metric("task_f1",               report["action_items"].get("task_f1", 0))
+            mlflow.log_metric("task_precision",        report["action_items"].get("task_precision", 0))
+            mlflow.log_metric("task_recall",           report["action_items"].get("task_recall", 0))
+            if report["action_items"].get("owner_accuracy") is not None:
+                mlflow.log_metric("owner_accuracy",    report["action_items"]["owner_accuracy"])
+            if report["action_items"].get("deadline_accuracy") is not None:
+                mlflow.log_metric("deadline_accuracy", report["action_items"]["deadline_accuracy"])
+            mlflow.log_metric("sentiment_exact",       report["sentiment"].get("accuracy", 0))
+            mlflow.log_metric("sentiment_soft",        report["sentiment"].get("soft_accuracy", 0))
 
             if "japan_insights" in report:
                 ji = report["japan_insights"]
@@ -407,8 +546,13 @@ def _log_to_mlflow(report: dict, tc_name: str, provider: str) -> None:
 
 
 # ── MASTER EVALUATOR ──────────────────────────────────────────────────────────
-def evaluate(prediction: dict, ground_truth: dict, transcript: str = "",
-             tc_name: str = "unknown", provider: str = "unknown") -> dict:
+def evaluate(
+    prediction:   dict,
+    ground_truth: dict,
+    transcript:   str = "",
+    tc_name:      str = "unknown",
+    provider:     str = "unknown",
+) -> dict:
     report = {}
 
     if transcript and "japan_insights" in prediction:
@@ -434,16 +578,16 @@ def evaluate(prediction: dict, ground_truth: dict, transcript: str = "",
         acceptable_map=ground_truth.get("sentiment_acceptable", {}))
 
     if transcript:
-        # v5 FIX: pass full prediction — nemawashi reads soft_rejection_detector
         report["japan_insights"] = rule_based_japan_check(
             transcript,
             prediction.get("japan_insights", {}),
             prediction=prediction
         )
 
+    # E1 FIX: reference lexical_summary_score (was semantic_score)
     scores = [
-        report["summary"]["semantic_score"],
-        report["action_items"]["f1"],
+        report["summary"]["lexical_summary_score"],
+        report["action_items"]["task_f1"],
         report["sentiment"]["soft_accuracy"]
     ]
     report["overall_score"] = round(sum(scores) / len(scores) * 100, 1)
@@ -457,7 +601,7 @@ def evaluate(prediction: dict, ground_truth: dict, transcript: str = "",
             min(100, report["overall_score"] + hallucination_bonus * 100), 1)
         report["hallucination_risk"] = prediction["verification"].get("risk_label", "UNKNOWN")
 
-    report["version"]  = "v5 — nemawashi reads soft_rejection_detector + MLflow"
+    report["version"]  = "v6 — lexical_summary_score + owner/deadline accuracy"
     report["provider"] = provider
 
     _log_to_mlflow(report, tc_name, provider)
@@ -479,16 +623,17 @@ if __name__ == "__main__":
             prediction, tc["ground_truth"], tc["transcript"],
             tc_name=tc["name"], provider=prediction.get("_provider", "unknown")
         )
-        print(f"Overall:    {report['overall_score']}% — {report['overall_grade']}")
-        print(f"Semantic:   {report['summary']['semantic_score']}")
-        print(f"Actions F1: {report['action_items']['f1']}")
-        print(f"Sentiment:  {report['sentiment']['soft_accuracy']}")
+        print(f"Overall:          {report['overall_score']}% — {report['overall_grade']}")
+        print(f"Lexical summary:  {report['summary']['lexical_summary_score']}")
+        print(f"Task F1:          {report['action_items']['task_f1']}")
+        print(f"Owner accuracy:   {report['action_items']['owner_accuracy']}")
+        print(f"Deadline accuracy:{report['action_items']['deadline_accuracy']}")
+        print(f"Sentiment:        {report['sentiment']['soft_accuracy']}")
         if "japan_insights" in report:
             ji = report["japan_insights"]
-            print(f"Keigo:      {ji['keigo']['grade']}")
-            print(f"Nemawashi:  precision={ji['nemawashi']['precision']} "
-                  f"recall={ji['nemawashi']['recall']} "
-                  f"source={ji['nemawashi']['source']} "
-                  f"detected={ji['nemawashi']['rule_detected']}")
+            print(f"Keigo:            {ji['keigo']['grade']}")
+            print(f"Nemawashi:        recall={ji['nemawashi']['recall']} "
+                  f"source={ji['nemawashi']['source']}")
         if MLFLOW_AVAILABLE:
-            print(f"MLflow:     logged to {os.getenv('MLFLOW_TRACKING_URI', './mlruns (local file store)')}")
+            print(f"MLflow:           logged to "
+                  f"{os.getenv('MLFLOW_TRACKING_URI', './mlruns')}")
