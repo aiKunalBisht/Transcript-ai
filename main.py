@@ -1,33 +1,32 @@
-# main.py - TranscriptAI v3.3
+# main.py — TranscriptAI v3.4
 # FastAPI server. Run: uvicorn main:app --reload --port 7860
 #
-# v3.3 changes:
-#   - slowapi rate limiting on /analyze-text (10/minute per IP)
-#   - Fixed double PII masking — analyzer.py handles masking internally
-#     main.py no longer masks before calling analyze_transcript()
-#   - Replaced local SQLite user storage with Firebase Firestore
-#     Users now persist across HuggingFace redeploys
-#   - Firebase fallback: if FIREBASE_SERVICE_ACCOUNT not set, silently skips
-#   - SESSION_SECRET hardcoded fallback removed — must be set via env var
-#   - CORS fixed: explicit origins, wildcard + credentials contradiction resolved
-#   - Password actually verified via bcrypt on /login (both sign-in and sign-up)
-#   - health endpoint: appi_compliant → pii_masking (matches README)
+# REQUIRES: api/async_processor.py v2.1 (user_id + requesting_user params).
+#           Drop the v2.1 file generated in this session before deploying.
 #
-# v3.3.1 changes (this file):
-#   - FastAPI lifespan context manager replaces deprecated @app.on_event
-#     Calls async_processor.startup() / shutdown() so the thread pool and
-#     cleanup daemon start/stop cleanly with the server process.
-#   - RAG evaluation integrated into /evaluate/run via utils/rag_evaluator.py
-#     Adds faithfulness, answer_relevancy, context_precision, hallucination_rate
-#     to each test-case report. Logs to MLflow under nested runs.
-#   - Fixed: get_job_result(timeout_sec=0) was silently raising TimeoutError
-#     for every completed job — fixed inside async_processor.py (no call-site
-#     change needed here; the route is already correct).
+# v3.4 fixes applied over v3.3.1:
 #
-# v3.1/3.2 retained:
-#   - Google OAuth auth routes (/auth/login, /auth/callback, /auth/logout, /auth/me)
-#   - SessionMiddleware + aiosqlite removed (replaced by Firebase)
-#   - All export routes, health check, SEO routes unchanged
+#   FIX 1 — /evaluate/run uses 20-scenario suite instead of 3 TEST_CASES.
+#     Imports utils/scenario_loader.py. Scenario count on /evaluate page
+#     is now a live count from tests/scenarios/*.json, not a constant.
+#
+#   FIX 2 — user_id flows through async job submission.
+#     /jobs/submit captures get_current_user(request) before submit_job()
+#     and passes it as user_id= so the async worker uses the per-user cache.
+#
+#   FIX 3 — /jobs/{job_id} enforces ownership.
+#     get_job_status() and get_job_result() both receive requesting_user.
+#     Cross-user reads return 404 — existence of the job is not revealed.
+#
+#   FIX 4 — Rate limits on /transcribe and /evaluate/run.
+#     /transcribe:    5/minute (Groq Whisper is expensive per call).
+#     /evaluate/run:  3/minute (runs N full LLM analyses in parallel).
+#     Both now accept request: Request as required by slowapi.
+#
+#   FIX 5 — mask_pii form parameter removed from /analyze-text.
+#     It appeared to toggle PII masking but did nothing. analyzer.py handles
+#     masking internally in Stage A3+A4. A security toggle that ignores its
+#     value is misleading — removed entirely.
 
 import asyncio
 import io
@@ -46,13 +45,13 @@ from fastapi.templating import Jinja2Templates
 from dotenv import load_dotenv
 load_dotenv()
 
-# ── Rate limiting ─────────────────────────────────────────────────────────────
+# ── Rate limiting ──────────────────────────────────────────────────────────────
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
-# ── Optional Google OAuth ─────────────────────────────────────────────────────
-AUTH_ENABLED = os.getenv("AUTH_ENABLED", "0") == "1"
+# ── Optional Google OAuth ──────────────────────────────────────────────────────
+AUTH_ENABLED    = os.getenv("AUTH_ENABLED", "0") == "1"
 _AUTH_AVAILABLE = False
 
 try:
@@ -106,10 +105,10 @@ from analysis.analyzer import analyze_transcript
 from utils import detect_language, clean_text, parse_uploaded_file
 from utils.html_renderer import build_results_html
 
-# ── Firebase user storage ─────────────────────────────────────────────────────
+# ── Firebase user storage ──────────────────────────────────────────────────────
 try:
     from utils.firebase_client import (
-        upsert_user_firebase     as _upsert_user_fb,
+        upsert_user_firebase       as _upsert_user_fb,
         get_user_by_email_firebase as _get_user_by_email_fb,
     )
     _FIREBASE_AVAILABLE = True
@@ -130,7 +129,7 @@ async def _get_user_by_email(email: str) -> dict | None:
     return None
 
 
-# ── Optional modules ──────────────────────────────────────────────────────────
+# ── Optional modules ───────────────────────────────────────────────────────────
 try:
     from transcription.pii_masker import mask_transcript, restore_pii_in_result, get_pii_report
     PII_AVAILABLE = True
@@ -204,11 +203,11 @@ except ImportError:
     def get_features(lang):
         has_ja = lang in ("ja", "mixed")
         return {
-            "show_japan_insights":      has_ja,
-            "show_hindi_insights":      lang == "hi",
-            "show_english_insights":    lang == "en",
-            "show_bilingual_insights":  lang == "mixed" and not has_ja,
-            "show_code_switch":         has_ja,
+            "show_japan_insights":     has_ja,
+            "show_hindi_insights":     lang == "hi",
+            "show_english_insights":   lang == "en",
+            "show_bilingual_insights": lang == "mixed" and not has_ja,
+            "show_code_switch":        has_ja,
             "insight_tab_label": (
                 "🔍 Communication Intelligence" if has_ja else
                 "💬 English Analysis"           if lang == "en" else
@@ -218,7 +217,7 @@ except ImportError:
             "insight_tab_enabled": True,
         }
 
-# ── Async job processor ───────────────────────────────────────────────────────
+# ── Async job processor ────────────────────────────────────────────────────────
 try:
     from api.async_processor import (
         submit_job,
@@ -230,18 +229,22 @@ try:
 except ImportError:
     ASYNC_PROCESSOR_AVAILABLE = False
 
-# ── Evaluation module ─────────────────────────────────────────────────────────
+# ── Evaluation — FIX 1: scenario_loader replaces TEST_CASES ───────────────────
 try:
     from utils.evaluator import evaluate, MLFLOW_AVAILABLE
-    from tests.test_data import TEST_CASES
     from utils.html_renderer import build_evaluation_html
+    from utils.scenario_loader import (
+        load_scenarios       as _load_scenarios,
+        get_scenario_summary as _get_scenario_summary,
+    )
     EVAL_AVAILABLE = True
 except ImportError:
-    EVAL_AVAILABLE = False
+    EVAL_AVAILABLE   = False
     MLFLOW_AVAILABLE = False
-    TEST_CASES = []
+    def _load_scenarios()       -> list: return []
+    def _get_scenario_summary() -> dict: return {"total": 0, "by_lang": {}, "by_outcome": {}, "by_risk": {}}
 
-# ── RAG evaluation module ─────────────────────────────────────────────────────
+# ── RAG evaluation ─────────────────────────────────────────────────────────────
 try:
     from utils.rag_evaluator import evaluate_rag
     RAG_EVAL_AVAILABLE = True
@@ -252,36 +255,26 @@ AUDIO_EXT = {".mp3", ".wav", ".m4a", ".mp4", ".ogg", ".webm"}
 TEXT_EXT  = {".txt", ".vtt", ".json"}
 
 
-# ── Lifespan ──────────────────────────────────────────────────────────────────
-# Replaces deprecated @app.on_event("startup") / ("shutdown").
-# Starts the async_processor thread pool and cleanup daemon on server start,
-# drains in-flight jobs cleanly before the process exits.
+# ── Lifespan ───────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
     if ASYNC_PROCESSOR_AVAILABLE:
         from api.async_processor import startup as _async_startup
         _async_startup()
-
-    yield   # server is running
-
-    # Shutdown — drains in-flight jobs before HF Spaces kills the process
+    yield
     if ASYNC_PROCESSOR_AVAILABLE:
         from api.async_processor import shutdown as _async_shutdown
         _async_shutdown()
 
 
-# ── App ───────────────────────────────────────────────────────────────────────
+# ── App ────────────────────────────────────────────────────────────────────────
 app = FastAPI(
     title="TranscriptAI",
-    version="3.3.1",
+    version="3.4",
     docs_url="/docs",
     lifespan=lifespan,
 )
 
-# CORS — explicit origins only.
-# allow_origins=["*"] and allow_credentials=True cannot be used together —
-# browsers reject the combination. Use an explicit list instead.
 _ALLOWED_ORIGINS = os.getenv(
     "ALLOWED_ORIGINS",
     "https://kunalthebeast-transcriptai.hf.space,http://localhost:7860,http://127.0.0.1:7860"
@@ -295,7 +288,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Rate limiter ──────────────────────────────────────────────────────────────
+# ── Rate limiter ───────────────────────────────────────────────────────────────
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -306,8 +299,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 
-
-# ── Speaker label detection ───────────────────────────────────────────────────
+# ── Speaker label detection ────────────────────────────────────────────────────
 import re as _re
 
 _SPEAKER_PATTERNS = [
@@ -318,7 +310,7 @@ _SPEAKER_PATTERNS = [
 
 def _has_speaker_labels(text: str) -> bool:
     lines = [l.strip() for l in text.split("\n") if l.strip()]
-    hits = sum(
+    hits  = sum(
         1 for line in lines[:40]
         if any(_re.match(p, line) for p in _SPEAKER_PATTERNS)
     )
@@ -345,7 +337,7 @@ def _ensure_speaker_labels(text: str):
     return "\n".join(labeled), True
 
 
-# ── Cache stats ───────────────────────────────────────────────────────────────
+# ── Cache stats ────────────────────────────────────────────────────────────────
 def _get_cache_stats(user_id: str | None = None) -> dict | None:
     try:
         from utils.vector_cache import get_cache_stats
@@ -355,7 +347,10 @@ def _get_cache_stats(user_id: str | None = None) -> dict | None:
         return None
 
 
-# ── Pages ─────────────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# Pages
+# ══════════════════════════════════════════════════════════════════════════════
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse(request, "index.html", {
@@ -421,7 +416,6 @@ async def login_submit(
         pw_hash = _bcrypt.hashpw(password.encode(), _bcrypt.gensalt()).decode()
         await _upsert_user(user_id=user_id, email=clean_email,
                            name=display_name, password_hash=pw_hash)
-
     else:
         if _FIREBASE_AVAILABLE:
             user = await _get_user_by_email(clean_email)
@@ -454,7 +448,7 @@ async def login_submit(
     return RedirectResponse("/", status_code=303)
 
 
-# ── Auth routes ───────────────────────────────────────────────────────────────
+# ── Auth routes ────────────────────────────────────────────────────────────────
 @app.get("/auth/login")
 async def auth_login(request: Request):
     if not AUTH_ENABLED or not _oauth:
@@ -509,87 +503,106 @@ async def auth_me(request: Request):
 @app.get("/export", response_class=HTMLResponse)
 async def export_page(request: Request):
     return templates.TemplateResponse(request, "export.html", {
-        "pptx_available":               PPTX_AVAILABLE,
-        "gijiroku_available":           GIJIROKU_AVAILABLE,
-        "cultural_insights_available":  CULTURAL_INSIGHTS_AVAILABLE,
-        "cache_stats":                  _get_cache_stats(get_current_user(request)),
-        "current_user":                 get_current_user(request),
-        "auth_enabled":                 AUTH_ENABLED,
+        "pptx_available":              PPTX_AVAILABLE,
+        "gijiroku_available":          GIJIROKU_AVAILABLE,
+        "cultural_insights_available": CULTURAL_INSIGHTS_AVAILABLE,
+        "cache_stats":                 _get_cache_stats(get_current_user(request)),
+        "current_user":                get_current_user(request),
+        "auth_enabled":                AUTH_ENABLED,
     })
 
 
+# ── FIX 1: live scenario count from disk ──────────────────────────────────────
 @app.get("/evaluate", response_class=HTMLResponse)
 async def evaluate_page(request: Request):
+    summary = _get_scenario_summary() if EVAL_AVAILABLE else {
+        "total": 0, "by_lang": {}, "by_outcome": {}, "by_risk": {}
+    }
     return templates.TemplateResponse(request, "evaluate.html", {
-        "eval_available":   EVAL_AVAILABLE,
-        "test_case_count":  len(TEST_CASES) if EVAL_AVAILABLE else 0,
-        "mlflow_available": MLFLOW_AVAILABLE,
-        "cache_stats":      _get_cache_stats(get_current_user(request)),
-        "current_user":     get_current_user(request),
-        "auth_enabled":     AUTH_ENABLED,
+        "eval_available":    EVAL_AVAILABLE,
+        "test_case_count":   summary["total"],
+        "scenario_summary":  summary,
+        "mlflow_available":  MLFLOW_AVAILABLE,
+        "cache_stats":       _get_cache_stats(get_current_user(request)),
+        "current_user":      get_current_user(request),
+        "auth_enabled":      AUTH_ENABLED,
     })
 
 
+# ── FIX 1 + FIX 4: 20 scenarios, rate-limited ─────────────────────────────────
 @app.post("/evaluate/run", response_class=HTMLResponse)
-async def evaluate_run():
+@limiter.limit("3/minute")   # FIX 4: N parallel LLM calls per run
+async def evaluate_run(request: Request):
     if not EVAL_AVAILABLE:
+        return HTMLResponse(content=_err("Evaluation module unavailable."), status_code=500)
+
+    scenarios = _load_scenarios()   # FIX 1: reads tests/scenarios/*.json
+    if not scenarios:
         return HTMLResponse(
-            content=_err("Evaluation module unavailable."),
-            status_code=500,
-        )
-    if not TEST_CASES:
-        return HTMLResponse(
-            content=_err("No ground-truth test cases found in tests/test_data.py."),
+            content=_err(
+                "No scenario files found in tests/scenarios/. "
+                "Add *.json files with id, language, transcript, expected keys."
+            ),
             status_code=400,
         )
 
-    async def _run_one(tc: dict) -> dict:
+    user_id = get_current_user(request)
+
+    async def _run_one(sc: dict) -> dict:
+        transcript = sc.get("transcript", "")
+        language   = sc.get("language", "en")
+        expected   = sc.get("expected", {})
+
         prediction = await asyncio.to_thread(
-            analyze_transcript, tc["transcript"], tc["language"], bypass_cache=True
-        )
-        report = await asyncio.to_thread(
-            evaluate, prediction, tc["ground_truth"], tc["transcript"],
-            tc_name=tc["name"], provider=prediction.get("_provider", "unknown"),
+            analyze_transcript, transcript, language,
+            user_id=user_id, bypass_cache=True,
         )
 
-        # ── RAG evaluation ────────────────────────────────────────────
-        # Runs after main eval so it doesn't block accuracy scoring.
-        # bypass_cache=True above means cached_transcript is N/A here —
-        # context_precision will return the neutral 1.0 in that mode.
+        report = await asyncio.to_thread(
+            evaluate, prediction, expected, transcript,
+            tc_name=sc["id"],
+            provider=prediction.get("_provider", "unknown"),
+        )
+
         if RAG_EVAL_AVAILABLE:
             try:
                 rag_report = await asyncio.to_thread(
                     evaluate_rag,
-                    tc["transcript"],   # source transcript
-                    prediction,         # full analysis result dict
-                    None,               # cached_transcript (N/A in bypass mode)
-                    False,              # cache_hit
-                    tc["name"],         # label for MLflow run
-                    MLFLOW_AVAILABLE,   # log_to_mlflow
+                    transcript, prediction, None, False,
+                    sc["id"], MLFLOW_AVAILABLE,
                 )
                 report["rag_metrics"] = rag_report
             except Exception as exc:
                 report["rag_metrics"] = {"error": str(exc)}
-        # ─────────────────────────────────────────────────────────────
 
         return {
-            "tc_id":       tc["id"],
-            "tc_name":     tc["name"],
+            "tc_id":       sc["id"],
+            "tc_name":     sc.get("id", ""),
+            "language":    language,
             "provider":    prediction.get("_provider", "unknown"),
             "duration_ms": prediction.get("_duration_ms", 0),
-            "report":      report,
+            "expected":    expected,
+            "actual": {
+                "deal_outcome": prediction.get("deal_outcome"),
+                "risk_level":   prediction.get("risk_level"),
+            },
+            "report": report,
         }
 
     try:
-        reports = await asyncio.gather(*[_run_one(tc) for tc in TEST_CASES])
+        reports = await asyncio.gather(*[_run_one(sc) for sc in scenarios])
     except Exception as exc:
-        return HTMLResponse(content=_err(f"Evaluation run failed: {exc}"), status_code=500)
+        return HTMLResponse(content=_err(f"Evaluation failed: {exc}"), status_code=500)
 
     html = build_evaluation_html(list(reports), MLFLOW_AVAILABLE)
     return HTMLResponse(content=html)
 
 
-# ── Job queue routes ──────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# Job queue routes
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── FIX 2: user_id captured and forwarded to submit_job ───────────────────────
 @app.post("/jobs/submit")
 @limiter.limit("10/minute")
 async def jobs_submit(
@@ -599,37 +612,24 @@ async def jobs_submit(
 ):
     """
     Submit a transcript for async analysis.
-    Returns a job_id immediately (non-blocking).
-    Client polls /jobs/{job_id} until status == "done".
-
-    This is the non-blocking alternative to /analyze-text.
-    Use when you need the frontend to remain responsive during analysis.
-
-    Frontend pattern:
-        const res  = await fetch("/jobs/submit", { method: "POST", body: formData })
-        const { job_id } = await res.json()
-        sessionStorage.setItem("tai_job_id", job_id)
-        // poll /jobs/{job_id} every 500ms
+    Returns job_id immediately — non-blocking.
+    Poll /jobs/{job_id} until status == "done".
     """
     if not ASYNC_PROCESSOR_AVAILABLE:
-        return JSONResponse(
-            {"error": "Async processor not available"},
-            status_code=503,
-        )
+        return JSONResponse({"error": "Async processor not available"}, status_code=503)
     if len(transcript.strip()) < 20:
-        return JSONResponse(
-            {"error": "Transcript too short (min 20 chars)"},
-            status_code=400,
-        )
+        return JSONResponse({"error": "Transcript too short (min 20 chars)"}, status_code=400)
 
     cleaned       = clean_text(transcript)
     detected_lang = language or detect_language(cleaned)
     cleaned, _    = _ensure_speaker_labels(cleaned)
 
+    # FIX 2: capture before submit so ownership is stored on the job
+    user_id = get_current_user(request)
+
     try:
-        job_id = submit_job(cleaned, detected_lang)
+        job_id = submit_job(cleaned, detected_lang, user_id=user_id)
     except RuntimeError as exc:
-        # Job store at capacity — back-pressure
         return JSONResponse({"error": str(exc)}, status_code=503)
 
     return JSONResponse({
@@ -639,37 +639,26 @@ async def jobs_submit(
     })
 
 
+# ── FIX 3: ownership enforced on both status and result reads ─────────────────
 @app.get("/jobs/{job_id}")
 async def jobs_status(job_id: str, request: Request):
     """
     Poll job status and retrieve result when done.
 
+    FIX 3: requesting_user passed to both get_job_status() and get_job_result().
+    Cross-user reads return 404 — job existence is not revealed to other users.
+
     Returns:
         status: "queued" | "running" | "done" | "failed"
-        result: analysis result dict (only when status == "done")
-        error:  error message (only when status == "failed")
-
-    Frontend polling pattern:
-        const poll = setInterval(async () => {
-            const res  = await fetch(`/jobs/${job_id}`)
-            const data = await res.json()
-            if (data.status === "done") {
-                clearInterval(poll)
-                renderResult(data.result)
-            }
-            if (data.status === "failed") {
-                clearInterval(poll)
-                showError(data.error)
-            }
-        }, 500)
+        result: analysis dict (only when status == "done")
+        error:  message (only when status == "failed")
     """
     if not ASYNC_PROCESSOR_AVAILABLE:
-        return JSONResponse(
-            {"error": "Async processor not available"},
-            status_code=503,
-        )
+        return JSONResponse({"error": "Async processor not available"}, status_code=503)
 
-    status = get_job_status(job_id)
+    # FIX 3: ownership check on status
+    user_id = get_current_user(request)
+    status  = get_job_status(job_id, requesting_user=user_id)
     if "error" in status:
         return JSONResponse(status, status_code=404)
 
@@ -681,10 +670,10 @@ async def jobs_status(job_id: str, request: Request):
 
     if status["status"] == "done":
         try:
-            # timeout_sec=0 is safe: async_processor.get_job_result does an
-            # immediate check before entering the poll loop, so a completed
-            # job is returned in microseconds regardless of the timeout value.
-            result = get_job_result(job_id, timeout_sec=0)
+            # FIX 3: ownership check on result
+            result = get_job_result(
+                job_id, timeout_sec=0, requesting_user=user_id
+            )
 
             if SOFT_REJECTION_AVAILABLE:
                 result["soft_rejections"] = detect_soft_rejections(
@@ -710,50 +699,41 @@ async def jobs_status(job_id: str, request: Request):
 
 @app.get("/jobs/queue/stats")
 async def jobs_queue_stats():
-    """
-    Returns current job queue statistics.
-    Useful for monitoring and debugging.
-
-    Example response:
-        {
-            "total": 12,
-            "queued": 2,
-            "running": 1,
-            "done": 8,
-            "failed": 1,
-            "avg_duration_ms": 1820.5
-        }
-    """
+    """Returns current job queue statistics."""
     if not ASYNC_PROCESSOR_AVAILABLE:
-        return JSONResponse(
-            {"error": "Async processor not available"},
-            status_code=503,
-        )
+        return JSONResponse({"error": "Async processor not available"}, status_code=503)
     return JSONResponse(get_queue_stats())
 
 
-# ── /transcribe ───────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# /transcribe
+# ══════════════════════════════════════════════════════════════════════════════
+
 class _FileShim:
     def __init__(self, filename: str, data: bytes):
-        self.name = filename
+        self.name  = filename
         self._data = data
     def getvalue(self): return self._data
     def read(self):     return self._data
 
 
+# FIX 4: rate-limited + request: Request added (required by slowapi)
 @app.post("/transcribe")
-async def transcribe(file: UploadFile = File(...)):
+@limiter.limit("5/minute")
+async def transcribe(request: Request, file: UploadFile = File(...)):
     filename = file.filename or ""
-    ext = Path(filename).suffix.lower()
-    content = await file.read()
+    ext      = Path(filename).suffix.lower()
+    content  = await file.read()
 
     if ext in AUDIO_EXT:
         if not AUDIO_AVAILABLE:
             return JSONResponse({"success": False, "error": "Audio transcription module unavailable."})
         size_mb = len(content) / (1024 * 1024)
         if size_mb > MAX_FILE_SIZE_MB:
-            return JSONResponse({"success": False,
-                                 "error": f"File too large ({size_mb:.1f} MB). Max: {MAX_FILE_SIZE_MB} MB"})
+            return JSONResponse({
+                "success": False,
+                "error":   f"File too large ({size_mb:.1f} MB). Max: {MAX_FILE_SIZE_MB} MB",
+            })
         try:
             res = await asyncio.to_thread(transcribe_audio, content, filename)
         except Exception as exc:
@@ -763,7 +743,8 @@ async def transcribe(file: UploadFile = File(...)):
         seg  = format_transcript_with_timestamps(res.get("segments", []))
         text = seg or res.get("text", "")
         return JSONResponse({
-            "success": True, "transcript": text,
+            "success": True,
+            "transcript": text,
             "meta": {
                 "duration": res.get("duration", 0),
                 "language": res.get("language", "?"),
@@ -773,7 +754,7 @@ async def transcribe(file: UploadFile = File(...)):
 
     if ext in TEXT_EXT:
         try:
-            shim = _FileShim(filename, content)
+            shim   = _FileShim(filename, content)
             parsed = parse_uploaded_file(shim)
             return JSONResponse({"success": True, "transcript": parsed,
                                  "meta": {"chars": len(parsed)}})
@@ -783,19 +764,20 @@ async def transcribe(file: UploadFile = File(...)):
     return JSONResponse({"success": False, "error": f"Unsupported file type: {ext}"})
 
 
-# ── /analyze-text ─────────────────────────────────────────────────────────────
-# v3.3 FIX: Removed double PII masking.
-# analyzer.py already handles masking internally (Stage A3) and restoration (Stage A4).
-# main.py previously masked the text BEFORE passing to analyze_transcript(),
-# causing double masking: [NAME_1] → [NAME_1_1], breaking PII restoration.
-# Now main.py passes the cleaned raw text directly — analyzer handles everything.
+# ══════════════════════════════════════════════════════════════════════════════
+# /analyze-text
+# ══════════════════════════════════════════════════════════════════════════════
+
+# FIX 5: mask_pii removed. It appeared to toggle PII masking but did nothing.
+# analyzer.py handles masking in Stage A3 and restoration in Stage A4.
+# API callers that sent mask_pii=false should simply drop that field.
 @app.post("/analyze-text", response_class=HTMLResponse)
-@limiter.limit("10/minute")
+@limiter.limit("3/minute")
 async def analyze_text_route(
     request:    Request,
     transcript: str           = Form(...),
     language:   Optional[str] = Form(None),
-    mask_pii:   bool          = Form(True),
+    # mask_pii removed — FIX 5
 ):
     if len(transcript.strip()) < 20:
         return HTMLResponse(content=_err("Transcript too short (min 20 chars)."), status_code=400)
@@ -806,7 +788,7 @@ async def analyze_text_route(
 
         result = await asyncio.to_thread(
             analyze_transcript, cleaned, detected_lang,
-            user_id=get_current_user(request)
+            user_id=get_current_user(request),
         )
 
         if SOFT_REJECTION_AVAILABLE:
@@ -829,14 +811,16 @@ async def analyze_text_route(
         return HTMLResponse(content=_err(str(exc)), status_code=500)
 
 
-# ── Export routes ─────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# Export routes — unchanged from v3.3.1
+# ══════════════════════════════════════════════════════════════════════════════
+
 @app.post("/export/pptx")
 async def export_pptx(request: Request):
     if not PPTX_AVAILABLE or not SLIDE_ARCHITECT_AVAILABLE:
         raise HTTPException(503, "PPTX builder not available")
     body   = await request.json()
     result = body.get("result", body)
-
     from analysis.analyzer import _get_groq_key
     agent = SlideArchitectAgent(groq_api_key=_get_groq_key())
     plan  = await asyncio.to_thread(
@@ -880,8 +864,8 @@ async def export_gijiroku(request: Request):
 
 @app.post("/export/markdown")
 async def export_markdown(request: Request):
-    body = await request.json()
-    r    = body.get("result", body)
+    body  = await request.json()
+    r     = body.get("result", body)
     lines = ["# Meeting Analysis\n"]
     if r.get("full_summary"): lines += ["## Overview\n", r["full_summary"], "\n"]
     if r.get("summary"):      lines += ["## Key Points\n"] + [f"- {b}\n" for b in r["summary"]]
@@ -889,8 +873,10 @@ async def export_markdown(request: Request):
         lines += ["\n## Action Items\n"]
         for i in r["action_items"]:
             flag = " ⚠" if i.get("hallucination_flag") else ""
-            lines.append(f"- **{i.get('task','')}**{flag}  \n"
-                         f"  Owner: {i.get('owner','TBD')}  Deadline: {i.get('deadline','TBD')}\n")
+            lines.append(
+                f"- **{i.get('task','')}**{flag}  \n"
+                f"  Owner: {i.get('owner','TBD')}  Deadline: {i.get('deadline','TBD')}\n"
+            )
     md = "".join(lines)
     return StreamingResponse(
         io.BytesIO(md.encode("utf-8")), media_type="text/markdown",
@@ -910,8 +896,8 @@ async def export_json_route(request: Request):
 
 @app.post("/export/txt")
 async def export_txt_route(request: Request):
-    body = await request.json()
-    r    = body.get("result", body)
+    body  = await request.json()
+    r     = body.get("result", body)
     lines = ["MEETING ANALYSIS", "=" * 40, ""]
     if r.get("full_summary"):
         lines += ["OVERVIEW", "-" * 20, r["full_summary"], ""]
@@ -945,18 +931,23 @@ async def export_txt_route(request: Request):
     )
 
 
-# ── Health ────────────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# Health / SEO
+# ══════════════════════════════════════════════════════════════════════════════
+
 @app.get("/health")
 async def health():
+    scenario_count = _get_scenario_summary().get("total", 0) if EVAL_AVAILABLE else 0
     return {
-        "status":          "healthy",
-        "version":         "3.3.1",
-        "provider":        os.getenv("TRANSCRIPT_AI_PROVIDER", "auto"),
-        "nim_configured":  bool(os.getenv("NIM_API_KEY")),
-        "groq_configured": bool(os.getenv("GROQ_API_KEY")),
-        "pii_masking":     PII_AVAILABLE,
-        "auth_enabled":    AUTH_ENABLED,
-        "firebase":        _FIREBASE_AVAILABLE,
+        "status":           "healthy",
+        "version":          "3.4",
+        "provider":         os.getenv("TRANSCRIPT_AI_PROVIDER", "auto"),
+        "nim_configured":   bool(os.getenv("NIM_API_KEY")),
+        "groq_configured":  bool(os.getenv("GROQ_API_KEY")),
+        "pii_masking":      PII_AVAILABLE,
+        "auth_enabled":     AUTH_ENABLED,
+        "firebase":         _FIREBASE_AVAILABLE,
+        "scenario_count":   scenario_count,
         "modules": {
             "audio":             AUDIO_AVAILABLE,
             "pii_masker":        PII_AVAILABLE,
@@ -974,7 +965,6 @@ async def health():
     }
 
 
-# ── SEO ───────────────────────────────────────────────────────────────────────
 @app.get("/robots.txt", response_class=HTMLResponse)
 async def robots_txt():
     return HTMLResponse(open("robots.txt").read(), media_type="text/plain")
@@ -1021,7 +1011,7 @@ async def manifest():
     })
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── Helpers ────────────────────────────────────────────────────────────────────
 def _err(msg: str) -> str:
     return (
         f'<div style="background:var(--red-bg);border-left:3px solid var(--red);'
@@ -1032,7 +1022,10 @@ def _err(msg: str) -> str:
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0",
-                port=int(os.getenv("PORT", 7860)),
-                reload=os.getenv("ENV") == "development",
-                workers=1)
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", 7860)),
+        reload=os.getenv("ENV") == "development",
+        workers=1,
+    )

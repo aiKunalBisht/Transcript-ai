@@ -1,22 +1,18 @@
-# utils/cache.py — v2.0
-# MD5 content-addressable cache — per-user namespaced.
+# utils/cache.py — v2.1
+# MD5 content-addressable cache — strictly per-user.
 #
-# v2.0 changes (multi-user safety):
-#   - user_id parameter added to _cache_key(), get_cached(), set_cache()
-#   - Each user gets their own subdirectory: cache/users/{safe_user_id}/
-#   - Anonymous / unauthenticated requests use "anonymous" namespace
-#     (shared, same behaviour as v1 — safe because anon users are read-only
-#      on HF Spaces; no personal data in their transcripts)
-#   - filelock added to set_cache() — prevents corruption under workers=2+
-#   - get_user_cache_stats() added — per-user entry count for dashboard
-#
-# DSA: O(n) hash per key, O(1) file stat for hit/miss check.
-# No DB, no migrations — just files. At 65 users × 30 days = 1,950 files,
-# each ~8KB → 15MB total. SQLite makes sense above ~10,000 entries.
+# v2.1 changes vs v2.0:
+#   - Anonymous/unauthenticated requests are BLOCKED entirely.
+#     get_cached() returns None, set_cache() is a no-op for user_id=None.
+#     Reason: result is stored AFTER PII restoration — anonymous
+#     cross-user leakage is a real risk, not just theoretical.
+#   - ANON_DIR removed — no anonymous namespace at all.
+#   - _user_cache_dir() raises if user_id is falsy (belt + suspenders).
+#   - clear_cache() only touches USER_DIR (no ANON_DIR to clear).
+#   - All v2.0 filelock + TTL + stats logic retained unchanged.
 
 import hashlib
 import json
-import os
 import re
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -29,32 +25,19 @@ except ImportError:
 
 CACHE_DIR  = Path("cache")
 USER_DIR   = CACHE_DIR / "users"
-ANON_DIR   = CACHE_DIR / "anonymous"
 CACHE_TTL  = timedelta(hours=24)
 
 
 def _safe_uid(user_id: str) -> str:
-    """
-    Sanitise user_id for use as a directory name.
-    Google sub IDs look like '1234567890' — safe already.
-    Email-based IDs may have @ and . — replace with underscore.
-    Max 64 chars to stay well within filesystem limits.
-    """
     return re.sub(r"[^a-zA-Z0-9_-]", "_", user_id)[:64]
 
 
-def _user_cache_dir(user_id: str | None) -> Path:
-    """
-    Returns the cache directory for this user.
-    None / empty string → anonymous shared cache (backwards-compatible).
-    """
-    if not user_id:
-        return ANON_DIR
+def _user_cache_dir(user_id: str) -> Path:
+    """Always returns a per-user directory. Caller must ensure user_id is truthy."""
     return USER_DIR / _safe_uid(user_id)
 
 
 def _cache_key(transcript: str, language: str) -> str:
-    """MD5 hash of transcript + language. Same as v1 — no user_id in hash."""
     content = f"{language}::{transcript.strip()}"
     return hashlib.md5(content.encode("utf-8")).hexdigest()
 
@@ -64,11 +47,13 @@ def _cache_key(transcript: str, language: str) -> str:
 def get_cached(transcript: str, language: str,
                user_id: str | None = None) -> dict | None:
     """
-    Returns cached result if it exists and is fresh, else None.
-
-    user_id=None  → anonymous cache (shared, same as v1 behaviour)
-    user_id="xyz" → private per-user cache — no cross-user contamination
+    Returns cached result if fresh, else None.
+    Returns None immediately for anonymous (user_id=None) requests —
+    no anonymous persistent cache.
     """
+    if not user_id:          # ← BLOCK anonymous
+        return None
+
     key     = _cache_key(transcript, language)
     cache_d = _user_cache_dir(user_id)
     path    = cache_d / f"{key}.json"
@@ -95,11 +80,12 @@ def get_cached(transcript: str, language: str,
 def set_cache(transcript: str, language: str, result: dict,
               user_id: str | None = None) -> None:
     """
-    Stores result in the correct per-user (or anonymous) cache directory.
-
-    Uses filelock when available to prevent write corruption under
-    concurrent workers (workers=2 / Gunicorn).
+    Stores result in the per-user cache directory.
+    No-op for anonymous (user_id=None) — never writes anonymous cache.
     """
+    if not user_id:          # ← BLOCK anonymous
+        return
+
     cache_d = _user_cache_dir(user_id)
     cache_d.mkdir(parents=True, exist_ok=True)
 
@@ -117,13 +103,15 @@ def set_cache(transcript: str, language: str, result: dict,
             with lock:
                 _write()
         else:
-            _write()   # no lock — acceptable on workers=1
+            _write()
     except Exception:
         pass  # cache write failure is always non-fatal
 
 
 def clear_user_cache(user_id: str) -> int:
-    """Deletes all cached entries for a specific user. Returns count deleted."""
+    """Deletes all cached entries for a specific user."""
+    if not user_id:
+        return 0
     cache_d = _user_cache_dir(user_id)
     if not cache_d.exists():
         return 0
@@ -135,29 +123,18 @@ def clear_user_cache(user_id: str) -> int:
 
 
 def clear_cache() -> None:
-    """Clears ALL cached results for all users (admin / maintenance use only)."""
-    for d in [ANON_DIR, USER_DIR]:
-        if d.exists():
-            for f in d.rglob("*.json"):
-                f.unlink(missing_ok=True)
+    """Clears ALL cached results for all users (admin use only)."""
+    if USER_DIR.exists():
+        for f in USER_DIR.rglob("*.json"):
+            f.unlink(missing_ok=True)
 
 
 def get_cache_stats(user_id: str | None = None) -> dict:
-    """
-    Returns cache statistics.
-    user_id=None → global stats (all users combined).
-    user_id=str  → stats for that specific user only.
-    """
     if user_id:
         cache_d = _user_cache_dir(user_id)
         files   = list(cache_d.glob("*.json")) if cache_d.exists() else []
     else:
-        # Global: anonymous + all user subdirectories
-        files = []
-        if ANON_DIR.exists():
-            files += list(ANON_DIR.glob("*.json"))
-        if USER_DIR.exists():
-            files += list(USER_DIR.rglob("*.json"))
+        files = list(USER_DIR.rglob("*.json")) if USER_DIR.exists() else []
 
     size = sum(f.stat().st_size for f in files if f.exists())
     return {
@@ -169,20 +146,18 @@ def get_cache_stats(user_id: str | None = None) -> dict:
 
 
 if __name__ == "__main__":
-    # Self-test
     t = "Tanaka: Good morning. Let's review Q3."
     r = {"summary": ["Q3 reviewed"], "action_items": [], "_provider": "test"}
 
     set_cache(t, "en", r, user_id="user_abc")
+
     hit = get_cached(t, "en", user_id="user_abc")
-    print("Per-user hit:         ", hit is not None)
-    print("From cache flag:      ", hit.get("_from_cache"))
+    print("Per-user hit:       ", hit is not None)           # True
+    print("From cache flag:    ", hit.get("_from_cache"))    # True
 
-    miss = get_cached(t, "en", user_id="user_xyz")   # different user
-    print("Cross-user miss:      ", miss is None)     # must be True
+    miss = get_cached(t, "en", user_id="user_xyz")
+    print("Cross-user miss:    ", miss is None)              # True
 
-    anon_miss = get_cached(t, "en", user_id=None)     # anonymous
-    print("Anon miss (no anon cache):", anon_miss is None)
-
-    print("Stats (user_abc):     ", get_cache_stats("user_abc"))
-    print("Stats (global):       ", get_cache_stats())
+    anon_set = set_cache(t, "en", r, user_id=None)          # no-op
+    anon_get = get_cached(t, "en", user_id=None)
+    print("Anon blocked:       ", anon_get is None)          # True ← key fix

@@ -209,15 +209,19 @@ def _evidence_quote_html(evidence_quotes: list) -> str:
 
 
 def _svg_donut(pct: int, color: str, size: int = 56) -> str:
-    r = (size - 8) // 2
+    r    = (size - 8) // 2
     circ = 2 * 3.14159 * r
-    dash = circ * pct / 100
+    try:                                          # ← add
+        _pct = float(pct) if pct is not None else 0.0   # ← add
+    except (TypeError, ValueError):               # ← add
+        _pct = 0.0                                # ← add
+    dash = circ * _pct / 100                      # ← add
     return (
         f"<svg width='{size}' height='{size}' viewBox='0 0 {size} {size}'>"
         f"<circle cx='{size//2}' cy='{size//2}' r='{r}' fill='none' stroke='rgba(60,36,22,0.12)' stroke-width='6'/>"
         f"<circle cx='{size//2}' cy='{size//2}' r='{r}' fill='none' stroke='{color}' stroke-width='6' stroke-linecap='round' "
         f"stroke-dasharray='{dash:.1f} {circ:.1f}' transform='rotate(-90 {size//2} {size//2})'/>"
-        f"<text x='50%' y='54%' text-anchor='middle' font-size='13' font-weight='700' fill='{color}' font-family='Arial'>{pct}%</text></svg>"
+        f"<text x='50%' y='54%' text-anchor='middle' font-size='13' font-weight='700' fill='{color}' font-family='Arial'>{int(_pct)}%</text></svg>"
     )
 
 
@@ -233,10 +237,14 @@ def _avatar(name: str, color: str) -> str:
 def _health_ring(score: int, color: str) -> str:
     r, size = 54, 120
     circ = 2 * 3.14159 * r
-    dash = circ * score / 100
-    label = ("Excellent" if score >= 80 else "Good" if score >= 60 else "Fair" if score >= 40 else "At Risk")
+    try:
+        _score = float(score) if score is not None else 0.0
+    except (TypeError, ValueError):
+        _score = 0.0
+    dash = circ * _score / 100
+    label = ("Excellent" if _score >= 80 else "Good" if _score >= 60 else "Fair" if _score >= 40 else "At Risk")
     # Override label for very low scores (termination)
-    if score <= 22:
+    if _score <= 22:
         label = "Terminated"
     return (
         f"<div style='text-align:center'>"
