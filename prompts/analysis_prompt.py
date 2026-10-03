@@ -144,6 +144,51 @@ If labels overlap, choose the label matching the speaker's dominant
 communicative function. Do not use a stronger negative label merely because
 it is plausible.
 
+SPEECH ACTS
+Every speaker turn has a communicative function that is INDEPENDENT of sentiment.
+Classify it before assigning sentiment labels.
+
+Available functions:
+  COMPLAINT             — reports a problem or failure, no action demanded yet
+  DEMAND                — requests a specific action, document, or resolution
+  ESCALATION            — explicit conditional warning about consequences
+  ULTIMATUM             — "if X by deadline Y → consequence Z" (deadline + consequence)
+  COMMITMENT            — explicit promise with a specific deliverable and deadline
+  VAGUE_COMMITMENT      — promise with no specific deliverable ("we will do our best")
+  APOLOGY               — acknowledges fault or responsibility
+  CLARIFICATION         — corrects a misunderstanding or explains intent
+  DEFERRAL              — postpones decision without a date (potential soft rejection)
+  INDIRECT_REFUSAL      — refusal without saying no (definite soft rejection)
+  SOFT_REJECTION        — polite but unambiguous non-commitment to proceed
+
+CRITICAL CLASSIFICATION RULES:
+1. "unacceptable" / "reconsider the contract" / "resolve by Friday" = ESCALATION or
+   ULTIMATUM. These are complaints about a failure state, NOT soft rejection.
+   Soft rejection means avoiding commitment to proceed — it is not expressing
+   displeasure about a breach.
+
+2. "written commitment" / "written response demanded" = DEMAND. Not soft rejection.
+
+3. "system has been down for 6 hours" = COMPLAINT.
+   "if not resolved by Friday we will reconsider the contract" = ULTIMATUM.
+   These are TWO DIFFERENT speech acts in the same conversation. They must never
+   be counted as two soft rejection signals from the same sentence.
+
+4. Japanese keigo (formal register) does NOT indicate soft rejection.
+   "大変申し訳ございません" = APOLOGY.
+   "全力で対応いたします" = VAGUE_COMMITMENT (no deliverable → not an action item).
+   "2時間以内に書面でご回答します" = COMMITMENT (has deadline and deliverable).
+   High keigo + COMMITMENT = formal apology + real commitment. Not a rejection.
+
+5. A client making DEMANDS or issuing an ULTIMATUM wants a resolution. They have
+   not rejected the vendor. Demands indicate continued engagement, not departure.
+   Only DEFERRAL, INDIRECT_REFUSAL, or SOFT_REJECTION indicate non-commitment.
+
+6. Speaker role determines interpretation:
+   CLIENT issuing ultimatum → contractual risk signal
+   VENDOR giving commitment → resolution signal
+   Never mix these into a single undifferentiated "risk" bucket.
+
 VALENCE
 Estimate valence from -1.0 to +1.0 independently of the sentiment label.
 positive >= 0.35
@@ -170,13 +215,24 @@ improving/worsening/stable/mixed/insufficient_evidence.
 Do not infer a trajectory when evidence is insufficient.
 
 ACTION ITEMS
-Include only explicit assignments or commitments.
+Include only explicit assignments or commitments with a specific deliverable.
 A suggestion, possibility, question, or discussion is not an action item.
+
+EXCLUDED — these must NEVER appear as action items:
+  - Vague assurances:  "We will do our best", "全力で対応いたします",
+                       "We will not let that happen", "I will make sure of it"
+  - Reassurances:      "Don't worry", "We're on it", "Leave it to us"
+  - Conditional outcomes with no named owner or deliverable
+A commitment is only an action item when it has BOTH:
+  (a) a specific deliverable (what will be produced or done), AND
+  (b) an assignable owner (who spoke the commitment)
+
 Never invent an owner or deadline.
 Preserve relative deadlines when exact dates are unavailable.
 Return both:
-task_en = concise natural English
-task_ja = concise natural Japanese
+task_en = concise natural English — ALWAYS required even for JP transcripts
+task_ja = concise natural Japanese — required only when the transcript contains Japanese;
+          null otherwise
 
 DECISIONS
 Only explicit decisions.
@@ -202,6 +258,28 @@ Assess keigo from actual linguistic politeness, not personality.
 Do not call generic manager consultation "nemawashi".
 Nemawashi requires evidence of pre-decision alignment, consensus building,
 or preparing affected stakeholders before formal decision/approval.
+
+CULTURAL INFERENCE RULES — read carefully:
+Do NOT generate Japanese or Indian cultural interpretation based solely on the
+language of the transcript. Cultural inference is permitted ONLY when the
+CONTENT of what is said contains indirect communication patterns — a deferral,
+a non-answer, or polite evasion — AND that pattern is directly supported by
+an exact quote from the transcript.
+
+The following are NOT grounds for cultural inference:
+  - Japanese language is present in the transcript
+  - A speaker uses keigo (high register)
+  - A speaker apologises using formal Japanese
+  - A client makes demands or issues ultimatums in English
+
+If the transcript contains explicit English escalation alongside Japanese
+politeness, classify each utterance by its CONTENT, not by its language.
+"System has been down for 6 hours — if this isn't resolved by Friday we will
+reconsider the contract" must be classified as ULTIMATUM regardless of what
+language surrounds it.
+
+If cultural inference is not evidenced by content, set japan_insights.nemawashi
+detected = false and omit cultural generalizations from the summary.
 
 TALK TIME
 Use supplied timing metadata only.

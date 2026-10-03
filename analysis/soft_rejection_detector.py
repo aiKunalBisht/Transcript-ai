@@ -1,46 +1,31 @@
 """
-analysis/soft_rejection_detector.py  — TranscriptAI v3.4
+analysis/soft_rejection_detector.py  — TranscriptAI v3.5
 =========================================================
-v3.4 changes vs v3.3:
+v3.5 changes vs v3.4:
 
-D1 FIX: HINDI_SOFT_PATTERNS added (21 patterns)
-    The detector was completely blind to Hindi/Hinglish soft rejections.
-    detect_soft_rejections() returned NONE for every Hindi example because
-    the function only scanned JP/EN phrase lists. Added Roman-script Hindi
-    patterns covering deferrals (dekhte hain, sochenge), difficulty signals
-    (thoda mushkil, nahi ho payega), and approval gates (abhi confirm nahi,
-    upar se baat). Routed into high_signals / medium_signals / low_signals
-    via the same tier logic as JP/EN patterns.
+E1 FIX: _dedup_by_sentence() added
+    "system has been down" + "been down for" both firing on the same
+    sentence were counted as 2 independent risk events. Now deduplicated
+    at sentence level — highest-confidence signal per sentence wins.
 
-D2 FIX: EN_SOFT_PATTERNS added (28 patterns)
-    EN_HIGH_PHRASES covered deadline ultimatums and SLA failures but not
-    everyday hedging. detect_soft_rejections() returned NONE for
-    "circle back", "have some concerns", "budgets are tight" — all of which
-    are unambiguous soft rejection signals. Added deferral, concern, budget,
-    and priority-rejection patterns.
+E2 FIX: _classify_risk_category() added
+    Distinguishes ESCALATION (SLA breach, deadline ultimatum, demand)
+    from SOFT_REJECTION (JP/HI cultural indirect deferral) from
+    APPROVAL_GATE / TERMINATION / MIXED / NONE.
 
-D3 FIX: Missing JP termination variants added
-    今回は見送りたいと思います, 見送りとなりました, 今回は辞退させていただきます
-    were not in JP_TERMINATION_PHRASES — detector returned NONE for them.
+E3 FIX: Cultural note split by risk_category
+    HIGH/MEDIUM cultural note previously always said
+    "Japanese and Indian cultures avoid direct refusal" even when
+    every signal was an English SLA breach phrase.
+    Now: ESCALATION → performance complaint note
+         SOFT_REJECTION → cultural deferral note
+         MIXED → combined note
 
-D4 FIX: Missing EN termination variants added
-    "won't work for us", "going in a different direction" — both
-    explicit EN rejections — returned NONE.
+E4 FIX: risk_category added to return dict
+    Downstream modules (analyzer.py sentiment backstop,
+    html_renderer.py insights chip) read this field directly.
 
-D5 FIX: Missing EN approval gate variants added
-    "run this by my team", "check with legal", "get back to you on this"
-    — all approval gates — returned NONE.
-
-D6 FIX: JP SOFT_PATTERNS confidence calibration
-    検討いたします: 0.75 → 0.82 (canonical soft no, was going to low_signals)
-    善処します: 0.68 → 0.82 (nemawashi dodge, was going to low_signals)
-    Added missing variants: 難しい状況でございます, なかなか難しい, 少し時間をいただけ
-
-D7 FIX: Tier calibration — single medium signal → MEDIUM not LOW
-    single medium_signals[0] was routing to LOW. A strong single signal
-    like 検討いたします should return MEDIUM, not LOW.
-
-All v3.3 patterns preserved unchanged.
+All v3.4 patterns and fixes preserved unchanged.
 """
 
 import re
@@ -160,7 +145,7 @@ JP_APPROVAL_GATE_PHRASES = [
     ("稟議が必要です",                          "Ringi-sho process required — formal approval chain"),
     ("稟議を通す必要があります",                "Must pass through ringi approval process"),
     ("役員会の承認が必要",                      "Executive board approval required"),
-    ("承認が必要",                              "Approval required — explicit gate (catches code-switched '承認 this first')"),
+    ("承認が必要",                              "Approval required — explicit gate"),
     ("まず承認",                               "First need approval — gate signal"),
     ("最初に承認",                              "Need approval first — gate signal"),
     ("承認を得る必要",                          "Need to obtain approval — formal gate"),
@@ -216,7 +201,6 @@ JP_CONTRACT_RISK_PHRASES = [
 # ════════════════════════════════════════════════════════════════════════════════
 
 EN_HIGH_PHRASES = [
-    # ── Retained from v3.3 ────────────────────────────────────────────────────
     ("results have not met our expectations",        "Results did not meet expectations"),
     ("not met our expectations",                     "Expectations unmet"),
     ("did not meet our expectations",                "Past tense — expectations not met"),
@@ -234,7 +218,7 @@ EN_HIGH_PHRASES = [
     ("will contact you after the internal review",   "Deferred — awaiting internal process"),
     ("internal review is complete",                  "Approval gated on internal review"),
     ("after the internal review",                    "Decision deferred to after review"),
-    # ── Deadline ultimatums ───────────────────────────────────────────────────
+    # Deadline ultimatums
     ("if not resolved by",                           "Deadline ultimatum — explicit conditional if unresolved"),
     ("if this is not resolved",                      "Resolution ultimatum — conditional escalation"),
     ("if the problem is not resolved",               "Problem-resolution deadline ultimatum"),
@@ -246,14 +230,14 @@ EN_HIGH_PHRASES = [
     ("resolved by friday",                           "Friday resolution deadline — ultimatum context only"),
     ("resolved by monday",                           "Monday resolution deadline — ultimatum context only"),
     ("fixed by friday",                              "Friday fix deadline — ultimatum context only"),
-    # ── Written demand signals ────────────────────────────────────────────────
+    # Written demand signals
     ("demand a written",                             "Formal written demand — complaint escalation to documentation"),
     ("written commitment",                           "Written commitment demanded — accountability escalation"),
     ("written response",                             "Written response demanded — formal escalation signal"),
     ("written guarantee",                            "Written guarantee demanded — high-stakes escalation"),
     ("put it in writing",                            "Demand for written documentation"),
     ("in writing",                                   "Written documentation demanded — formalisation of complaint"),
-    # ── SLA / system failure signals ──────────────────────────────────────────
+    # SLA / system failure signals
     ("system has been down",                         "System downtime complaint — SLA failure context"),
     ("been down for",                                "Extended downtime duration — SLA breach signal"),
     ("hours of downtime",                            "Extended downtime duration complaint"),
@@ -263,7 +247,7 @@ EN_HIGH_PHRASES = [
     ("this keeps happening",                         "Recurring failure — precedes formal escalation"),
     ("happened before",                              "Recurrence signal — second/third occurrence"),
     ("not the first time",                           "Recurrence explicitly stated"),
-    # ── Escalation warnings ───────────────────────────────────────────────────
+    # Escalation warnings
     ("will have to escalate",                        "Formal escalation warning to higher authority"),
     ("need to escalate",                             "Escalation signal"),
     ("taking this further",                          "Escalation to higher level"),
@@ -272,7 +256,6 @@ EN_HIGH_PHRASES = [
 ]
 
 JP_HIGH_PHRASES = [
-    # ── Retained from v3.3 ────────────────────────────────────────────────────
     ("期待に達していませんでした",               "Did not meet expectations (past)"),
     ("期待に達していません",                     "Has not met expectations"),
     ("十分な改善は見られませんでした",            "Insufficient improvement observed"),
@@ -287,7 +270,6 @@ JP_HIGH_PHRASES = [
     ("決定を下す前に",                            "Before making any decision — explicitly unresolved"),
     ("はい」は相手の話を理解したという意味",      "Explicit cultural clarification: yes = understanding not approval"),
     ("必ずしも賛成や承認を意味するわけではありません", "Yes does not necessarily mean agreement or approval"),
-    # ── Written demand + deadline + SLA ───────────────────────────────────────
     ("書面での回答をお願いしたい",                "Request for written response — formal escalation"),
     ("書面でのコミットメントをいただきたい",      "Request for written commitment — accountability escalation"),
     ("システムが何時間も停止しており",            "System has been down for hours — SLA failure signal"),
@@ -301,12 +283,9 @@ JP_HIGH_PHRASES = [
 
 # ════════════════════════════════════════════════════════════════════════════════
 # HINDI SOFT REJECTION PATTERNS — D1 FIX
-# Roman-script Hindi covering deferrals, difficulty signals, approval gates.
-# Format: (phrase, confidence, tier, explanation)
 # ════════════════════════════════════════════════════════════════════════════════
 
 HINDI_SOFT_PATTERNS = [
-    # ── Deferrals ─────────────────────────────────────────────────────────────
     ("dekhte hain",              0.82, "MEDIUM", "Will see — classic Hindi deferral, rarely means yes"),
     ("dekh lete hain",           0.80, "MEDIUM", "Will see/handle — deferral"),
     ("dekhna padega",            0.75, "MEDIUM", "Will need to see — deferral"),
@@ -318,13 +297,11 @@ HINDI_SOFT_PATTERNS = [
     ("thoda time chahiye",       0.75, "MEDIUM", "Need a bit more time — time deferral"),
     ("consider karenge",         0.72, "MEDIUM", "Will consider — Hindi version of 検討いたします"),
     ("try karenge",              0.65, "LOW",    "Will try — weak commitment signal"),
-    # ── Difficulty signals ────────────────────────────────────────────────────
     ("thoda mushkil",            0.85, "HIGH",   "A bit difficult — HIGH signal in Hindi business context"),
     ("mushkil lagta hai",        0.85, "HIGH",   "Seems difficult — difficulty signal"),
     ("bahut mushkil",            0.88, "HIGH",   "Very difficult — stronger difficulty signal"),
     ("possible nahi",            0.88, "HIGH",   "Not possible — near-explicit rejection"),
     ("nahi ho payega",           0.90, "HIGH",   "Won't be possible — high-confidence rejection"),
-    # ── Approval gate ─────────────────────────────────────────────────────────
     ("abhi confirm nahi",        0.82, "HIGH",   "Can't confirm now — approval pending"),
     ("abhi nahi keh sakta",      0.80, "HIGH",   "Can't say right now — no decision yet"),
     ("upar se baat",             0.85, "HIGH",   "Need to discuss with superiors — approval gate"),
@@ -336,12 +313,9 @@ HINDI_SOFT_PATTERNS = [
 
 # ════════════════════════════════════════════════════════════════════════════════
 # ENGLISH SOFT REJECTION / DEFERRAL PATTERNS — D2 FIX
-# Covers MEDIUM-tier EN hedging not in EN_HIGH_PHRASES or EN_TERMINATION_PHRASES.
-# Format: (phrase, confidence, tier, explanation)
 # ════════════════════════════════════════════════════════════════════════════════
 
 EN_SOFT_PATTERNS = [
-    # ── Deferral ──────────────────────────────────────────────────────────────
     ("circle back",              0.78, "MEDIUM", "Classic EN deferral — without a date means indefinite"),
     ("revisit this",             0.72, "MEDIUM", "Revisit deferral"),
     ("revisit later",            0.72, "MEDIUM", "Temporal deferral"),
@@ -355,7 +329,6 @@ EN_SOFT_PATTERNS = [
     ("think it over",            0.68, "LOW",    "Thinking deferral"),
     ("next quarter",             0.70, "MEDIUM", "Temporal deferral to next quarter — common soft no"),
     ("next year",                0.72, "MEDIUM", "Long-range deferral — often means no"),
-    # ── Concern / hedging ─────────────────────────────────────────────────────
     ("have some concerns",       0.80, "MEDIUM", "Concerns flagged — hedging signal"),
     ("a few concerns",           0.80, "MEDIUM", "Concerns flagged"),
     ("some concerns",            0.78, "MEDIUM", "Concerns flagged — hedging"),
@@ -364,7 +337,6 @@ EN_SOFT_PATTERNS = [
     ("not fully convinced",      0.82, "MEDIUM", "Not convinced"),
     ("still evaluating",         0.72, "MEDIUM", "Still evaluating — no decision"),
     ("still assessing",          0.72, "MEDIUM", "Still assessing — no decision"),
-    # ── Budget / resource rejection ───────────────────────────────────────────
     ("budgets are tight",        0.85, "HIGH",   "Budget constraint — common pre-rejection framing"),
     ("budget is tight",          0.85, "HIGH",   "Budget constraint"),
     ("budget constraints",       0.82, "HIGH",   "Budget cited as obstacle"),
@@ -378,7 +350,6 @@ EN_SOFT_PATTERNS = [
 
 # ════════════════════════════════════════════════════════════════════════════════
 # TIER 3 — JP SOFT REJECTION PATTERNS
-# D6 FIX: Confidence calibration + missing variants added
 # ════════════════════════════════════════════════════════════════════════════════
 
 SOFT_PATTERNS = [
@@ -386,7 +357,7 @@ SOFT_PATTERNS = [
         "phrase": "検討いたします",
         "reading": "Kentō itashimasu",
         "english": "We will consider it",
-        "confidence": 0.82,  # D6 FIX: was 0.75 — canonical soft no → medium bucket
+        "confidence": 0.82,
         "explanation": "Classic nemawashi deflection — 'we will consider' without commitment.",
     },
     {
@@ -498,7 +469,7 @@ SOFT_PATTERNS = [
         "phrase": "善処します",
         "reading": "Zensho shimasu",
         "english": "I will handle it appropriately",
-        "confidence": 0.82,  # D6 FIX: was 0.68 — nemawashi dodge → medium bucket
+        "confidence": 0.82,
         "explanation": "Vague commitment with no concrete action — classic nemawashi dodge.",
     },
     {
@@ -574,7 +545,6 @@ SOFT_PATTERNS = [
             "assumption that approval was given."
         ),
     },
-    # D6 FIX: Missing JP variants
     {
         "phrase": "難しい状況でございます",
         "reading": "Muzukashii jōkyō de gozaimasu",
@@ -601,7 +571,7 @@ SOFT_PATTERNS = [
         "reading": "Kentō suru hitsuyō",
         "english": "Need to consider (plain form)",
         "confidence": 0.78,
-        "explanation": "Plain-form consideration — less polite than 検討いたします but same deferral meaning. Catches code-switched usage like '検討する this'.",
+        "explanation": "Plain-form consideration — less polite than 検討いたします but same deferral meaning.",
     },
     {
         "phrase": "検討する",
@@ -636,6 +606,85 @@ def _dedup(signals: list) -> list:
             seen.add(s["phrase"])
             out.append(s)
     return out
+
+
+def _dedup_by_sentence(signals: list, transcript: str) -> list:
+    """
+    Event-level dedup: two signals matching the same sentence → keep highest confidence.
+
+    Fixes: "system has been down" + "been down for" both firing on
+    "The system has been down for 6 hours" → 2 signals from 1 event.
+
+    DSA: dict[line_index → best_signal]   O(n·L) — n=signals, L=lines (both <50)
+    """
+    if not signals:
+        return signals
+
+    lines = [ln.strip().lower() for ln in re.split(r"[.!?\n]+", transcript) if ln.strip()]
+    best: dict[int, dict] = {}
+    unmatched: list[dict] = []
+
+    for sig in signals:
+        phrase = sig.get("phrase", "").lower()
+        hit = next((i for i, ln in enumerate(lines) if phrase in ln), -1)
+        if hit == -1:
+            unmatched.append(sig)
+            continue
+        prev = best.get(hit)
+        if prev is None or sig.get("confidence", 0) > prev.get("confidence", 0):
+            best[hit] = sig
+
+    return [best[k] for k in sorted(best)] + unmatched
+
+
+def _classify_risk_category(
+    termination_detected: bool,
+    contract_risk_detected: bool,
+    approval_gate_detected: bool,
+    high_signals: list,
+    medium_signals: list,
+    low_signals: list,
+) -> str:
+    """
+    Classify the NATURE of the risk, not just its level.
+
+    TERMINATION    — explicit end-of-contract language
+    ESCALATION     — SLA failure / deadline ultimatum / demand (EN-driven)
+    SOFT_REJECTION — indirect deferral (JP/HI cultural patterns)
+    APPROVAL_GATE  — formal approval hierarchy blocking decision
+    MIXED          — both escalation and soft rejection signals present
+    NONE           — no significant signals
+
+    DSA: O(n) scan of signal lists.
+    """
+    if termination_detected:
+        return "TERMINATION"
+    if approval_gate_detected:
+        return "APPROVAL_GATE"
+
+    def _is_cjk(phrase: str) -> bool:
+        return any(ord(c) > 127 for c in phrase)
+
+    jp_soft_count = sum(
+        1 for s in (medium_signals + low_signals)
+        if _is_cjk(s.get("phrase", ""))
+    )
+    en_escalation_count = sum(
+        1 for s in high_signals
+        if not _is_cjk(s.get("phrase", ""))
+    )
+
+    if contract_risk_detected:
+        return "MIXED" if jp_soft_count > 0 else "ESCALATION"
+
+    if en_escalation_count > 0 and jp_soft_count == 0:
+        return "ESCALATION"
+    if jp_soft_count > 0 and en_escalation_count == 0:
+        return "SOFT_REJECTION"
+    if jp_soft_count > 0 and en_escalation_count > 0:
+        return "MIXED"
+
+    return "NONE"
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -754,7 +803,7 @@ def detect_soft_rejections(transcript: str) -> dict:
                 "speaker": _find_speaker(phrase, transcript, case_insensitive=False),
             })
 
-    # ── TIER 2b: Hindi soft rejection patterns — D1 FIX ──────────────────────
+    # ── TIER 2b: Hindi soft rejection patterns ────────────────────────────────
     hindi_medium = []
     hindi_high   = []
     for phrase, confidence, tier, explanation in HINDI_SOFT_PATTERNS:
@@ -772,7 +821,7 @@ def detect_soft_rejections(transcript: str) -> dict:
 
     high_signals.extend(_dedup(hindi_high))
 
-    # ── TIER 2c: English soft/deferral patterns — D2 FIX ─────────────────────
+    # ── TIER 2c: English soft/deferral patterns ───────────────────────────────
     en_soft_medium = []
     for phrase, confidence, tier, explanation in EN_SOFT_PATTERNS:
         if phrase.lower() in transcript_lower:
@@ -810,14 +859,18 @@ def detect_soft_rejections(transcript: str) -> dict:
     medium_signals.extend(_dedup(hindi_medium))
     medium_signals.extend(_dedup(en_soft_medium))
 
+    # E1 FIX: event-level dedup — removes duplicate signals from the same sentence
+    high_signals   = _dedup_by_sentence(_dedup(high_signals), transcript)
+    medium_signals = _dedup(medium_signals)
+    low_signals    = _dedup(low_signals)
+
     total_signals = (
         len(termination_signals) + len(approval_gate_signals) +
         len(contract_risk_signals) + len(high_signals) +
         len(medium_signals) + len(low_signals)
     )
 
-    # ── D7 FIX: Tier calibration ──────────────────────────────────────────────
-    # Key fix: single medium signal → MEDIUM not LOW
+    # ── Risk level ────────────────────────────────────────────────────────────
     if termination_detected:
         risk_level = "CRITICAL"
     elif contract_risk_detected and len(high_signals) >= 1:
@@ -834,7 +887,7 @@ def detect_soft_rejections(transcript: str) -> dict:
     elif len(high_signals) >= 1 or len(medium_signals) >= 2:
         risk_level = "MEDIUM"
     elif len(medium_signals) >= 1:
-        risk_level = "MEDIUM"     # D7 FIX: was LOW — single strong signal = MEDIUM
+        risk_level = "MEDIUM"
     elif len(low_signals) >= 2:
         risk_level = "LOW"
     elif total_signals >= 1:
@@ -842,7 +895,17 @@ def detect_soft_rejections(transcript: str) -> dict:
     else:
         risk_level = "NONE"
 
-    # ── Cultural note ─────────────────────────────────────────────────────────
+    # E2 FIX: classify the NATURE of the risk, not just the level
+    risk_category = _classify_risk_category(
+        termination_detected,
+        contract_risk_detected,
+        approval_gate_detected,
+        high_signals,
+        medium_signals,
+        low_signals,
+    )
+
+    # E3 FIX: cultural note driven by risk_category, not just risk_level
     if termination_detected:
         cultural_note = (
             "EXPLICIT TERMINATION DETECTED — this is NOT a soft rejection or "
@@ -868,11 +931,31 @@ def detect_soft_rejections(transcript: str) -> dict:
             "from the authorizing committee is received."
         )
     elif risk_level in ("HIGH", "MEDIUM"):
-        cultural_note = (
-            "Indirect rejection or deferral signals detected. In Japanese and Indian "
-            "business cultures, direct refusal is avoided to preserve face. These "
-            "patterns warrant careful follow-up to confirm actual intent and timeline."
-        )
+        # E3 FIX: split by category — no more generic JP/IN cultural note for EN SLA signals
+        if risk_category == "ESCALATION":
+            cultural_note = (
+                "Direct escalation detected: SLA failure, explicit deadline ultimatum, "
+                "or written commitment demand. Provide a written response with a specific "
+                "resolution owner and deadline. Do not interpret these signals as soft "
+                "rejection — this is an explicit performance complaint requiring immediate action."
+            )
+        elif risk_category == "SOFT_REJECTION":
+            cultural_note = (
+                "Indirect rejection or deferral signals detected. In Japanese and Indian "
+                "business cultures, direct refusal is avoided to preserve face. These "
+                "patterns warrant careful follow-up to confirm actual intent and timeline."
+            )
+        elif risk_category == "MIXED":
+            cultural_note = (
+                "Mixed signals: explicit escalation combined with indirect deferral patterns. "
+                "Address the explicit performance demands first; then follow up separately "
+                "to confirm the status of any deferred decisions."
+            )
+        else:
+            cultural_note = (
+                "Elevated risk signals detected. Review context to determine "
+                "whether escalation or follow-up action is required."
+            )
     elif risk_level in ("LOW", "MINIMAL"):
         cultural_note = (
             "Mild hedging or deferral signals detected. Monitor for escalation in "
@@ -881,8 +964,10 @@ def detect_soft_rejections(transcript: str) -> dict:
     else:
         cultural_note = "No significant rejection signals detected in this transcript."
 
+    # E4 FIX: risk_category added to return dict
     return {
         "risk_level":               risk_level,
+        "risk_category":            risk_category,   # NEW: ESCALATION|SOFT_REJECTION|APPROVAL_GATE|TERMINATION|MIXED|NONE
         "total_signals":            total_signals,
         "termination_detected":     termination_detected,
         "termination_signals":      termination_signals,

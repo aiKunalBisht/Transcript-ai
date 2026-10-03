@@ -1,20 +1,21 @@
 """
-utils/html_renderer.py  — TranscriptAI v3.1
+utils/html_renderer.py  — TranscriptAI v3.2
 ============================================
-v3.1 fixes:
+v3.2 fixes (this version):
+  - Step 5: task_en/task_ja bilingual display in Actions tab
+  - Step 5: Risk (LEVEL) label in health breakdown — fixes "Comm Risk 0/25 vs HIGH" contradiction
+  - Step 5: Risk category chip in Insights tab (Escalation Risk / Soft Rejection Risk / etc.)
+  - SYNTAX FIX: missing + before owner/deadline div after task_ja conditional block
+
+v3.1 retained:
   - Health score caps at 22 for explicit contract termination meetings
   - CRITICAL risk level added to all color maps
-  - Termination detected banner in Insights tab (purple, distinct from soft-rejection)
+  - Termination detected banner in Insights tab
   - Unlabeled transcript warning banner
-  - Sentiment scoring concept updated: communicative register, not emotional valence
-    (affects the label strings shown in the Sentiment tab subtitle)
 """
 from utils.utils import language_display_name
 
-# UI-only styling for rendered results. All analysis/data logic remains unchanged.
 _RESULT_UI_CSS = r'''
-
-/* TranscriptAI result UI v2 — presentation only. No data/logic changes. */
 .tai-results{font-family:"Noto Sans JP","Inter","Segoe UI",sans-serif;}
 .tai-results .tai-radio-tabs{
   margin-top:20px;padding:16px;border:1px solid #E8D7DD;border-radius:22px;
@@ -46,10 +47,7 @@ _RESULT_UI_CSS = r'''
   content:"";position:absolute;left:14px;right:14px;bottom:7px;height:2px;border-radius:999px;
   background:linear-gradient(90deg,transparent,#E8829A,transparent);opacity:0;transition:opacity .18s ease;
 }
-.tai-results .tai-tab-label:hover{
-  transform:translateY(-2px);border-color:#D2B7C1;
-  box-shadow:0 10px 22px rgba(72,45,50,.11);
-}
+.tai-results .tai-tab-label:hover{transform:translateY(-2px);border-color:#D2B7C1;box-shadow:0 10px 22px rgba(72,45,50,.11);}
 .tai-results .tai-tab-label:hover::after{opacity:.75;}
 .tai-results #tai-radio-sum:checked ~ .tai-tab-bar label[for="tai-radio-sum"],
 .tai-results #tai-radio-act:checked ~ .tai-tab-bar label[for="tai-radio-act"],
@@ -114,200 +112,131 @@ _RESULT_UI_CSS = r'''
   .tai-results .tai-tab-label,.tai-results .tai-tile,.tai-results .tai-action-card{transition:none!important;}
   .tai-results .tai-tab-content{animation:none!important;}
 }
-
 '''
 
-
-# ── Multi-emotion sentiment helpers ───────────────────────────────────────────
-
-_SENT_POSITIVE = {
-    "enthusiastic", "confident", "agreeable", "appreciative",
-    "hopeful", "relieved", "encouraging", "satisfied",
-}
-_SENT_NEGATIVE = {
-    "frustrated", "irritated", "anxious", "disappointed", "dismissive",
-    "defensive", "skeptical", "overwhelmed", "resigned", "sarcastic",
-    "passive_aggressive", "condescending",
-}
-_SENT_COMPLEX = {"politely_evasive", "deflecting"}
+_SENT_POSITIVE = {"enthusiastic","confident","agreeable","appreciative","hopeful","relieved","encouraging","satisfied"}
+_SENT_NEGATIVE = {"frustrated","irritated","anxious","disappointed","dismissive","defensive","skeptical","overwhelmed","resigned","sarcastic","passive_aggressive","condescending"}
+_SENT_COMPLEX  = {"politely_evasive","deflecting"}
 
 def _emotion_chip(label: str, is_primary: bool = False) -> str:
-    if label in _SENT_POSITIVE:
-        bg, color, border = "#D1FAE5", "#065F46", "#6EE7B7"
-    elif label in _SENT_NEGATIVE:
-        bg, color, border = "#FEF2F2", "#991B1B", "#FCA5A5"
-    elif label in _SENT_COMPLEX:
-        bg, color, border = "#F5F3FF", "#5B21B6", "#C4B5FD"
-    else:
-        bg, color, border = "#F3F4F6", "#4B5563", "#D1D5DB"
-    display = label.replace("_", " ").title()
+    if label in _SENT_POSITIVE:   bg,color,border = "#D1FAE5","#065F46","#6EE7B7"
+    elif label in _SENT_NEGATIVE: bg,color,border = "#FEF2F2","#991B1B","#FCA5A5"
+    elif label in _SENT_COMPLEX:  bg,color,border = "#F5F3FF","#5B21B6","#C4B5FD"
+    else:                         bg,color,border = "#F3F4F6","#4B5563","#D1D5DB"
+    display = label.replace("_"," ").title()
     sz  = "0.78rem" if is_primary else "0.69rem"
     wt  = "700"     if is_primary else "600"
     pad = "4px 11px" if is_primary else "3px 8px"
-    return (
-        f"<span style='display:inline-flex;align-items:center;background:{bg};"
-        f"color:{color};border:1px solid {border};border-radius:999px;"
-        f"padding:{pad};font-size:{sz};font-weight:{wt};white-space:nowrap'>"
-        f"{display}</span>"
-    )
+    return (f"<span style='display:inline-flex;align-items:center;background:{bg};"
+            f"color:{color};border:1px solid {border};border-radius:999px;"
+            f"padding:{pad};font-size:{sz};font-weight:{wt};white-space:nowrap'>{display}</span>")
 
 def _sent_valence_bar(valence) -> str:
-    try:
-        v = max(-1.0, min(1.0, float(valence)))
-    except (TypeError, ValueError):
-        v = 0.0
-    pos        = (v + 1) / 2 * 100
+    try:    v = max(-1.0, min(1.0, float(valence)))
+    except: v = 0.0
+    pos = (v+1)/2*100
     fill_color = "#EF4444" if v < -0.35 else "#22C55E" if v > 0.35 else "#94A3B8"
-    if pos <= 50:
-        left, width = pos, 50 - pos
-    else:
-        left, width = 50.0, pos - 50
-    return (
-        f"<div style='margin:8px 0 4px'>"
-        f"<div style='display:flex;justify-content:space-between;"
-        f"font-size:0.58rem;color:#A87868;margin-bottom:3px'>"
-        f"<span>← negative</span>"
-        f"<span style='color:{fill_color};font-weight:700'>valence {v:+.2f}</span>"
-        f"<span>positive →</span></div>"
-        f"<div style='height:5px;background:rgba(60,36,22,0.10);border-radius:999px;"
-        f"position:relative;overflow:hidden'>"
-        f"<div style='position:absolute;left:50%;top:0;height:100%;width:1px;"
-        f"background:#A87868;opacity:0.4'></div>"
-        f"<div style='position:absolute;left:{left:.1f}%;width:{width:.1f}%;"
-        f"height:100%;background:{fill_color};border-radius:999px;opacity:0.85'></div>"
-        f"</div></div>"
-    )
+    left,width = (pos,50-pos) if pos<=50 else (50.0,pos-50)
+    return (f"<div style='margin:8px 0 4px'>"
+            f"<div style='display:flex;justify-content:space-between;font-size:0.58rem;color:#A87868;margin-bottom:3px'>"
+            f"<span>← negative</span><span style='color:{fill_color};font-weight:700'>valence {v:+.2f}</span><span>positive →</span></div>"
+            f"<div style='height:5px;background:rgba(60,36,22,0.10);border-radius:999px;position:relative;overflow:hidden'>"
+            f"<div style='position:absolute;left:50%;top:0;height:100%;width:1px;background:#A87868;opacity:0.4'></div>"
+            f"<div style='position:absolute;left:{left:.1f}%;width:{width:.1f}%;height:100%;background:{fill_color};border-radius:999px;opacity:0.85'></div>"
+            f"</div></div>")
 
 _TRAJ_MAP = {
-    "improving":             ("↗", "#22C55E"),
-    "declining":             ("↘", "#EF4444"),
-    "worsening":             ("↘", "#EF4444"),
-    "stable":                ("→", "#94A3B8"),
-    "volatile":              ("↕", "#F59E0B"),
-    "mixed":                 ("↔", "#F59E0B"),
-    "insufficient_evidence": ("—", "#94A3B8"),
+    "improving":("↗","#22C55E"),"declining":("↘","#EF4444"),"worsening":("↘","#EF4444"),
+    "stable":("→","#94A3B8"),"volatile":("↕","#F59E0B"),"mixed":("↔","#F59E0B"),
+    "insufficient_evidence":("—","#94A3B8"),
 }
 
 def _evidence_quote_html(evidence_quotes: list) -> str:
     out = ""
     for eq in (evidence_quotes or [])[:2]:
         text = str(eq).strip()[:200]
-        if not text:
-            continue
-        has_cjk = any('\u4e00' <= c <= '\u9fff' or '\u3040' <= c <= '\u30ff' for c in text)
-        has_dev = any('\u0900' <= c <= '\u097f' for c in text)
-        qfont   = ("font-family:'Noto Sans JP',sans-serif;" if has_cjk else
-                   "font-family:'Noto Sans Devanagari',sans-serif;" if has_dev else "")
-        out += (
-            f"<div style='background:#F9F5FF;border-left:2px solid #C4B5FD;"
-            f"border-radius:0 6px 6px 0;padding:5px 10px;margin:6px 0 0;"
-            f"font-size:0.74rem;color:#4C1D95;{qfont}font-style:italic;"
-            f"line-height:1.55;word-break:break-word'>\"{text}\"</div>"
-        )
+        if not text: continue
+        has_cjk = any('\u4e00'<=c<='\u9fff' or '\u3040'<=c<='\u30ff' for c in text)
+        has_dev  = any('\u0900'<=c<='\u097f' for c in text)
+        qfont = ("font-family:'Noto Sans JP',sans-serif;" if has_cjk else
+                 "font-family:'Noto Sans Devanagari',sans-serif;" if has_dev else "")
+        out += (f"<div style='background:#F9F5FF;border-left:2px solid #C4B5FD;"
+                f"border-radius:0 6px 6px 0;padding:5px 10px;margin:6px 0 0;"
+                f"font-size:0.74rem;color:#4C1D95;{qfont}font-style:italic;"
+                f"line-height:1.55;word-break:break-word'>\"{text}\"</div>")
     return out
 
-
-
-def _svg_donut(pct: int, color: str, size: int = 56) -> str:
-    r    = (size - 8) // 2
-    circ = 2 * 3.14159 * r
-    try:                                          # ← add
-        _pct = float(pct) if pct is not None else 0.0   # ← add
-    except (TypeError, ValueError):               # ← add
-        _pct = 0.0                                # ← add
-    dash = circ * _pct / 100                      # ← add
-    return (
-        f"<svg width='{size}' height='{size}' viewBox='0 0 {size} {size}'>"
-        f"<circle cx='{size//2}' cy='{size//2}' r='{r}' fill='none' stroke='rgba(60,36,22,0.12)' stroke-width='6'/>"
-        f"<circle cx='{size//2}' cy='{size//2}' r='{r}' fill='none' stroke='{color}' stroke-width='6' stroke-linecap='round' "
-        f"stroke-dasharray='{dash:.1f} {circ:.1f}' transform='rotate(-90 {size//2} {size//2})'/>"
-        f"<text x='50%' y='54%' text-anchor='middle' font-size='13' font-weight='700' fill='{color}' font-family='Arial'>{int(_pct)}%</text></svg>"
-    )
-
+def _svg_donut(pct, color: str, size: int = 56) -> str:
+    r = (size-8)//2
+    circ = 2*3.14159*r
+    try:    _pct = float(pct) if pct is not None else 0.0
+    except: _pct = 0.0
+    dash = circ*_pct/100
+    return (f"<svg width='{size}' height='{size}' viewBox='0 0 {size} {size}'>"
+            f"<circle cx='{size//2}' cy='{size//2}' r='{r}' fill='none' stroke='rgba(60,36,22,0.12)' stroke-width='6'/>"
+            f"<circle cx='{size//2}' cy='{size//2}' r='{r}' fill='none' stroke='{color}' stroke-width='6' stroke-linecap='round' "
+            f"stroke-dasharray='{dash:.1f} {circ:.1f}' transform='rotate(-90 {size//2} {size//2})'/>"
+            f"<text x='50%' y='54%' text-anchor='middle' font-size='13' font-weight='700' fill='{color}' font-family='Arial'>{int(_pct)}%</text></svg>")
 
 def _avatar(name: str, color: str) -> str:
     initials = "".join(p[0].upper() for p in name.split()[:2]) or name[:2].upper()
-    return (
-        f"<div style='width:36px;height:36px;border-radius:50%;background:{color}22;"
-        f"border:2px solid {color};display:flex;align-items:center;justify-content:center;"
-        f"font-size:0.75rem;font-weight:700;color:{color};flex-shrink:0'>{initials}</div>"
-    )
+    return (f"<div style='width:36px;height:36px;border-radius:50%;background:{color}22;"
+            f"border:2px solid {color};display:flex;align-items:center;justify-content:center;"
+            f"font-size:0.75rem;font-weight:700;color:{color};flex-shrink:0'>{initials}</div>")
 
-
-def _health_ring(score: int, color: str) -> str:
-    r, size = 54, 120
-    circ = 2 * 3.14159 * r
-    try:
-        _score = float(score) if score is not None else 0.0
-    except (TypeError, ValueError):
-        _score = 0.0
-    dash = circ * _score / 100
-    label = ("Excellent" if _score >= 80 else "Good" if _score >= 60 else "Fair" if _score >= 40 else "At Risk")
-    # Override label for very low scores (termination)
-    if _score <= 22:
-        label = "Terminated"
-    return (
-        f"<div style='text-align:center'>"
-        f"<svg width='{size}' height='{size}' viewBox='0 0 {size} {size}'>"
-        f"<circle cx='60' cy='60' r='{r}' fill='none' stroke='rgba(60,36,22,0.10)' stroke-width='10'/>"
-        f"<circle cx='60' cy='60' r='{r}' fill='none' stroke='{color}' stroke-width='10' stroke-linecap='round' "
-        f"stroke-dasharray='{dash:.1f} {circ:.1f}' transform='rotate(-90 60 60)' style='filter:drop-shadow(0 0 6px {color}88)'/>"
-        f"<text x='50%' y='46%' text-anchor='middle' font-size='22' font-weight='800' fill='#3C2416' font-family=Arial>{score}</text>"
-        f"<text x='50%' y='62%' text-anchor='middle' font-size='10' fill='#A87868' font-family=Arial>/ 100</text></svg>"
-        f"<div style='font-size:0.7rem;font-weight:600;color:{color};letter-spacing:0.1em;text-transform:uppercase;margin-top:2px'>{label}</div></div>"
-    )
-
+def _health_ring(score, color: str) -> str:
+    r,size = 54,120
+    circ = 2*3.14159*r
+    try:    _score = float(score) if score is not None else 0.0
+    except: _score = 0.0
+    dash = circ*_score/100
+    label = ("Excellent" if _score>=80 else "Good" if _score>=60 else "Fair" if _score>=40 else "At Risk")
+    if _score<=22: label = "Terminated"
+    return (f"<div style='text-align:center'>"
+            f"<svg width='{size}' height='{size}' viewBox='0 0 {size} {size}'>"
+            f"<circle cx='60' cy='60' r='{r}' fill='none' stroke='rgba(60,36,22,0.10)' stroke-width='10'/>"
+            f"<circle cx='60' cy='60' r='{r}' fill='none' stroke='{color}' stroke-width='10' stroke-linecap='round' "
+            f"stroke-dasharray='{dash:.1f} {circ:.1f}' transform='rotate(-90 60 60)' style='filter:drop-shadow(0 0 6px {color}88)'/>"
+            f"<text x='50%' y='46%' text-anchor='middle' font-size='22' font-weight='800' fill='#3C2416' font-family=Arial>{score}</text>"
+            f"<text x='50%' y='62%' text-anchor='middle' font-size='10' fill='#A87868' font-family=Arial>/ 100</text></svg>"
+            f"<div style='font-size:0.7rem;font-weight:600;color:{color};letter-spacing:0.1em;text-transform:uppercase;margin-top:2px'>{label}</div></div>")
 
 def _build_gijiroku_preview(R: dict, language: str) -> str:
     def _clean_val(v):
-        if isinstance(v, dict): return " ".join(str(val) for val in v.values() if val)
-        if isinstance(v, list): return " ".join(str(val) for val in v if val)
+        if isinstance(v,dict): return " ".join(str(val) for val in v.values() if val)
+        if isinstance(v,list): return " ".join(str(val) for val in v if val)
         return str(v)
-
     try:
         from agents.gijiroku_formatter import GijirokulFormatter, render_markdown
         formatter = GijirokulFormatter()
         plan = formatter.format(analysis=R)
-
         attendee_chips = "".join(
             f"<span style='display:inline-block;background:rgba(125,78,138,0.10);border:1px solid #D0B0C8;"
             f"border-radius:999px;padding:3px 12px;font-size:0.72rem;color:#7D4E8A;margin:2px 4px 2px 0;'>"
-            f"{_clean_val(s)}</span>"
-            for s in plan.shussekisha[:6]
-        )
-
+            f"{_clean_val(s)}</span>" for s in plan.shussekisha[:6])
         agenda_items = "".join(
             f"<div style='display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;'>"
             f"<span style='background:#7D4E8A;color:#fff;border-radius:5px;padding:1px 7px;"
             f"font-size:0.6rem;font-weight:700;flex-shrink:0;margin-top:2px'>{i:02d}</span>"
-            f"<span style='font-size:0.82rem;color:#3C2416;line-height:1.5;'>{_clean_val(item)}</span>"
-            f"</div>"
-            for i, item in enumerate(plan.gidai[:3], 1)
-        )
-
+            f"<span style='font-size:0.82rem;color:#3C2416;line-height:1.5;'>{_clean_val(item)}</span></div>"
+            for i,item in enumerate(plan.gidai[:3],1))
         action_rows = "".join(
             f"<tr><td style='padding:5px 10px;font-size:0.75rem;color:#7A5040;border-bottom:1px solid #EFE2D8;'>{a.owner}</td>"
             f"<td style='padding:5px 10px;font-size:0.75rem;color:#3C2416;border-bottom:1px solid #EFE2D8;'>{a.task}"
             + ("" if not a.flag else "<span style='color:#963030'> ⚠</span>") + "</td>"
             f"<td style='padding:5px 10px;font-size:0.75rem;color:#A87868;border-bottom:1px solid #EFE2D8;'>{a.deadline}</td></tr>"
-            for a in plan.action_items[:4]
-        )
-
-        soft = R.get("soft_rejections", {}) or {}
-        risk = soft.get("risk_level", "NONE")
+            for a in plan.action_items[:4])
+        soft = R.get("soft_rejections",{}) or {}
+        risk = soft.get("risk_level","NONE")
         risk_colors = {"CRITICAL":"#7C3AED","HIGH":"#963030","MEDIUM":"#986820","LOW":"#BE4060","MINIMAL":"#A87868","NONE":"#2D7A55"}
         risk_bgs    = {"CRITICAL":"#F5F3FF","HIGH":"#FAF0F0","MEDIUM":"#FAF0E0","LOW":"#FEF6F8","MINIMAL":"#FDF0EA","NONE":"#EDF3EF"}
-        risk_clr = risk_colors.get(risk, "#2D7A55")
-        risk_bg  = risk_bgs.get(risk, "#EDF3EF")
-
+        risk_clr = risk_colors.get(risk,"#2D7A55")
+        risk_bg  = risk_bgs.get(risk,"#EDF3EF")
         tokki = ""
         if plan.tokki_jiko:
-            tokki = (
-                f"<div style='margin-top:12px;padding:8px 12px;background:#FAF0F0;"
-                f"border-left:3px solid #963030;border-radius:0 8px 8px 0;font-size:0.75rem;color:#963030;'>"
-                f"⚠ {plan.tokki_jiko}</div>"
-            )
-
+            tokki = (f"<div style='margin-top:12px;padding:8px 12px;background:#FAF0F0;"
+                     f"border-left:3px solid #963030;border-radius:0 8px 8px 0;font-size:0.75rem;color:#963030;'>"
+                     f"⚠ {plan.tokki_jiko}</div>")
         return f"""
 <div style='margin-top:20px;border:1px solid #D0B0C8;border-radius:14px;overflow:hidden;background:#FDFAFF;'>
   <div style='background:linear-gradient(135deg,#7D4E8A 0%,#A06CB5 100%);padding:14px 18px;display:flex;align-items:center;justify-content:space-between;'>
@@ -315,10 +244,7 @@ def _build_gijiroku_preview(R: dict, language: str) -> str:
       <div style='font-size:0.6rem;color:rgba(255,255,255,0.7);letter-spacing:0.15em;text-transform:uppercase;margin-bottom:3px;'>議事録 · Japanese Formal Business Minutes</div>
       <div style='font-size:0.95rem;font-weight:700;color:#fff;font-family:"Noto Sans JP",sans-serif;'>{plan.kaigi_mei}</div>
     </div>
-    <div style='text-align:right;'>
-      <div style='font-size:0.68rem;color:rgba(255,255,255,0.75);'>{plan.nichiji}</div>
-      <div style='font-size:0.65rem;color:rgba(255,255,255,0.6);margin-top:2px;'>{plan.basho}</div>
-    </div>
+    <div style='text-align:right;'><div style='font-size:0.68rem;color:rgba(255,255,255,0.75);'>{plan.nichiji}</div><div style='font-size:0.65rem;color:rgba(255,255,255,0.6);margin-top:2px;'>{plan.basho}</div></div>
   </div>
   <div style='padding:16px 18px;'>
     <div style='font-size:0.6rem;font-weight:700;color:#7D4E8A;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:7px;'>出席者 · Attendees</div>
@@ -339,13 +265,11 @@ def _build_gijiroku_preview(R: dict, language: str) -> str:
     <div style='font-size:0.6rem;font-weight:700;color:#7D4E8A;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:8px;'>アクションアイテム · Action Items</div>
     <div style='border:1px solid #EFE2D8;border-radius:8px;overflow:hidden;'>
       <table style='width:100%;border-collapse:collapse;'>
-        <thead>
-          <tr style='background:#F5EEF8;'>
-            <th style='padding:6px 10px;font-size:0.6rem;font-weight:700;color:#7D4E8A;text-align:left;'>担当者 Owner</th>
-            <th style='padding:6px 10px;font-size:0.6rem;font-weight:700;color:#7D4E8A;text-align:left;'>タスク Task</th>
-            <th style='padding:6px 10px;font-size:0.6rem;font-weight:700;color:#7D4E8A;text-align:left;'>期限 Deadline</th>
-          </tr>
-        </thead>
+        <thead><tr style='background:#F5EEF8;'>
+          <th style='padding:6px 10px;font-size:0.6rem;font-weight:700;color:#7D4E8A;text-align:left;'>担当者 Owner</th>
+          <th style='padding:6px 10px;font-size:0.6rem;font-weight:700;color:#7D4E8A;text-align:left;'>タスク Task</th>
+          <th style='padding:6px 10px;font-size:0.6rem;font-weight:700;color:#7D4E8A;text-align:left;'>期限 Deadline</th>
+        </tr></thead>
         <tbody>{action_rows}</tbody>
       </table>
     </div>
@@ -361,58 +285,46 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
     COLORS    = ["#E8829A","#F4A07A","#C9924A","#5A7D6B","#A8897C","#7A5C50"]
     SENT_ICON = {"positive":"🌸","neutral":"🌿","negative":"🍂"}
 
-    ji       = R.get("japan_insights", {})
-    speakers = sorted(R.get("speakers", []), key=lambda s: s.get("talk_time_pct", 0), reverse=True)
-    soft     = R.get("soft_rejections", {}) or {}
+    ji       = R.get("japan_insights",{})
+    speakers = sorted(R.get("speakers",[]), key=lambda s: s.get("talk_time_pct",0), reverse=True)
+    soft     = R.get("soft_rejections",{}) or {}
 
-    # ── Termination detection ─────────────────────────────────────────────────
-    termination_detected = (
-        soft.get("termination_detected", False) or
-        R.get("meeting_type") == "contract_termination"
-    )
-    approval_gate_detected = soft.get("approval_gate_detected", False)
+    termination_detected   = (soft.get("termination_detected",False) or R.get("meeting_type")=="contract_termination")
+    approval_gate_detected = soft.get("approval_gate_detected",False)
 
     def _health():
-        risk    = soft.get("risk_level", "NONE")
-        risk_pts= {"NONE":25,"MINIMAL":20,"LOW":15,"MEDIUM":8,"HIGH":0,"CRITICAL":0}
-
-        sents   = R.get("sentiment", [])
-        w       = {"positive":1.0,"neutral":0.6,"negative":0.1}
-        s_pts   = round((sum(w.get(s.get("score","neutral").lower(),0.5) for s in sents)/len(sents)*30) if sents else 15)
-
-        items   = R.get("action_items", [])
+        risk     = soft.get("risk_level","NONE")
+        risk_pts = {"NONE":25,"MINIMAL":20,"LOW":15,"MEDIUM":8,"HIGH":0,"CRITICAL":0}
+        sents    = R.get("sentiment",[])
+        w        = {"positive":1.0,"neutral":0.6,"negative":0.1}
+        s_pts    = round((sum(w.get(s.get("score","neutral").lower(),0.5) for s in sents)/len(sents)*30) if sents else 15)
+        items    = R.get("action_items",[])
         if not items:
             a_pts = 10
         else:
-            ver = [i for i in items if not i.get("hallucination_flag")]
-            wo  = sum(1 for i in ver if i.get("owner","TBD") not in ("TBD","Unknown",""))
-            wd  = sum(1 for i in ver if i.get("deadline","TBD") not in ("TBD","N/A",""))
+            ver   = [i for i in items if not i.get("hallucination_flag")]
+            wo    = sum(1 for i in ver if i.get("owner","TBD") not in ("TBD","Unknown",""))
+            wd    = sum(1 for i in ver if i.get("deadline","TBD") not in ("TBD","N/A",""))
             a_pts = round((wo+wd)/(2*len(items))*25)
+        r_pts  = risk_pts.get(risk,25)
+        ver2   = R.get("verification",{})
+        h_pts  = round((1 - ver2.get("overall_hallucination_risk",0))*20)
+        score  = min(s_pts+a_pts+r_pts+h_pts,100)
+        ag_det = soft.get("approval_gate_detected",False)
 
-        r_pts   = risk_pts.get(risk, 25)
-        ver2    = R.get("verification", {})
-        h_pts   = round((1 - ver2.get("overall_hallucination_risk", 0)) * 20)
-        score   = min(s_pts + a_pts + r_pts + h_pts, 100)
-
-        # Approval gate — pending decision, cap at 55
-        approval_gate_detected_health = soft.get('approval_gate_detected', False)
-
-        # Termination cap — never show "good" for a contract termination
+        # STEP 5 FIX: f"Risk ({risk})" instead of "Comm Risk" — shows actual level
         if termination_detected:
-            score = min(score, 22)
-            color = "#7C3AED"
-            label = "Contract Terminated"
-            bd = [("Sentiment",s_pts,30),("Clarity",a_pts,25),("Comm Risk",0,25),("AI Confidence",h_pts,20)]
-        elif approval_gate_detected_health:
-            score = min(score, 55)
-            color = "#D97706"
-            label = "Approval Pending"
-            bd = [("Sentiment",s_pts,30),("Action Clarity",a_pts,25),("Comm Risk",r_pts,25),("AI Confidence",h_pts,20)]
+            score = min(score,22)
+            color = "#7C3AED"; label = "Contract Terminated"
+            bd = [("Sentiment",s_pts,30),("Clarity",a_pts,25),(f"Risk ({risk})",0,25),("AI Confidence",h_pts,20)]
+        elif ag_det:
+            score = min(score,55)
+            color = "#D97706"; label = "Approval Pending"
+            bd = [("Sentiment",s_pts,30),("Action Clarity",a_pts,25),(f"Risk ({risk})",r_pts,25),("AI Confidence",h_pts,20)]
         else:
-            color = ("#2D9E6B" if score >= 80 else "#B87830" if score >= 60 else "#D96080" if score >= 40 else "#C84040")
-            label = ("Productive Meeting" if score >= 80 else "Mostly Aligned" if score >= 60
-                     else "Needs Follow-up" if score >= 40 else "High Risk")
-            bd = [("Sentiment",s_pts,30),("Action Clarity",a_pts,25),("Comm Risk",r_pts,25),("AI Confidence",h_pts,20)]
+            color = ("#2D9E6B" if score>=80 else "#B87830" if score>=60 else "#D96080" if score>=40 else "#C84040")
+            label = ("Productive Meeting" if score>=80 else "Mostly Aligned" if score>=60 else "Needs Follow-up" if score>=40 else "High Risk")
+            bd = [("Sentiment",s_pts,30),("Action Clarity",a_pts,25),(f"Risk ({risk})",r_pts,25),("AI Confidence",h_pts,20)]
 
         bars = "".join(
             f"<div style='margin-bottom:8px'>"
@@ -421,44 +333,29 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
             f"<span style='font-size:0.68rem;color:{color};font-weight:600'>{pt}/{tot}</span></div>"
             f"<div style='height:5px;background:rgba(60,36,22,0.10);border-radius:999px'>"
             f"<div style='height:100%;width:{round(pt/tot*100)}%;background:{color};border-radius:999px;'></div></div></div>"
-            for lb, pt, tot in bd
-        )
-        return score, color, bars
+            for lb,pt,tot in bd)
+        return score,color,bars
 
-    score, hc, hbars = _health()
+    score,hc,hbars = _health()
 
-    spk_count = len(R.get("speakers", []))
-    act_count = len(R.get("action_items", []))
+    spk_count = len(R.get("speakers",[]))
+    act_count = len(R.get("action_items",[]))
     cs_val    = ji.get("code_switch_count","—") if features.get("show_code_switch") else "—"
     keigo_val = ji.get("keigo_level","—").title() if features.get("show_japan_insights") else language_display_name(language).split(" ",1)[-1]
     keigo_lbl = "Formality" if features.get("show_japan_insights") else "Language"
 
-    def _tile(val, lbl, icon):
-        return (
-            f"<div class='tai-tile'>"
-            f"<div class='tai-tile-icon'>{icon}</div>"
-            f"<div class='tai-tile-val'>{val}</div>"
-            f"<div class='tai-tile-lbl'>{lbl}</div>"
-            f"</div>"
-        )
+    def _tile(val,lbl,icon):
+        return (f"<div class='tai-tile'><div class='tai-tile-icon'>{icon}</div>"
+                f"<div class='tai-tile-val'>{val}</div><div class='tai-tile-lbl'>{lbl}</div></div>")
 
-    tiles = (
-        _tile(spk_count, "Speakers", "🎤") +
-        _tile(act_count, "Actions", "✅") +
-        _tile(cs_val, "Code Switches", "🌐") +
-        _tile(keigo_val, keigo_lbl, "🏯")
-    )
+    tiles = (_tile(spk_count,"Speakers","🎤") + _tile(act_count,"Actions","✅") +
+             _tile(cs_val,"Code Switches","🌐") + _tile(keigo_val,keigo_lbl,"🏯"))
 
-    # ── PII banner ────────────────────────────────────────────────────────────
     pii_html = ""
-    if pii_rep and pii_rep.get("total_pii_found", 0) > 0:
+    if pii_rep and pii_rep.get("total_pii_found",0)>0:
         n = pii_rep["total_pii_found"]
-        pii_html = (
-            f"<div class='tai-pii-pill'>🔒 APPI — "
-            f"{n} item{'s' if n!=1 else ''} anonymized before analysis</div>"
-        )
+        pii_html = (f"<div class='tai-pii-pill'>🔒 APPI — {n} item{'s' if n!=1 else ''} anonymized before analysis</div>")
 
-    # ── Unlabeled transcript warning ──────────────────────────────────────────
     unlabeled_html = ""
     if R.get("_unlabeled_transcript"):
         unlabeled_html = (
@@ -467,172 +364,142 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
             "font-size:0.82rem;color:#78350F;line-height:1.6;'>"
             "⚠ <strong>No speaker labels detected</strong> — each paragraph was assigned to a generic speaker. "
             "For best results, prefix each line with the speaker's name: "
-            "<code style='background:#FEF3C7;border-radius:4px;padding:1px 5px;'>Name: their words here</code>"
-            "</div>"
-        )
+            "<code style='background:#FEF3C7;border-radius:4px;padding:1px 5px;'>Name: their words here</code></div>")
 
-    # ── Tab 1: Summary ────────────────────────────────────────────────────────
     def _clean_val(v):
-        if isinstance(v, dict): return " ".join(str(val) for val in v.values() if val)
-        if isinstance(v, list): return " ".join(str(val) for val in v if val)
+        if isinstance(v,dict): return " ".join(str(val) for val in v.values() if val)
+        if isinstance(v,list): return " ".join(str(val) for val in v if val)
         return str(v)
 
-    full_sum    = _clean_val(R.get("full_summary", ""))
-    bullets     = [_clean_val(b) for b in R.get("summary", [])]
-    en_summary  = _clean_val(R.get("en_summary", "") or R.get("english_summary", ""))
-    is_japanese = language in ("ja", "mixed")
+    full_sum   = _clean_val(R.get("full_summary",""))
+    bullets    = [_clean_val(b) for b in R.get("summary",[])]
+    en_summary = _clean_val(R.get("en_summary","") or R.get("english_summary",""))
+    is_japanese = language in ("ja","mixed")
 
     sum_html = ""
     if full_sum:
-        if is_japanese and en_summary and en_summary.strip() != full_sum.strip():
-            sum_html += (
-                f"<div class='tai-summary-box'>"
-                f"<div class='tai-summary-label'>📋 Meeting Overview</div>"
-                f"<div class='tai-bilingual-block'>"
-                f"<span class='tai-lang-label tai-lang-ja'>JA</span>"
-                f"<div class='tai-bilingual-ja'>{full_sum}</div>"
-                f"<span class='tai-lang-label tai-lang-en'>EN</span>"
-                f"<div class='tai-bilingual-en'>{en_summary}</div>"
-                f"</div>"
-                f"</div>"
-            )
+        if is_japanese and en_summary and en_summary.strip()!=full_sum.strip():
+            sum_html += (f"<div class='tai-summary-box'><div class='tai-summary-label'>📋 Meeting Overview</div>"
+                         f"<div class='tai-bilingual-block'>"
+                         f"<span class='tai-lang-label tai-lang-ja'>JA</span><div class='tai-bilingual-ja'>{full_sum}</div>"
+                         f"<span class='tai-lang-label tai-lang-en'>EN</span><div class='tai-bilingual-en'>{en_summary}</div>"
+                         f"</div></div>")
         elif is_japanese and not en_summary:
-            sum_html += (
-                f"<div class='tai-summary-box'>"
-                f"<div class='tai-summary-label'>📋 Meeting Overview</div>"
-                f"<span class='tai-lang-label tai-lang-ja'>JA</span>"
-                f"<p style='margin:0;line-height:1.9;font-size:0.85rem;font-family:Noto Sans JP,sans-serif;color:#3C2416'>{full_sum}</p>"
-                f"</div>"
-            )
+            sum_html += (f"<div class='tai-summary-box'><div class='tai-summary-label'>📋 Meeting Overview</div>"
+                         f"<span class='tai-lang-label tai-lang-ja'>JA</span>"
+                         f"<p style='margin:0;line-height:1.9;font-size:0.85rem;font-family:Noto Sans JP,sans-serif;color:#3C2416'>{full_sum}</p></div>")
         else:
-            sum_html += (
-                f"<div class='tai-summary-box'>"
-                f"<div class='tai-summary-label'>📋 Meeting Overview</div>"
-                f"<p style='margin:0;line-height:1.75;font-size:0.85rem;color:#3C2416'>{full_sum}</p>"
-                f"</div>"
-            )
+            sum_html += (f"<div class='tai-summary-box'><div class='tai-summary-label'>📋 Meeting Overview</div>"
+                         f"<p style='margin:0;line-height:1.75;font-size:0.85rem;color:#3C2416'>{full_sum}</p></div>")
 
     if bullets:
         sum_html += f"<div class='tai-section-label'>{len(bullets)} Key Points</div>"
-        for i, b in enumerate(bullets, 1):
-            has_cjk = any('\u4e00' <= c <= '\u9fff' or '\u3040' <= c <= '\u309f' or '\u30a0' <= c <= '\u30ff' for c in str(b))
-            bullet_font = "font-family:'Noto Sans JP',sans-serif;" if has_cjk else ""
-            sum_html += (
-                f"<div class='tai-bullet-card'>"
-                f"<span class='tai-bullet-num'>{i:02d}</span>"
-                f"<span style='color:#3C2416;font-size:0.88rem;line-height:1.65;{bullet_font}'>{b}</span>"
-                f"</div>"
-            )
+        for i,b in enumerate(bullets,1):
+            has_cjk = any('\u4e00'<=c<='\u9fff' or '\u3040'<=c<='\u309f' or '\u30a0'<=c<='\u30ff' for c in str(b))
+            bf = "font-family:'Noto Sans JP',sans-serif;" if has_cjk else ""
+            sum_html += (f"<div class='tai-bullet-card'><span class='tai-bullet-num'>{i:02d}</span>"
+                         f"<span style='color:#3C2416;font-size:0.88rem;line-height:1.65;{bf}'>{b}</span></div>")
     elif not full_sum:
         sum_html += "<div style='color:#A87868;font-size:0.85rem;padding:1rem 0'>No summary extracted. Try a longer transcript.</div>"
 
-    gijiroku_preview = _build_gijiroku_preview(R, language) if features.get("show_japan_insights") else ""
+    gijiroku_preview = _build_gijiroku_preview(R,language) if features.get("show_japan_insights") else ""
     if gijiroku_preview:
         sum_html += gijiroku_preview
 
     # ── Tab 2: Actions ────────────────────────────────────────────────────────
-    items    = R.get("action_items", [])
-    v_count  = sum(1 for i in items if not i.get("hallucination_flag"))
-    f_count  = len(items) - v_count
-    act_html = (
-        f"<div class='tai-section-label'>{len(items)} Items · "
-        f"<span style='color:#2D9E6B'>✓ {v_count} verified</span>"
-        + (f" · <span style='color:#C84040'>⚑ {f_count} flagged</span>" if f_count else "")
-        + "</div>"
-    )
+    items   = R.get("action_items",[])
+    v_count = sum(1 for i in items if not i.get("hallucination_flag"))
+    f_count = len(items)-v_count
+    act_html = (f"<div class='tai-section-label'>{len(items)} Items · "
+                f"<span style='color:#2D9E6B'>✓ {v_count} verified</span>"
+                + (f" · <span style='color:#C84040'>⚑ {f_count} flagged</span>" if f_count else "")
+                + "</div>")
+
+    # STEP 5 + SYNTAX FIX: task_en primary display, task_ja below if present
+    # FIX: added + before "<div style='font-size:0.76rem..." after the task_ja conditional
     act_html += "".join(
         (
-            "<div class='tai-action-card" +
-            (" tai-action-flagged" if i.get("hallucination_flag") else "") +
-            "'>"
-            "<div style='font-size:1.1rem;padding-top:2px'>" +
-            ("⚑" if i.get("hallucination_flag") else "◆") +
-            "</div>"
+            "<div class='tai-action-card"
+            + (" tai-action-flagged" if i.get("hallucination_flag") else "")
+            + "'>"
+            "<div style='font-size:1.1rem;padding-top:2px'>"
+            + ("⚑" if i.get("hallucination_flag") else "◆")
+            + "</div>"
             "<div style='flex:1'>"
-            "<div style='font-weight:600;color:#3C2416;font-size:0.9rem;margin-bottom:4px'>" + str(i.get("task","")) + "</div>"
-            "<div style='font-size:0.76rem;color:#A87868'>"
+            "<div style='font-weight:600;color:#3C2416;font-size:0.9rem;margin-bottom:4px'>"
+            + str(i.get("task_en") or i.get("task",""))
+            + "</div>"
+            + (
+                "<div style='font-size:0.78rem;color:#7D4E8A;"
+                "font-family:\"Noto Sans JP\",sans-serif;"
+                "margin-top:3px;padding:3px 0 2px;border-top:1px solid #EFE2D8;"
+                "line-height:1.6'>"
+                + str(i["task_ja"])
+                + "</div>"
+                if i.get("task_ja") else ""
+            )
+            + "<div style='font-size:0.76rem;color:#A87868'>"   # ← + added here (THE FIX)
             "Owner: <strong style='color:#7A5040'>" + str(i.get("owner","TBD")) + "</strong>"
-            " &nbsp;·&nbsp; Deadline: <strong style='color:#7A5040'>" + str(i.get("deadline","TBD")) + "</strong>" +
-            (f" &nbsp;·&nbsp; {i.get('confidence',0):.0%} confidence" if i.get("confidence") else "") +
-            (f"<div style='color:#963030;font-size:0.72rem;margin-top:3px'>⚠ {i.get('flag_reason','')}</div>" if i.get("flag_reason") else "") +
-            "</div></div></div>"
+            " &nbsp;·&nbsp; Deadline: <strong style='color:#7A5040'>" + str(i.get("deadline","TBD")) + "</strong>"
+            + (f" &nbsp;·&nbsp; {i.get('confidence',0):.0%} confidence" if i.get("confidence") else "")
+            + (f"<div style='color:#963030;font-size:0.72rem;margin-top:3px'>⚠ {i.get('flag_reason','')}</div>" if i.get("flag_reason") else "")
+            + "</div></div></div>"
         )
         for i in items
     ) if items else "<div style='color:#A87868;font-size:0.85rem;padding:1rem 0'>No action items extracted.</div>"
 
-    # ── Tab 3: Sentiment ──────────────────────────────────────────────────────────
+    # ── Tab 3: Sentiment ──────────────────────────────────────────────────────
     sent_html = "<div class='tai-section-label'>Speaker Sentiment · Multi-Emotion Analysis</div>"
     if termination_detected:
-        sent_html += (
-            "<div style='background:#F5F3FF;border-left:3px solid #7C3AED;"
-            "border-radius:0 8px 8px 0;padding:0.7rem 1rem;margin-bottom:1rem;"
-            "font-size:0.78rem;color:#4C1D95;line-height:1.6;'>"
-            "Sentiment scored on <strong>communicative register</strong> — "
-            "cooperative/deferential/gracious = neutral, not negative. "
-            "Professional acceptance of a termination is not hostility."
-            "</div>"
-        )
+        sent_html += ("<div style='background:#F5F3FF;border-left:3px solid #7C3AED;"
+                      "border-radius:0 8px 8px 0;padding:0.7rem 1rem;margin-bottom:1rem;"
+                      "font-size:0.78rem;color:#4C1D95;line-height:1.6;'>"
+                      "Sentiment scored on <strong>communicative register</strong> — "
+                      "cooperative/deferential/gracious = neutral, not negative. "
+                      "Professional acceptance of a termination is not hostility.</div>")
 
-    for s in R.get("sentiment", []):
-        score      = (s.get("score") or "neutral").lower()
-        label      = s.get("label", "factual")
-        secondary  = [lbl for lbl in (s.get("secondary_labels") or []) if lbl != label][:4]
-        valence    = s.get("valence", 0.0)
-        trajectory = s.get("trajectory") or s.get("trend", "stable")
-        risk       = (s.get("risk_to_relationship") or "none").lower()
+    for s in R.get("sentiment",[]):
+        score_s    = (s.get("score") or "neutral").lower()
+        label      = s.get("label","factual")
+        secondary  = [lbl for lbl in (s.get("secondary_labels") or []) if lbl!=label][:4]
+        valence    = s.get("valence",0.0)
+        trajectory = s.get("trajectory") or s.get("trend","stable")
+        risk_s     = (s.get("risk_to_relationship") or "none").lower()
         evidence   = s.get("evidence_quotes") or []
-
-        icon                 = SENT_ICON.get(score, "🌿")
-        traj_icon, traj_clr  = _TRAJ_MAP.get(trajectory, ("—", "#94A3B8"))
-
+        icon = SENT_ICON.get(score_s,"🌿")
+        traj_icon,traj_clr = _TRAJ_MAP.get(trajectory,("—","#94A3B8"))
         chips_html = _emotion_chip(label, is_primary=True)
-        for sec in secondary:
-            chips_html += " " + _emotion_chip(sec, is_primary=False)
-
+        for sec in secondary: chips_html += " " + _emotion_chip(sec, is_primary=False)
         risk_html = ""
-        if risk in ("high", "medium"):
-            rclr = "#DC2626" if risk == "high" else "#D97706"
-            risk_html = (
-                f"<div style='margin-top:7px;display:inline-flex;align-items:center;"
-                f"gap:4px;background:{rclr}11;border:1px solid {rclr}44;"
-                f"border-radius:6px;padding:2px 8px;font-size:0.65rem;"
-                f"font-weight:700;color:{rclr}'>⚠ Relationship Risk: {risk.title()}</div>"
-            )
-
+        if risk_s in ("high","medium"):
+            rclr2 = "#DC2626" if risk_s=="high" else "#D97706"
+            risk_html = (f"<div style='margin-top:7px;display:inline-flex;align-items:center;"
+                         f"gap:4px;background:{rclr2}11;border:1px solid {rclr2}44;"
+                         f"border-radius:6px;padding:2px 8px;font-size:0.65rem;"
+                         f"font-weight:700;color:{rclr2}'>⚠ Relationship Risk: {risk_s.title()}</div>")
         sent_html += (
-            f"<div style='background:#FDFAFF;border:1px solid #E9DCE1;"
-            f"border-radius:14px;padding:14px 16px;margin-bottom:10px;'>"
-            # Header row
+            f"<div style='background:#FDFAFF;border:1px solid #E9DCE1;border-radius:14px;padding:14px 16px;margin-bottom:10px;'>"
             f"<div style='display:flex;align-items:flex-start;gap:10px;margin-bottom:8px'>"
             f"<span style='font-size:1.3rem;line-height:1.2'>{icon}</span>"
             f"<div style='flex:1;min-width:0'>"
             f"<div style='font-weight:700;color:#3C2416;font-size:0.9rem'>{s.get('speaker','')}</div>"
-            f"<div style='font-size:0.65rem;color:{traj_clr};margin-top:2px'>"
-            f"{traj_icon} {trajectory.replace('_',' ')}</div>"
-            f"</div>"
-            f"<span class='tai-sent-badge tai-sent-{score}'>{score.upper()}</span>"
-            f"</div>"
-            # Emotion chips
+            f"<div style='font-size:0.65rem;color:{traj_clr};margin-top:2px'>{traj_icon} {trajectory.replace('_',' ')}</div>"
+            f"</div><span class='tai-sent-badge tai-sent-{score_s}'>{score_s.upper()}</span></div>"
             f"<div style='display:flex;flex-wrap:wrap;gap:5px;margin-bottom:2px'>{chips_html}</div>"
-            # Valence bar
             + _sent_valence_bar(valence)
-            # Evidence quotes (original language preserved)
             + _evidence_quote_html(evidence)
-            # Risk badge
             + risk_html
-            + "</div>"
-        )
+            + "</div>")
 
     # ── Tab 4: Speakers ───────────────────────────────────────────────────────
     spk_html = "<div class='tai-section-label'>Talk Time Distribution</div>"
-    for idx2, spk in enumerate(speakers):
-        nm  = spk.get("name", f"Speaker {idx2+1}")
-        pct = spk.get("talk_time_pct", 0)
+    for idx2,spk in enumerate(speakers):
+        nm  = spk.get("name",f"Speaker {idx2+1}")
+        pct = spk.get("talk_time_pct",0)
         tone= spk.get("tone","—")
         col = COLORS[idx2 % len(COLORS)]
         spk_html += (
-            f"<div class='tai-spk-row'>"
-            f"{_avatar(nm, col)}"
+            f"<div class='tai-spk-row'>{_avatar(nm,col)}"
             f"<div style='flex:1;min-width:0'>"
             f"<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:6px'>"
             f"<span style='font-weight:600;color:#3C2416;font-size:0.88rem'>{nm}</span>"
@@ -640,10 +507,7 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
             f"<div style='height:6px;background:rgba(60,36,22,0.10);border-radius:999px'>"
             f"<div style='height:100%;width:{pct}%;background:{col};border-radius:999px;box-shadow:0 0 8px {col}66;'></div></div>"
             f"<div style='font-size:0.7rem;color:#A87868;margin-top:4px'>{tone}</div>"
-            f"</div>"
-            f"{_svg_donut(pct, col, 52)}"
-            f"</div>"
-        )
+            f"</div>{_svg_donut(pct,col,52)}</div>")
 
     # ── Tab 5: Insights ───────────────────────────────────────────────────────
     ins_html = ""
@@ -654,241 +518,154 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
         sigs    = ji.get("nemawashi_signals",[])
         risk    = soft.get("risk_level","NONE") if soft else "NONE"
         risk_colors = {"CRITICAL":"#7C3AED","HIGH":"#963030","MEDIUM":"#986820","LOW":"#BE4060","MINIMAL":"#A87868","NONE":"#2D7A55"}
-        rclr    = risk_colors.get(risk, "#2D7A55")
+        rclr    = risk_colors.get(risk,"#2D7A55")
         cs_cnt  = ji.get("code_switch_count",0)
 
-        # ── Approval Gate banner ─────────────────────────────────────────────
         if approval_gate_detected and not termination_detected:
-            ag_sigs = soft.get("approval_gate_signals", [])
-            # Determine decision status from signals
-            has_tech_commercial = any("technical" in s.get("phrase","").lower() or
-                                      "技術" in s.get("phrase","") for s in ag_sigs)
-            has_personal_vs_org = any("personally" in s.get("phrase","").lower() or
-                                      "board" in s.get("phrase","").lower() or
-                                      "headquarters" in s.get("phrase","").lower() for s in ag_sigs)
-            has_committee = any("committee" in s.get("phrase","").lower() or
-                                "委員会" in s.get("phrase","") or
-                                "稟議" in s.get("phrase","") for s in ag_sigs)
-
-            # Decision status chips
+            ag_sigs = soft.get("approval_gate_signals",[])
+            has_tech_commercial = any("technical" in s.get("phrase","").lower() or "技術" in s.get("phrase","") for s in ag_sigs)
+            has_personal_vs_org = any("personally" in s.get("phrase","").lower() or "board" in s.get("phrase","").lower() or "headquarters" in s.get("phrase","").lower() for s in ag_sigs)
+            has_committee       = any("committee" in s.get("phrase","").lower() or "委員会" in s.get("phrase","") or "稟議" in s.get("phrase","") for s in ag_sigs)
             status_chips = ""
             if has_tech_commercial:
-                status_chips += (
-                    "<div style='display:inline-flex;align-items:center;gap:6px;"
-                    "background:#ECFDF5;border:1px solid #6EE7B7;border-radius:8px;"
-                    "padding:5px 12px;margin:3px 6px 3px 0;font-size:0.78rem;font-weight:700;color:#065F46;'>"
-                    "✅ Technical Review Approved</div>"
-                    "<div style='display:inline-flex;align-items:center;gap:6px;"
-                    "background:#FFFBEB;border:1px solid #FCD34D;border-radius:8px;"
-                    "padding:5px 12px;margin:3px 6px 3px 0;font-size:0.78rem;font-weight:700;color:#92400E;'>"
-                    "⏳ Commercial Approval Pending</div>"
-                )
+                status_chips += ("<div style='display:inline-flex;align-items:center;gap:6px;background:#ECFDF5;border:1px solid #6EE7B7;border-radius:8px;padding:5px 12px;margin:3px 6px 3px 0;font-size:0.78rem;font-weight:700;color:#065F46;'>✅ Technical Review Approved</div>"
+                                 "<div style='display:inline-flex;align-items:center;gap:6px;background:#FFFBEB;border:1px solid #FCD34D;border-radius:8px;padding:5px 12px;margin:3px 6px 3px 0;font-size:0.78rem;font-weight:700;color:#92400E;'>⏳ Commercial Approval Pending</div>")
             if has_personal_vs_org:
-                status_chips += (
-                    "<div style='display:inline-flex;align-items:center;gap:6px;"
-                    "background:#EFF6FF;border:1px solid #93C5FD;border-radius:8px;"
-                    "padding:5px 12px;margin:3px 6px 3px 0;font-size:0.78rem;font-weight:700;color:#1E40AF;'>"
-                    "👤 Personal Support Only</div>"
-                    "<div style='display:inline-flex;align-items:center;gap:6px;"
-                    "background:#FFF7ED;border:1px solid #FDBA74;border-radius:8px;"
-                    "padding:5px 12px;margin:3px 6px 3px 0;font-size:0.78rem;font-weight:700;color:#9A3412;'>"
-                    "⏳ Organizational Decision Pending</div>"
-                )
+                status_chips += ("<div style='display:inline-flex;align-items:center;gap:6px;background:#EFF6FF;border:1px solid #93C5FD;border-radius:8px;padding:5px 12px;margin:3px 6px 3px 0;font-size:0.78rem;font-weight:700;color:#1E40AF;'>👤 Personal Support Only</div>"
+                                 "<div style='display:inline-flex;align-items:center;gap:6px;background:#FFF7ED;border:1px solid #FDBA74;border-radius:8px;padding:5px 12px;margin:3px 6px 3px 0;font-size:0.78rem;font-weight:700;color:#9A3412;'>⏳ Organizational Decision Pending</div>")
             if has_committee:
-                status_chips += (
-                    "<div style='display:inline-flex;align-items:center;gap:6px;"
-                    "background:#F5F3FF;border:1px solid #C4B5FD;border-radius:8px;"
-                    "padding:5px 12px;margin:3px 6px 3px 0;font-size:0.78rem;font-weight:700;color:#5B21B6;'>"
-                    "🏛 Committee Review Required</div>"
-                )
-
-            # Authority hierarchy (only for technical/commercial split)
+                status_chips += "<div style='display:inline-flex;align-items:center;gap:6px;background:#F5F3FF;border:1px solid #C4B5FD;border-radius:8px;padding:5px 12px;margin:3px 6px 3px 0;font-size:0.78rem;font-weight:700;color:#5B21B6;'>🏛 Committee Review Required</div>"
             hierarchy_html = ""
             if has_tech_commercial:
-                hierarchy_html = (
-                    "<div style='margin:1rem 0 0.5rem;font-size:0.6rem;font-weight:800;"
-                    "color:#D97706;letter-spacing:0.12em;text-transform:uppercase;'>Decision Authority Hierarchy</div>"
-                    "<div style='background:#FFFBEB;border:1px solid #FCD34D;border-radius:10px;"
-                    "padding:12px 14px;font-size:0.78rem;color:#78350F;line-height:2.1;'>"
-                    "<span style='font-weight:700'>Engineering Department</span>"
-                    "<span style='color:#D97706;margin:0 6px;'>→</span>"
-                    "Technical Recommendation Only"
-                    "<br>"
-                    "<span style='font-weight:700'>Procurement / 調達部</span>"
-                    "<span style='color:#D97706;margin:0 6px;'>→</span>"
-                    "Commercial &amp; Contract Review"
-                    "<br>"
-                    "<span style='font-weight:700'>Purchasing Committee / 購買委員会</span>"
-                    "<span style='color:#D97706;margin:0 6px;'>→</span>"
-                    "<span style='color:#D97706;font-weight:800;'>Final Decision Authority ✦</span>"
-                    "</div>"
-                )
+                hierarchy_html = ("<div style='margin:1rem 0 0.5rem;font-size:0.6rem;font-weight:800;color:#D97706;letter-spacing:0.12em;text-transform:uppercase;'>Decision Authority Hierarchy</div>"
+                                  "<div style='background:#FFFBEB;border:1px solid #FCD34D;border-radius:10px;padding:12px 14px;font-size:0.78rem;color:#78350F;line-height:2.1;'>"
+                                  "<span style='font-weight:700'>Engineering Department</span><span style='color:#D97706;margin:0 6px;'>→</span>Technical Recommendation Only<br>"
+                                  "<span style='font-weight:700'>Procurement / 調達部</span><span style='color:#D97706;margin:0 6px;'>→</span>Commercial &amp; Contract Review<br>"
+                                  "<span style='font-weight:700'>Purchasing Committee / 購買委員会</span><span style='color:#D97706;margin:0 6px;'>→</span>"
+                                  "<span style='color:#D97706;font-weight:800;'>Final Decision Authority ✦</span></div>")
             elif has_personal_vs_org:
-                hierarchy_html = (
-                    "<div style='margin:1rem 0 0.5rem;font-size:0.6rem;font-weight:800;"
-                    "color:#D97706;letter-spacing:0.12em;text-transform:uppercase;'>Authority Clarification</div>"
-                    "<div style='background:#FFFBEB;border:1px solid #FCD34D;border-radius:10px;"
-                    "padding:12px 14px;font-size:0.78rem;color:#78350F;line-height:2.1;'>"
-                    "<span style='font-weight:700'>Meeting Participant</span>"
-                    "<span style='color:#D97706;margin:0 6px;'>→</span>"
-                    "Personal support expressed"
-                    "<br>"
-                    "<span style='font-weight:700'>Board / HQ / Executive Committee</span>"
-                    "<span style='color:#D97706;margin:0 6px;'>→</span>"
-                    "<span style='color:#D97706;font-weight:800;'>Actual Decision Authority ✦</span>"
-                    "</div>"
-                )
+                hierarchy_html = ("<div style='margin:1rem 0 0.5rem;font-size:0.6rem;font-weight:800;color:#D97706;letter-spacing:0.12em;text-transform:uppercase;'>Authority Clarification</div>"
+                                  "<div style='background:#FFFBEB;border:1px solid #FCD34D;border-radius:10px;padding:12px 14px;font-size:0.78rem;color:#78350F;line-height:2.1;'>"
+                                  "<span style='font-weight:700'>Meeting Participant</span><span style='color:#D97706;margin:0 6px;'>→</span>Personal support expressed<br>"
+                                  "<span style='font-weight:700'>Board / HQ / Executive Committee</span><span style='color:#D97706;margin:0 6px;'>→</span>"
+                                  "<span style='color:#D97706;font-weight:800;'>Actual Decision Authority ✦</span></div>")
+            ins_html += (f"<div style='background:#FFFBEB;border:2px solid #D97706;border-radius:12px;padding:1.2rem 1.4rem;margin-bottom:1.5rem;'>"
+                         f"<div style='font-size:0.7rem;font-weight:800;color:#D97706;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:0.9rem;'>⏳ Approval Gate Detected — Decision Not Final</div>"
+                         f"<div style='margin-bottom:0.8rem;'>{status_chips}</div>"
+                         f"{hierarchy_html}"
+                         f"<div style='font-size:0.78rem;color:#78350F;line-height:1.65;border-top:1px solid #FDE68A;padding-top:0.9rem;margin-top:0.8rem;'>"
+                         f"{soft.get('cultural_note','In Japanese organizations, technical and commercial approval are separate processes.')}</div></div>")
 
-            ins_html += (
-                f"<div style='background:#FFFBEB;border:2px solid #D97706;"
-                f"border-radius:12px;padding:1.2rem 1.4rem;margin-bottom:1.5rem;'>"
-                f"<div style='font-size:0.7rem;font-weight:800;color:#D97706;"
-                f"letter-spacing:0.12em;text-transform:uppercase;margin-bottom:0.9rem;'>"
-                f"⏳ Approval Gate Detected — Decision Not Final</div>"
-                f"<div style='margin-bottom:0.8rem;'>{status_chips}</div>"
-                f"{hierarchy_html}"
-                f"<div style='font-size:0.78rem;color:#78350F;line-height:1.65;"
-                f"border-top:1px solid #FDE68A;padding-top:0.9rem;margin-top:0.8rem;'>"
-                f"{soft.get('cultural_note','In Japanese organizations, technical and commercial approval are separate processes.')}"
-                f"</div>"
-                f"</div>"
-            )
-
-        # ── Termination detected banner ───────────────────────────────────────
         if termination_detected:
-            term_sigs = soft.get("termination_signals", [])
+            term_sigs = soft.get("termination_signals",[])
             term_phrases = "".join(
                 f"<div style='margin-bottom:8px;'>"
-                f"<div style='font-size:0.82rem;font-weight:700;color:#5B21B6;"
-                f"font-family:Noto Sans JP,sans-serif;'>⛔ {s['phrase']}</div>"
-                f"<div style='font-size:0.72rem;color:#6B7280;margin-top:2px;'>"
-                f"{s.get('english','')} · Speaker: {s.get('speaker','Unknown')}</div>"
-                f"</div>"
+                f"<div style='font-size:0.82rem;font-weight:700;color:#5B21B6;font-family:Noto Sans JP,sans-serif;'>⛔ {s['phrase']}</div>"
+                f"<div style='font-size:0.72rem;color:#6B7280;margin-top:2px;'>{s.get('english','')} · Speaker: {s.get('speaker','Unknown')}</div></div>"
                 for s in term_sigs
-            ) if term_sigs else (
-                "<div style='font-size:0.82rem;color:#5B21B6;'>"
-                "Contract termination language detected in transcript.</div>"
-            )
-            ins_html += (
-                f"<div style='background:#F5F3FF;border:2px solid #7C3AED;"
-                f"border-radius:12px;padding:1.2rem 1.4rem;margin-bottom:1.5rem;'>"
-                f"<div style='font-size:0.7rem;font-weight:800;color:#7C3AED;"
-                f"letter-spacing:0.12em;text-transform:uppercase;margin-bottom:0.8rem;'>"
-                f"⛔ Explicit Contract Termination Detected</div>"
-                f"{term_phrases}"
-                f"<div style='font-size:0.78rem;color:#4C1D95;line-height:1.65;"
-                f"border-top:1px solid #DDD6FE;padding-top:0.8rem;margin-top:0.6rem;'>"
-                f"{soft.get('cultural_note', 'This is an explicit, irrevocable termination — not a soft refusal. The polite keigo delivery is cultural courtesy, not ambiguity.')}"
-                f"</div>"
-                f"</div>"
-            )
+            ) if term_sigs else "<div style='font-size:0.82rem;color:#5B21B6;'>Contract termination language detected in transcript.</div>"
+            ins_html += (f"<div style='background:#F5F3FF;border:2px solid #7C3AED;border-radius:12px;padding:1.2rem 1.4rem;margin-bottom:1.5rem;'>"
+                         f"<div style='font-size:0.7rem;font-weight:800;color:#7C3AED;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:0.8rem;'>⛔ Explicit Contract Termination Detected</div>"
+                         f"{term_phrases}"
+                         f"<div style='font-size:0.78rem;color:#4C1D95;line-height:1.65;border-top:1px solid #DDD6FE;padding-top:0.8rem;margin-top:0.6rem;'>"
+                         f"{soft.get('cultural_note','This is an explicit, irrevocable termination — not a soft refusal.')}</div></div>")
+
+        # STEP 5: risk_category chip label
+        _RISK_CATEGORY_LABELS = {
+            "ESCALATION":    "Escalation Risk",
+            "SOFT_REJECTION":"Soft Rejection Risk",
+            "APPROVAL_GATE": "Approval Gate",
+            "TERMINATION":   "Termination",
+            "MIXED":         "Mixed Risk",
+            "NONE":          "Rejection Risk",
+        }
+        _rc = R.get("_risk_category", soft.get("risk_category","NONE"))
+        _rc_label = _RISK_CATEGORY_LABELS.get(_rc,"Rejection Risk")
 
         ins_html += (
             "<div style='display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px'>"
             "<div class='tai-insight-chip'>"
             "<div style='font-size:0.6rem;color:#A87868;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:2px'>Keigo Register</div>"
             f"<div style='font-size:1.1rem;font-weight:700;color:{kc}'>{keigo.upper()}</div>"
-            f"<div style='font-size:0.62rem;color:#C8A898'>via {k_src}</div>"
-            "</div>"
+            f"<div style='font-size:0.62rem;color:#C8A898'>via {k_src}</div></div>"
             "<div class='tai-insight-chip'>"
-            "<div style='font-size:0.6rem;color:#A87868;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:2px'>Rejection Risk</div>"
+            f"<div style='font-size:0.6rem;color:#A87868;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:2px'>{_rc_label}</div>"
             f"<div style='font-size:1.1rem;font-weight:700;color:{rclr}'>{risk}</div>"
-            f"<div style='font-size:0.62rem;color:#C8A898'>{soft.get('total_signals',0)} signals</div>"
-            "</div>"
+            f"<div style='font-size:0.62rem;color:#C8A898'>{soft.get('total_signals',0)} signals</div></div>"
             "<div class='tai-insight-chip'>"
             "<div style='font-size:0.6rem;color:#A87868;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:2px'>Code Switches</div>"
             f"<div style='font-size:1.1rem;font-weight:700;color:#E88060'>{cs_cnt}</div>"
-            "<div style='font-size:0.62rem;color:#C8A898'>language switches</div>"
-            "</div>"
-            "</div>"
-        )
+            "<div style='font-size:0.62rem;color:#C8A898'>language switches</div></div>"
+            "</div>")
 
         if sigs:
             ins_html += f"<div class='tai-section-label'>Indirect Consensus Signals · {len(sigs)} detected</div>"
             ins_html += "".join("<div class='tai-nemawashi-pill'>◆ " + s + "</div>" for s in sigs)
 
-        if soft and soft.get("total_signals",0) > 0:
+        if soft and soft.get("total_signals",0)>0:
             ins_html += "<div class='tai-section-label' style='margin-top:16px'>Soft Rejection Analysis</div>"
             for sig in soft.get("high_signals",[]):
-                ins_html += (
-                    f"<div class='tai-sig-high'>"
-                    f"<div style='font-weight:700;font-size:0.9rem'>🚨 {sig['phrase']}</div>"
-                    f"<div style='font-size:0.76rem;color:#7A5040;margin-top:4px'>{sig['reading']} · {sig['speaker']} · {sig['confidence']:.0%}</div>"
-                    f"<div style='font-size:0.75rem;color:#3C2416;margin-top:6px;line-height:1.5'>{sig['explanation']}</div>"
-                    f"</div>"
-                )
+                ins_html += (f"<div class='tai-sig-high'>"
+                             f"<div style='font-weight:700;font-size:0.9rem'>🚨 {sig['phrase']}</div>"
+                             f"<div style='font-size:0.76rem;color:#7A5040;margin-top:4px'>{sig['reading']} · {sig['speaker']} · {sig['confidence']:.0%}</div>"
+                             f"<div style='font-size:0.75rem;color:#3C2416;margin-top:6px;line-height:1.5'>{sig['explanation']}</div></div>")
             for sig in soft.get("medium_signals",[]):
-                ins_html += (
-                    f"<div class='tai-sig-med'>"
-                    f"<div style='font-weight:700;font-size:0.9rem'>⚠ {sig['phrase']}</div>"
-                    f"<div style='font-size:0.76rem;color:#7A5040;margin-top:4px'>{sig['reading']} · {sig['speaker']} · {sig['confidence']:.0%}</div>"
-                    f"<div style='font-size:0.75rem;color:#3C2416;margin-top:6px;line-height:1.5'>{sig['explanation']}</div>"
-                    f"</div>"
-                )
+                ins_html += (f"<div class='tai-sig-med'>"
+                             f"<div style='font-weight:700;font-size:0.9rem'>⚠ {sig['phrase']}</div>"
+                             f"<div style='font-size:0.76rem;color:#7A5040;margin-top:4px'>{sig['reading']} · {sig['speaker']} · {sig['confidence']:.0%}</div>"
+                             f"<div style='font-size:0.75rem;color:#3C2416;margin-top:6px;line-height:1.5'>{sig['explanation']}</div></div>")
             if not termination_detected:
                 ins_html += f"<div style='font-size:0.73rem;color:#A87868;font-style:italic;margin-top:8px'>{soft.get('cultural_note','')}</div>"
     else:
         ins_html = "<div style='color:#A87868;font-size:0.85rem;padding:1rem 0;line-height:1.7'>Cultural intelligence features apply to Japanese and Hindi transcripts.</div>"
 
-    insight_label = features.get('insight_tab_label', '🌐 Insights') or "Insights"
+    insight_label = features.get("insight_tab_label","🌐 Insights") or "Insights"
 
-    # 議事録 format banner
     gijiroku_format_banner = ""
     if features.get("show_japan_insights"):
         gijiroku_format_banner = (
             '<div style="margin-bottom:16px;border:1px solid #D0B0C8;border-radius:12px;overflow:hidden;">'
-            +   '<div style="background:linear-gradient(135deg,#7D4E8A,#A06CB5);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;">'
-            +     '<div style="font-size:0.72rem;font-weight:700;color:#fff;letter-spacing:0.1em;text-transform:uppercase;">🗾 議事録 Format · Japanese Business Minutes</div>'
-            +     '<div style="font-size:0.65rem;color:rgba(255,255,255,0.7);">Standard enterprise document structure</div>'
-            +   '</div>'
-            +   '<div style="padding:16px;background:#FDFAFF;display:grid;grid-template-columns:repeat(5, 1fr);gap:8px;text-align:center;align-items:center;">'
-            +     ''.join(f"<div style='padding:6px 4px;'><div style='font-size:0.78rem;font-weight:700;color:#7D4E8A;font-family:Noto Sans JP,sans-serif;'>{ja}</div><div style='font-size:0.6rem;color:#A87868;margin-top:2px;'>{en}</div></div>" for ja, en in [("会議名","Meeting name"),("出席者","Attendees"),("議題","Agenda"),("決定事項","Decisions"),("アクション","Action items")])
-            +   '</div>'
-            + '</div>'
-        )
+            '<div style="background:linear-gradient(135deg,#7D4E8A,#A06CB5);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;">'
+            '<div style="font-size:0.72rem;font-weight:700;color:#fff;letter-spacing:0.1em;text-transform:uppercase;">🗾 議事録 Format · Japanese Business Minutes</div>'
+            '<div style="font-size:0.65rem;color:rgba(255,255,255,0.7);">Standard enterprise document structure</div>'
+            '</div>'
+            '<div style="padding:16px;background:#FDFAFF;display:grid;grid-template-columns:repeat(5, 1fr);gap:8px;text-align:center;align-items:center;">'
+            + "".join(f"<div style='padding:6px 4px;'><div style='font-size:0.78rem;font-weight:700;color:#7D4E8A;font-family:Noto Sans JP,sans-serif;'>{ja}</div><div style='font-size:0.6rem;color:#A87868;margin-top:2px;'>{en}</div></div>"
+                      for ja,en in [("会議名","Meeting name"),("出席者","Attendees"),("議題","Agenda"),("決定事項","Decisions"),("アクション","Action items")])
+            + '</div></div>')
 
     export_banner = """
-    <div style='margin-top:20px; padding:18px; background:linear-gradient(135deg, rgba(125,78,138,0.04), rgba(160,108,181,0.06)); border:1px solid #D0B0C8; border-radius:12px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;'>
-        <div>
-            <div style='font-size:0.9rem; font-weight:700; color:#7D4E8A; margin-bottom:4px;'>✨ Analysis Complete</div>
-            <div style='font-size:0.75rem; color:#A87868;'>Your meeting intelligence is ready. Export full documents below.</div>
-        </div>
-    </div>
-    """
-    deal_outcome = R.get("deal_outcome", {}) or {}
+    <div style='margin-top:20px;padding:18px;background:linear-gradient(135deg,rgba(125,78,138,0.04),rgba(160,108,181,0.06));border:1px solid #D0B0C8;border-radius:12px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;'>
+        <div><div style='font-size:0.9rem;font-weight:700;color:#7D4E8A;margin-bottom:4px;'>✨ Analysis Complete</div>
+        <div style='font-size:0.75rem;color:#A87868;'>Your meeting intelligence is ready. Export full documents below.</div></div>
+    </div>"""
+
+    deal_outcome = R.get("deal_outcome",{}) or {}
     outcome_banner = ""
     try:
         from analysis.deal_outcome_detector import compute_meeting_outcome
-        outcome = compute_meeting_outcome(soft, deal_outcome)
+        outcome = compute_meeting_outcome(soft,deal_outcome)
         outcome_banner = (
             '<div style="margin-bottom:16px;border:1px solid ' + outcome["color"] + '33;'
-            'border-radius:12px;padding:14px 18px;display:flex;align-items:center;gap:14px;'
-            'background:' + outcome["color"] + '0D;">'
+            'border-radius:12px;padding:14px 18px;display:flex;align-items:center;gap:14px;background:' + outcome["color"] + '0D;">'
             + '<div style="font-size:1.8rem;line-height:1;">' + outcome["emoji"] + '</div>'
             + '<div style="flex:1;min-width:0;">'
-            + '<div style="font-size:0.62rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;'
-              'color:' + outcome["color"] + ';margin-bottom:2px;">Meeting Outcome</div>'
+            + '<div style="font-size:0.62rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:' + outcome["color"] + ';margin-bottom:2px;">Meeting Outcome</div>'
             + '<div style="font-size:1.05rem;font-weight:800;color:#3C2416;">' + outcome["label"] + '</div>'
             + '<div style="font-size:0.76rem;color:#7A5040;margin-top:3px;line-height:1.4;">' + outcome["meaning"] + '</div>'
-            + '</div></div>'
-        )
+            + '</div></div>')
     except Exception:
         pass
-    
+
     return (
         '<div class="tai-results">'
         + '<style>' + _RESULT_UI_CSS + '</style>'
-        + outcome_banner
-        + pii_html
-        + unlabeled_html
+        + outcome_banner + pii_html + unlabeled_html
         + '<div class="tai-tiles">' + tiles + '</div>'
         + gijiroku_format_banner
         + '<div class="tai-health">'
-        +   '<div class="tai-health-left">' + _health_ring(score, hc) + '</div>'
-        +   '<div class="tai-health-right">'
-        +     '<div class="tai-health-title">Meeting Health Breakdown</div>'
-        +     hbars
-        +   '</div>'
+        +   '<div class="tai-health-left">' + _health_ring(score,hc) + '</div>'
+        +   '<div class="tai-health-right"><div class="tai-health-title">Meeting Health Breakdown</div>' + hbars + '</div>'
         + '</div>'
         + '<div class="tai-radio-tabs">'
         +   '<input type="radio" name="tai-tabs" id="tai-radio-sum" checked>'
@@ -914,214 +691,124 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
         + '</div>'
         + '''<script>
 (function(){
-  var TAB_KEY = 'tai-active-tab';
-  var ids = ['tai-radio-sum','tai-radio-act','tai-radio-sent','tai-radio-spk','tai-radio-ins'];
-  var panels = ['tai-sum','tai-act','tai-sent','tai-spk','tai-ins'];
-  function activateTab(radioId) {
-    ids.forEach(function(id, idx) {
-      var radio = document.getElementById(id);
-      var panel = document.getElementById(panels[idx]);
-      if (radio && panel) {
-        if (id === radioId) {
-          radio.checked = true;
-          panel.style.display = 'block';
-        } else {
-          radio.checked = false;
-          panel.style.display = 'none';
-        }
-      }
+  var TAB_KEY='tai-active-tab';
+  var ids=['tai-radio-sum','tai-radio-act','tai-radio-sent','tai-radio-spk','tai-radio-ins'];
+  var panels=['tai-sum','tai-act','tai-sent','tai-spk','tai-ins'];
+  function activateTab(radioId){
+    ids.forEach(function(id,idx){
+      var radio=document.getElementById(id);
+      var panel=document.getElementById(panels[idx]);
+      if(radio&&panel){if(id===radioId){radio.checked=true;panel.style.display='block';}else{radio.checked=false;panel.style.display='none';}}
     });
-    document.querySelectorAll('.tai-tab-label').forEach(function(lbl) {
-      var forId = lbl.getAttribute('for');
-      if (forId === radioId) {
-        lbl.style.color = '#BE4060';
-        lbl.style.borderBottomColor = '#D96080';
-        lbl.style.fontWeight = '600';
-        lbl.style.background = 'rgba(190,64,96,0.04)';
-      } else {
-        lbl.style.color = '';
-        lbl.style.borderBottomColor = '';
-        lbl.style.fontWeight = '';
-        lbl.style.background = '';
-      }
+    document.querySelectorAll('.tai-tab-label').forEach(function(lbl){
+      var forId=lbl.getAttribute('for');
+      if(forId===radioId){lbl.style.color='#BE4060';lbl.style.fontWeight='600';lbl.style.background='rgba(190,64,96,0.04)';}
+      else{lbl.style.color='';lbl.style.fontWeight='';lbl.style.background='';}
     });
-    try { sessionStorage.setItem(TAB_KEY, radioId); } catch(e) {}
+    try{sessionStorage.setItem(TAB_KEY,radioId);}catch(e){}
   }
-  function init() {
-    var saved = null;
-    try { saved = sessionStorage.getItem(TAB_KEY); } catch(e) {}
-    if (saved && ids.indexOf(saved) !== -1) {
-      activateTab(saved);
-    } else {
-      activateTab('tai-radio-sum');
-    }
-    document.querySelectorAll('.tai-tab-label').forEach(function(lbl) {
-      lbl.addEventListener('click', function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        activateTab(lbl.getAttribute('for'));
-      });
+  function init(){
+    var saved=null;try{saved=sessionStorage.getItem(TAB_KEY);}catch(e){}
+    if(saved&&ids.indexOf(saved)!==-1){activateTab(saved);}else{activateTab('tai-radio-sum');}
+    document.querySelectorAll('.tai-tab-label').forEach(function(lbl){
+      lbl.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();activateTab(lbl.getAttribute('for'));});
     });
-    ids.forEach(function(id) {
-      var radio = document.getElementById(id);
-      if (radio) {
-        radio.addEventListener('change', function() {
-          if (radio.checked) activateTab(id);
-        });
-      }
-    });
+    ids.forEach(function(id){var radio=document.getElementById(id);if(radio){radio.addEventListener('change',function(){if(radio.checked)activateTab(id);});}});
   }
-  if (document.getElementById('tai-radio-sum')) { init(); }
-  else { setTimeout(init, 100); }
+  if(document.getElementById('tai-radio-sum')){init();}else{setTimeout(init,100);}
 })()
 </script>'''
-        + '</div>'
-    )
+        + '</div>')
 
 
 def compute_health_score(R: dict) -> dict:
-    soft  = R.get("soft_rejections", {}) or {}
-    termination_detected = (
-        soft.get("termination_detected", False) or
-        R.get("meeting_type") == "contract_termination"
-    )
-
-    sentiment = R.get("sentiment", [])
+    soft = R.get("soft_rejections",{}) or {}
+    termination_detected = (soft.get("termination_detected",False) or R.get("meeting_type")=="contract_termination")
+    sentiment = R.get("sentiment",[])
     if sentiment:
-        weights = {"positive": 1.0, "neutral": 0.6, "negative": 0.1}
-        avg = sum(weights.get(s.get("score","neutral").lower(), 0.5) for s in sentiment) / len(sentiment)
-        s_pts = round(avg * 30)
+        weights = {"positive":1.0,"neutral":0.6,"negative":0.1}
+        avg   = sum(weights.get(s.get("score","neutral").lower(),0.5) for s in sentiment)/len(sentiment)
+        s_pts = round(avg*30)
     else:
         s_pts = 15
-
-    items = R.get("action_items", [])
+    items = R.get("action_items",[])
     if not items:
         a_pts = 10
     else:
-        verified      = [i for i in items if not i.get("hallucination_flag", False)]
+        verified      = [i for i in items if not i.get("hallucination_flag",False)]
         with_owner    = sum(1 for i in verified if i.get("owner","TBD") not in ("TBD","Unknown",""))
         with_deadline = sum(1 for i in verified if i.get("deadline","TBD") not in ("TBD","N/A",""))
-        clarity = (with_owner + with_deadline) / (2 * len(items))
-        a_pts = round(clarity * 25)
-
-    risk  = soft.get("risk_level", "NONE")
-    r_pts = {"NONE":25,"MINIMAL":20,"LOW":15,"MEDIUM":8,"HIGH":0,"CRITICAL":0}.get(risk, 25)
-    h_pts = round((1 - R.get("verification",{}).get("overall_hallucination_risk", 0)) * 20)
-    score = min(s_pts + a_pts + r_pts + h_pts, 100)
-
+        a_pts = round((with_owner+with_deadline)/(2*len(items))*25)
+    risk  = soft.get("risk_level","NONE")
+    r_pts = {"NONE":25,"MINIMAL":20,"LOW":15,"MEDIUM":8,"HIGH":0,"CRITICAL":0}.get(risk,25)
+    h_pts = round((1-R.get("verification",{}).get("overall_hallucination_risk",0))*20)
+    score = min(s_pts+a_pts+r_pts+h_pts,100)
     if termination_detected:
-        score = min(score, 22)
-        return {"score": score, "label": "Contract Terminated",
-                "color": "#7C3AED", "bg": "#F5F3FF", "border": "#C4B5FD"}
-
-    if score >= 80:   label, color, bg, border = "Productive Meeting", "#486858", "#EDF3EF", "#A8C8B8"
-    elif score >= 60: label, color, bg, border = "Mostly Aligned",    "#986820", "#FAF0E0", "#D9C090"
-    elif score >= 40: label, color, bg, border = "Needs Follow-up",   "#C87030", "#FDF0EA", "#E8C090"
-    else:             label, color, bg, border = "High Risk",         "#B04040", "#FAF0F0", "#E8A0A0"
+        score = min(score,22)
+        return {"score":score,"label":"Contract Terminated","color":"#7C3AED","bg":"#F5F3FF","border":"#C4B5FD"}
+    if score>=80:   label,color,bg,border = "Productive Meeting","#486858","#EDF3EF","#A8C8B8"
+    elif score>=60: label,color,bg,border = "Mostly Aligned","#986820","#FAF0E0","#D9C090"
+    elif score>=40: label,color,bg,border = "Needs Follow-up","#C87030","#FDF0EA","#E8C090"
+    else:           label,color,bg,border = "High Risk","#B04040","#FAF0F0","#E8A0A0"
     return {"score":score,"label":label,"color":color,"bg":bg,"border":border}
 
-# ════════════════════════════════════════════════════════════════════════════════
-# EVALUATION PAGE — renders results from utils/evaluator.py's evaluate() against
-# ════════════════════════════════════════════════════════════════════════════════
 
 def _eval_grade_color(grade: str) -> str:
-    return {
-        "A": "#2D9E6B", "B": "#86A340", "C": "#B87830", "D": "#D96080", "F": "#C84040",
-    }.get((grade or "").upper(), "#7A5040")
+    return {"A":"#2D9E6B","B":"#86A340","C":"#B87830","D":"#D96080","F":"#C84040"}.get((grade or "").upper(),"#7A5040")
 
 
 def build_evaluation_html(reports: list, mlflow_logged: bool) -> str:
-    """
-    reports: list of {"tc_id", "tc_name", "provider", "duration_ms", "report": <evaluate() output>}
-    mlflow_logged: whether MLFLOW_AVAILABLE was True for this run (evaluator.py
-                   logs to http://127.0.0.1:5000 automatically when so).
-    """
     if not reports:
-        return (
-            "<div style='text-align:center;padding:2.5rem 1rem;color:#A87868;font-size:0.9rem;'>"
-            "No evaluation results — the run may have failed before producing any report."
-            "</div>"
-        )
-
+        return ("<div style='text-align:center;padding:2.5rem 1rem;color:#A87868;font-size:0.9rem;'>"
+                "No evaluation results — the run may have failed before producing any report.</div>")
     n = len(reports)
-    avg_overall = round(sum(r["report"]["overall_score"] for r in reports) / n, 1)
-    avg_color = ("#2D9E6B" if avg_overall >= 80 else "#B87830" if avg_overall >= 60
-                 else "#D96080" if avg_overall >= 40 else "#C84040")
-
+    avg_overall = round(sum(r["report"]["overall_score"] for r in reports)/n,1)
+    avg_color = ("#2D9E6B" if avg_overall>=80 else "#B87830" if avg_overall>=60 else "#D96080" if avg_overall>=40 else "#C84040")
     summary_html = (
-        "<div style='display:flex;align-items:center;gap:18px;flex-wrap:wrap;"
-        "border:1px solid " + avg_color + "33;border-radius:14px;padding:18px 22px;"
-        "background:" + avg_color + "0D;margin-bottom:20px;'>"
-        "<div style='font-size:2.2rem;font-weight:800;color:" + avg_color + ";line-height:1;'>"
-        f"{avg_overall}%</div>"
+        "<div style='display:flex;align-items:center;gap:18px;flex-wrap:wrap;border:1px solid " + avg_color + "33;"
+        "border-radius:14px;padding:18px 22px;background:" + avg_color + "0D;margin-bottom:20px;'>"
+        "<div style='font-size:2.2rem;font-weight:800;color:" + avg_color + ";line-height:1;'>" + f"{avg_overall}%" + "</div>"
         "<div style='flex:1;min-width:200px;'>"
-        "<div style='font-size:0.62rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;"
-        "color:" + avg_color + ";margin-bottom:3px;'>Average Overall Score · " + str(n) + " test case" + ("s" if n != 1 else "") + "</div>"
+        "<div style='font-size:0.62rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:" + avg_color + ";margin-bottom:3px;'>"
+        + f"Average Overall Score · {n} test case{'s' if n!=1 else ''}</div>"
         "<div style='font-size:0.8rem;color:#7A5040;'>"
-        + (
-            "✅ Logged to MLflow — <a href='http://127.0.0.1:5000' target='_blank' "
-            "style='color:" + avg_color + ";font-weight:700;'>view run history →</a>"
-            if mlflow_logged else
-            "⚠ MLflow not detected on this run — results shown here only, not persisted."
-        )
-        + "</div></div></div>"
-    )
-
+        + ("✅ Logged to MLflow — <a href='http://127.0.0.1:5000' target='_blank' style='color:" + avg_color + ";font-weight:700;'>view run history →</a>"
+           if mlflow_logged else "⚠ MLflow not detected on this run — results shown here only, not persisted.")
+        + "</div></div></div>")
     cards_html = ""
     for r in reports:
-        rep = r["report"]
-        grade = rep.get("overall_grade", "—")
+        rep    = r["report"]
+        grade  = rep.get("overall_grade","—")
         gcolor = _eval_grade_color(grade)
-        score = rep.get("overall_score", 0)
-
+        score  = rep.get("overall_score",0)
         metrics = [
-            ("Semantic", f"{rep['summary'].get('semantic_score', 0):.0%}" if isinstance(rep['summary'].get('semantic_score'), float) else rep['summary'].get('semantic_score', '—')),
-            ("Actions F1", f"{rep['action_items'].get('f1', 0):.0%}" if isinstance(rep['action_items'].get('f1'), float) else rep['action_items'].get('f1', '—')),
-            ("Sentiment", f"{rep['sentiment'].get('soft_accuracy', 0):.0%}" if isinstance(rep['sentiment'].get('soft_accuracy'), float) else rep['sentiment'].get('soft_accuracy', '—')),
+            ("Semantic",   f"{rep['summary'].get('semantic_score',0):.0%}"   if isinstance(rep['summary'].get('semantic_score'),float)   else rep['summary'].get('semantic_score','—')),
+            ("Actions F1", f"{rep['action_items'].get('f1',0):.0%}"          if isinstance(rep['action_items'].get('f1'),float)           else rep['action_items'].get('f1','—')),
+            ("Sentiment",  f"{rep['sentiment'].get('soft_accuracy',0):.0%}"  if isinstance(rep['sentiment'].get('soft_accuracy'),float)   else rep['sentiment'].get('soft_accuracy','—')),
         ]
         if "japan_insights" in rep:
             ji = rep["japan_insights"]
-            metrics.append(("Keigo", ji.get("keigo", {}).get("grade", "—")))
-            nm = ji.get("nemawashi", {})
-            metrics.append(("Nemawashi P/R", f"{nm.get('precision', 0):.0%}/{nm.get('recall', 0):.0%}"
-                             if isinstance(nm.get("precision"), float) else "—"))
-
+            metrics.append(("Keigo",ji.get("keigo",{}).get("grade","—")))
+            nm = ji.get("nemawashi",{})
+            metrics.append(("Nemawashi P/R",f"{nm.get('precision',0):.0%}/{nm.get('recall',0):.0%}" if isinstance(nm.get("precision"),float) else "—"))
         metric_chips = "".join(
-            "<div style='flex:1;min-width:90px;text-align:center;padding:8px 6px;"
-            "background:#FDFAFF;border:1px solid #EFE2D8;border-radius:8px;'>"
-            "<div style='font-size:0.58rem;color:#A87868;letter-spacing:0.08em;"
-            "text-transform:uppercase;margin-bottom:3px;'>" + lbl + "</div>"
-            "<div style='font-size:0.92rem;font-weight:800;color:#3C2416;'>" + str(val) + "</div>"
-            "</div>"
-            for lbl, val in metrics
-        )
-
+            "<div style='flex:1;min-width:90px;text-align:center;padding:8px 6px;background:#FDFAFF;border:1px solid #EFE2D8;border-radius:8px;'>"
+            "<div style='font-size:0.58rem;color:#A87868;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:3px;'>" + lbl + "</div>"
+            "<div style='font-size:0.92rem;font-weight:800;color:#3C2416;'>" + str(val) + "</div></div>"
+            for lbl,val in metrics)
         hallu = ""
         if "hallucination_bonus" in rep:
-            hallu = (
-                "<div style='font-size:0.7rem;color:#A87868;margin-top:8px;'>"
-                "Hallucination risk: <strong style='color:#7A5040;'>"
-                + str(rep.get("hallucination_risk", "UNKNOWN")) + "</strong>"
-                " · bonus +" + f"{rep.get('hallucination_bonus', 0):.0%}" + "</div>"
-            )
-
+            hallu = ("<div style='font-size:0.7rem;color:#A87868;margin-top:8px;'>Hallucination risk: <strong style='color:#7A5040;'>"
+                     + str(rep.get("hallucination_risk","UNKNOWN")) + "</strong> · bonus +" + f"{rep.get('hallucination_bonus',0):.0%}" + "</div>")
         cards_html += (
             "<div style='border:1px solid #EFE2D8;border-radius:12px;padding:16px 18px;margin-bottom:12px;'>"
             "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;'>"
-            "<div>"
-            "<div style='font-weight:700;color:#3C2416;font-size:0.95rem;'>" + str(r.get("tc_name", r.get("tc_id", "Test case"))) + "</div>"
-            "<div style='font-size:0.68rem;color:#A87868;margin-top:2px;'>"
-            + str(r.get("tc_id", "")) + " · provider: " + str(r.get("provider", "unknown"))
-            + " · " + f"{r.get('duration_ms', 0):.0f}ms"
-            + "</div></div>"
+            "<div><div style='font-weight:700;color:#3C2416;font-size:0.95rem;'>" + str(r.get("tc_name",r.get("tc_id","Test case"))) + "</div>"
+            "<div style='font-size:0.68rem;color:#A87868;margin-top:2px;'>" + str(r.get("tc_id","")) + " · provider: " + str(r.get("provider","unknown")) + " · " + f"{r.get('duration_ms',0):.0f}ms" + "</div></div>"
             "<div style='display:flex;align-items:center;gap:10px;'>"
             "<div style='font-size:1.4rem;font-weight:800;color:" + gcolor + ";'>" + str(score) + "%</div>"
-            "<div style='font-size:0.8rem;font-weight:800;color:#fff;background:" + gcolor + ";"
-            "border-radius:8px;padding:3px 10px;'>" + str(grade) + "</div>"
+            "<div style='font-size:0.8rem;font-weight:800;color:#fff;background:" + gcolor + ";border-radius:8px;padding:3px 10px;'>" + str(grade) + "</div>"
             "</div></div>"
             "<div style='display:flex;gap:8px;flex-wrap:wrap;'>" + metric_chips + "</div>"
-            + hallu +
-            "</div>"
-        )
-
+            + hallu + "</div>")
     return summary_html + cards_html

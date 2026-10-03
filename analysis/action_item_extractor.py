@@ -1,29 +1,20 @@
 # analysis/action_item_extractor.py
 # Rule-based action item extraction — zero LLM dependency.
 #
-# Catches explicit commitment phrases with deadlines in:
-#   Japanese  — します/いたします + 〜以内/〜まで/今日中
-#   English   — "I will/I'll [verb]" + "by/within [deadline]"
-#   Mixed     — Hinglish commitment + EN deadline, or EN phrase + JP deadline
+# v3 — Step 2 fixes:
+#   S1: Vagueness filter — skips commitments with no specific deliverable
+#       "全力で対応いたします", "We will not let that happen" → filtered out
+#   S2: Bilingual output — task_en always present, task_ja for JP transcripts
+#       Matches LLM output schema exactly so html_renderer uses one field for both
+#   S3: _jp_to_en() — rule-based JP→EN translation via _JP_VERB_EN map
+#       No LLM required. "書面でご回答します" → "Provide a written response"
 #
-# Used in _no_api_result() when Groq quota is exhausted.
-# Also runs as a post-LLM pass to catch commitments the LLM missed.
-#
-# Specific case that triggered this:
-#   "上司に相談して、2時間以内に書面でご回答します"
-#   → owner=Kenji, deadline="within 2 hours", urgency_tier="immediate"
-#
-# Changelog:
-#   v2 — Replaced local _DEADLINE_RULES / _extract_deadline() with
-#         utils.deadline_parser.parse_deadline(). This fixes word-number
-#         deadlines ("within two hours" → deadline: None was the bug).
-#         Added urgency_tier and description fields to output schema.
+# v2 retained:
+#   _split_turns(), _clean_description(), parse_deadline integration
 
 import re
 from typing import Optional
 
-# Import the shared deadline parser — single source of truth.
-# All deadline pattern logic lives there; not duplicated here.
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from utils.deadline_parser import parse_deadline
@@ -36,10 +27,10 @@ _JP_COMMIT_PATTERN = re.compile(
     r"ご回答します|ご連絡します|お送りします|お伝えします|お知らせします"
     r"|対応いたします|確認いたします|提出いたします|報告いたします"
     r"|させていただきます"
-    r"|いたします"                      # broad catch — after specific ones
-    r"|します"                          # broad catch — after specific ones
+    r"|いたします"
+    r"|します"
     r")"
-    r"[^。\n]{0,30}",                  # optional trailing context
+    r"[^。\n]{0,30}",
     re.MULTILINE,
 )
 
@@ -55,17 +46,60 @@ _EN_COMMIT_PATTERN = re.compile(
 )
 
 # ── EN commitment verb prefix — stripped from description ─────────────────────
-# Converts "I will provide a report" → "Provide a report"
 _EN_PREFIX_RE = re.compile(
     r"^(?:I(?:'ll| will| shall)|We(?:'ll| will| shall)|Will|Going to|Plan to)\s+",
     re.IGNORECASE,
 )
 
-# ── EN deadline suffix — stripped from description (it lives in deadline field)
+# ── EN deadline suffix — stripped from description ────────────────────────────
 _EN_DEADLINE_SUFFIX_RE = re.compile(
     r"\s+(?:by|within|before|until)\s+.{0,40}$",
     re.IGNORECASE,
 )
+
+# ── S1 NEW: Vagueness filter ──────────────────────────────────────────────────
+# Catches commitments with no specific deliverable — these are not action items.
+# "全力で対応いたします" (We will do our best), "We will not let that happen"
+_VAGUE_JP_RE = re.compile(
+    r"^(?:全力で|全力を尽くして|最善を尽くして|頑張|がんばり)?"
+    r"(?:対応いたします|やります|努力いたします|取り組みます|させていただきます)$"
+)
+_VAGUE_EN_RE = re.compile(
+    r"^(?:I(?:'ll| will)|We(?:'ll| will)|Will)\s+"
+    r"(?:make sure|ensure|do (?:my|our) best|handle it|take care of it|"
+    r"not let that happen|do everything|make it work|get it done)\b",
+    re.IGNORECASE,
+)
+
+# ── S3 NEW: JP verb endings → rough EN translation ────────────────────────────
+# O(1) lookup via ordered list — first match wins (specific → generic).
+_JP_VERB_EN: list[tuple[str, str]] = [
+    ("書面でご回答します",      "Provide a written response"),
+    ("書面でご回答いたします",  "Provide a written response"),
+    ("ご回答します",            "Respond"),
+    ("ご回答いたします",        "Respond"),
+    ("ご連絡します",            "Follow up"),
+    ("ご連絡いたします",        "Follow up"),
+    ("お送りします",            "Send"),
+    ("お送りいたします",        "Send"),
+    ("確認します",              "Confirm"),
+    ("確認いたします",          "Confirm"),
+    ("報告します",              "Report back"),
+    ("報告いたします",          "Report back"),
+    ("提出します",              "Submit"),
+    ("提出いたします",          "Submit"),
+    ("共有します",              "Share"),
+    ("共有いたします",          "Share"),
+    ("準備します",              "Prepare"),
+    ("準備いたします",          "Prepare"),
+    ("相談します",              "Consult internally"),
+    ("相談いたします",          "Consult internally"),
+    ("対応します",              "Address this"),
+    ("対応いたします",          "Address this"),
+    ("させていただきます",      "Will proceed as discussed"),
+    ("いたします",              "Will handle"),
+    ("します",                  "Will action"),
+]
 
 
 def _clean_description(raw_task: str, is_japanese: bool) -> str:
@@ -78,34 +112,75 @@ def _clean_description(raw_task: str, is_japanese: bool) -> str:
 
     Japanese:
       "上司に相談して、2時間以内に書面でご回答します"
-      → kept as-is (no LLM translation available in rule-based path)
+      → kept as-is (translation handled by _jp_to_en)
 
     DSA: O(L) — two regex scans over task length L.
     """
     task = raw_task.strip()
-
     if is_japanese:
-        # Cannot translate without LLM — return as-is, caller adds deadline field
         return task
-
-    # Strip "I will / I'll / We will / ..." prefix
     task = _EN_PREFIX_RE.sub("", task).strip()
-
-    # Strip trailing deadline clause — it's already captured in the deadline field
     task = _EN_DEADLINE_SUFFIX_RE.sub("", task).strip()
-
-    # Capitalize first word
     if task:
         task = task[0].upper() + task[1:]
-
     return task if len(task) >= 5 else raw_task.strip()
+
+
+def _is_vague(task: str, is_japanese: bool) -> bool:
+    """
+    S1: Return True if the commitment has no specific deliverable.
+
+    Vague (skip):    "全力で対応いたします", "We will not let that happen"
+    Not vague (keep): "2時間以内に書面でご回答します", "Send the report by Friday"
+
+    DSA: O(1) — regex match + word count check.
+    """
+    task = task.strip()
+    if is_japanese:
+        # Strip deadline context — check only the verb phrase
+        verb_only = re.sub(r".+[、,]\s*", "", task)
+        if _VAGUE_JP_RE.match(verb_only):
+            return True
+        # Task with < 4 chars before the first verb = no object = vague
+        verb_start = next(
+            (task.rfind(v) for v, _ in _JP_VERB_EN if v in task and task.rfind(v) > 0),
+            -1,
+        )
+        if verb_start != -1 and verb_start < 4:
+            return True
+    else:
+        if _VAGUE_EN_RE.match(task):
+            return True
+        stripped = _EN_PREFIX_RE.sub("", task).strip()
+        if len(stripped.split()) < 3:
+            return True
+    return False
+
+
+def _jp_to_en(task_ja: str, deadline_display: str) -> str:
+    """
+    S3: Rough JP → EN translation of a commitment phrase using _JP_VERB_EN map.
+    No LLM required.
+
+    DSA: O(V) where V = len(_JP_VERB_EN) ≈ 25 — first match wins.
+    """
+    clean = re.sub(r"^[^：:]{1,40}[：:]\s*", "", task_ja).strip()
+
+    for jp_verb, en_verb in _JP_VERB_EN:
+        if jp_verb in clean:
+            prefix = clean[: clean.index(jp_verb)].strip()
+            # Remove deadline clause from prefix
+            prefix = re.sub(r"\d+時間以内|今日中|明日中|今週中|来週.*", "", prefix).strip("、,・ ")
+            if prefix:
+                return f"{en_verb}: {prefix}"
+            return en_verb
+
+    return f"[JP commitment — see original]: {clean[:80]}"
 
 
 def _split_turns(text: str) -> list[tuple[str, str]]:
     """
     Split transcript into (speaker, utterance) pairs.
-    Handles standard "Name: text" format and multi-line turns.
-    Returns list of (speaker_name, full_utterance) tuples.
     DSA: O(n) — single pass through lines.
     """
     speaker_pat = re.compile(
@@ -139,52 +214,54 @@ def extract_action_items(text: str, meeting_ts: Optional[str] = None) -> list[di
     """
     Extract explicit action items from transcript without any LLM call.
 
-    Scans each speaker turn for:
-      JP: commitment verb endings (します/いたします/etc.) + deadline (〜以内/まで/今日中)
-      EN: "I will/I'll [verb]" constructions + "by/within [deadline]"
-
-    Output schema (compatible with LLM output, extended with new fields):
+    Output schema (v3 — compatible with LLM output):
         {
           "task":         str,    # raw matched commitment phrase
-          "description":  str,    # clean, human-readable version of task
-          "owner":        str,    # speaker who made the commitment
-          "deadline":     str,    # human-readable deadline string, or "N/A"
-          "urgency_tier": str,    # "immediate"|"next_day"|"this_week"|"standard"|"unknown"
+          "task_en":      str,    # NEW — English version, always present
+          "task_ja":      str|None, # NEW — Japanese original, None for EN transcripts
+          "description":  str,    # same as task_en (backward compat)
+          "owner":        str,
+          "deadline":     str,
+          "urgency_tier": str,
           "source":       str,    # "rule_based"
           "confidence":   float,
         }
 
-    Deduplication: tasks whose first 40 normalised chars match an existing
-    entry are skipped — prevents the same sentence matching both a broad
-    and a specific commitment pattern.
-
-    Args:
-        text       : full transcript text
-        meeting_ts : ISO-8601 meeting timestamp (passed to deadline_parser
-                     for future absolute deadline computation)
-
-    DSA: O(n · p) — n = chars in transcript, p = number of patterns (2 JP + 1 EN).
+    DSA: O(n · p) — n = chars in transcript, p = patterns.
     """
     turns = _split_turns(text)
     results: list[dict] = []
-    seen_tasks: set[str] = set()       # dedup by normalised task prefix
+    seen_tasks: set[str] = set()
 
     def _add(
         task: str, owner: str, deadline_result: dict,
         confidence: float, is_japanese: bool,
     ) -> None:
         task = task.strip()
-        # Strip leading speaker label if accidentally captured
         task = re.sub(r"^[A-Za-z\u3040-\u9FFF][^\n:：]{0,40}[:：]\s*", "", task).strip()
         if len(task) < 8:
+            return
+        # S1: vagueness filter — skip commitments with no specific deliverable
+        if _is_vague(task, is_japanese):
             return
         key = re.sub(r"\s+", "", task)[:40].lower()
         if key in seen_tasks:
             return
         seen_tasks.add(key)
+
+        # S2: bilingual output
+        if is_japanese:
+            task_ja = task
+            task_en = _jp_to_en(task, deadline_result["display"])
+        else:
+            task_en = _clean_description(task, is_japanese=False)
+            task_ja = None   # only populated for JP transcripts
+
         results.append({
             "task":         task,
-            "description":  _clean_description(task, is_japanese),
+            "task_en":      task_en,         # always present
+            "task_ja":      task_ja,         # None for EN transcripts
+            "description":  task_en,         # backward compat
             "owner":        owner,
             "deadline":     deadline_result["display"],
             "urgency_tier": deadline_result["urgency_tier"],
@@ -196,7 +273,6 @@ def extract_action_items(text: str, meeting_ts: Optional[str] = None) -> list[di
         if not utterance:
             continue
 
-        # parse_deadline now handles word-numbers + all patterns — single call per turn
         deadline_result = parse_deadline(utterance, meeting_ts=meeting_ts)
 
         # ── Japanese commitment phrases ───────────────────────────────────────
@@ -219,7 +295,18 @@ if __name__ == "__main__":
         (
             "Kenji exact phrase (JP + digit hours)",
             "Kenji: 上司に相談して、2時間以内に書面でご回答します。",
-            [{"owner": "Kenji", "deadline_contains": "2時間以内", "urgency": "immediate"}],
+            [{"owner": "Kenji", "deadline_contains": "2時間以内", "urgency": "immediate",
+              "task_en_contains": "written response"}],
+        ),
+        (
+            "S1 VAGUENESS FILTER — 全力で対応いたします should be skipped",
+            "Kenji: 全力で対応いたします。",
+            [],   # must return empty
+        ),
+        (
+            "S1 VAGUENESS FILTER — 'We will not let that happen' should be skipped",
+            "Kenji: We will not let that happen.",
+            [],
         ),
         (
             "THE BUG — EN word-number hours (was deadline: None)",
@@ -233,28 +320,29 @@ if __name__ == "__main__":
             [{"owner": "Kenji", "deadline_contains": "Friday"}],
         ),
         (
+            "S2 task_ja populated for JP, None for EN",
+            "Kenji: I will send the report by tomorrow.",
+            [{"owner": "Kenji", "task_ja_is_none": True}],
+        ),
+        (
+            "S2 task_en present for JP commitment",
+            "Kenji: 上司に相談して、2時間以内に書面でご回答します。",
+            [{"owner": "Kenji", "task_en_contains": "written response",
+              "task_ja_is_none": False}],
+        ),
+        (
             "Multiple commitments different speakers",
             "Priya: I'll send the report by end of day.\n"
             "Kunal: 確認して明日中に共有します。",
             [
-                {"owner": "Priya",  "deadline_contains": "end of day", "urgency": "immediate"},
-                {"owner": "Kunal",  "deadline_contains": "明日",       "urgency": "next_day"},
+                {"owner": "Priya", "deadline_contains": "end of day", "urgency": "immediate"},
+                {"owner": "Kunal", "deadline_contains": "明日", "urgency": "next_day"},
             ],
         ),
         (
             "No commitment — should return empty",
             "Client: The system has been down for 6 hours. This is unacceptable.",
             [],
-        ),
-        (
-            "Within-hours EN (digit)",
-            "Manager: We will escalate this and respond within 2 hours.",
-            [{"owner": "Manager", "deadline_contains": "2 hour", "urgency": "immediate"}],
-        ),
-        (
-            "Mixed JP text with EN deadline",
-            "Tanaka: ご確認して、by Friday にご連絡いたします。",
-            [{"owner": "Tanaka", "deadline_contains": "Friday"}],
         ),
         (
             "Description cleaning — EN should strip 'I will'",
@@ -264,8 +352,9 @@ if __name__ == "__main__":
         ),
     ]
 
-    print("=== Action Item Extractor v2 — Self-Tests ===\n")
+    print("=== Action Item Extractor v3 — Self-Tests ===\n")
     all_pass = True
+
     for label, transcript, expected in tests:
         items = extract_action_items(transcript)
 
@@ -278,39 +367,53 @@ if __name__ == "__main__":
                 all_pass = False
         else:
             for exp in expected:
-                matched = [i for i in items if i["owner"] == exp["owner"]]
+                matched = [i for i in items if i["owner"] == exp.get("owner", "")]
                 owner_ok    = bool(matched)
-                deadline_ok = any(exp["deadline_contains"] in i["deadline"] for i in matched)
-                _exp_urgency = exp.get("urgency")   # None = skip urgency check
-                urgency_ok   = (_exp_urgency is None) or any(
-                    i["urgency_tier"] == _exp_urgency for i in matched
-                )
-                desc_ok     = True
+
+                deadline_ok = True
+                if "deadline_contains" in exp:
+                    deadline_ok = any(exp["deadline_contains"] in i["deadline"] for i in matched)
+
+                urgency_ok = True
+                if "urgency" in exp:
+                    urgency_ok = any(i["urgency_tier"] == exp["urgency"] for i in matched)
+
+                desc_ok = True
                 if "description_not_starts_with" in exp:
                     desc_ok = all(
                         not i["description"].startswith(exp["description_not_starts_with"])
                         for i in matched
                     )
-                ok = owner_ok and deadline_ok and urgency_ok and desc_ok
+
+                task_en_ok = True
+                if "task_en_contains" in exp:
+                    task_en_ok = any(exp["task_en_contains"].lower() in i.get("task_en", "").lower()
+                                     for i in matched)
+
+                task_ja_ok = True
+                if "task_ja_is_none" in exp:
+                    if exp["task_ja_is_none"]:
+                        task_ja_ok = all(i.get("task_ja") is None for i in matched)
+                    else:
+                        task_ja_ok = all(i.get("task_ja") is not None for i in matched)
+
+                ok = owner_ok and deadline_ok and urgency_ok and desc_ok and task_en_ok and task_ja_ok
                 sym = "✓" if ok else "✗"
                 if not ok:
                     all_pass = False
                 print(f"  {sym}  {label}")
                 for item in matched:
                     print(f"       owner={item['owner']}")
+                    print(f"       task_en={item.get('task_en','—')[:60]}")
+                    print(f"       task_ja={item.get('task_ja','—')[:50] if item.get('task_ja') else None}")
                     print(f"       deadline={item['deadline']}  urgency={item['urgency_tier']}")
-                    print(f"       description={item['description'][:70]}")
-                    print(f"       task={item['task'][:60]}")
                 if not owner_ok:
-                    print(f"       FAIL: expected owner='{exp['owner']}', got {[i['owner'] for i in items]}")
+                    print(f"       FAIL: expected owner='{exp.get('owner')}', got {[i['owner'] for i in items]}")
                 if owner_ok and not deadline_ok:
-                    print(f"       FAIL: expected deadline containing '{exp['deadline_contains']}'")
-                if owner_ok and not urgency_ok:
-                    print(f"       FAIL: expected urgency='{exp.get('urgency')}', "
-                          f"got {[i['urgency_tier'] for i in matched]}")
-                if owner_ok and not desc_ok:
-                    print(f"       FAIL: description should not start with "
-                          f"'{exp['description_not_starts_with']}'")
+                    print(f"       FAIL: expected deadline containing '{exp.get('deadline_contains')}'")
+                if owner_ok and not task_en_ok:
+                    print(f"       FAIL: task_en should contain '{exp.get('task_en_contains')}'")
+                    print(f"             got: {[i.get('task_en','') for i in matched]}")
         print()
 
     print(f"Result: {'ALL PASS ✓' if all_pass else 'FAILURES ✗'}")

@@ -1554,6 +1554,30 @@ def _no_api_sentiment_block(
         spk["sentiment_score"] = sent_lookup.get(spk["name"], "neutral")
     return sentiment
 
+def _get_escalating_speakers(sr: dict) -> set[str]:
+    """
+    Return speaker names who are the SOURCE of escalation/contract-risk signals.
+    These speakers get the sentiment backstop applied.
+    Speakers NOT in this set are RESPONDERS (apology, commitment) — they keep
+    their own valence even when the meeting risk level is HIGH.
+
+    Fixes: Client and Kenji both getting valence -0.45 from the same SR event.
+    Client is escalating → override to negative.
+    Kenji is apologizing and committing → respect his actual sentiment.
+
+    DSA: O(S) — S = detected signals, typically < 20.
+    """
+    escalating: set[str] = set()
+    for sig in (
+        sr.get("contract_risk_signals", []) +
+        sr.get("termination_signals",   []) +
+        sr.get("high_signals",          [])
+    ):
+        spk = sig.get("speaker", "").strip()
+        if spk and spk.lower() not in ("", "unknown"):
+            escalating.add(spk.lower())
+    return escalating
+
 
 def _sentiment_backstop_block(result: dict, text: str) -> None:
     """
@@ -1608,14 +1632,66 @@ def _sentiment_backstop_block(result: dict, text: str) -> None:
                     )
                     s["valence_source"] = "backstop_blended"
 
-    _contract_risk = _sr.get("contract_risk_detected", False)
-    _term_detected = _sr.get("termination_detected",   False)
+    _contract_risk    = _sr.get("contract_risk_detected", False)
+    _term_detected    = _sr.get("termination_detected",   False)
+    _risk_category    = _sr.get("risk_category", "NONE")  # NEW: from Step 1
+
+    # NEW: speaker-aware escalation set — only complainant speakers get overridden.
+    # Responder speakers (apology, commitment) keep their own valence.
+    _escalating_spks  = _get_escalating_speakers(_sr)
 
     if _sr_level in ("CRITICAL", "HIGH"):
         for _s in result.get("sentiment", []):
+            _spk_name = _s.get("speaker", "").lower().strip()
+
+            # Determine if this speaker is the source of risk or the responder.
+            # When escalating_spks is empty (signals have no speaker attribution)
+            # fall back to the previous behaviour and override everyone.
+            _is_escalating = (
+                not _escalating_spks                          # no attribution → override all
+                or any(
+                    _spk_name in k or k in _spk_name
+                    for k in _escalating_spks
+                )
+            )
+
+            if not _is_escalating:
+                # RESPONDER path — apology + commitment speaker.
+                # Don't force to negative; just ensure risk_to_relationship
+                # is set so the UI shows context without distorting valence.
+                _s.setdefault("risk_to_relationship", "medium")
+                _s["_backstop_role"] = "responder"  # debug tag
+                print(
+                    f"[SENTIMENT] Backstop T3: responder {_s.get('speaker')} kept "
+                    f"valence={_s.get('valence', 0.0):.2f} (SR={_sr_level})",
+                    file=sys.stderr, flush=True,
+                )
+                continue
+
+            # ESCALATING SPEAKER path — override neutral to negative.
             if _s.get("score") == "neutral":
                 _s["score"]   = "negative"
                 _s["valence"] = min(float(_s.get("valence", 0.0)), -0.45)
+
+            # Label based on risk category (Step 1 fix).
+            if _risk_category == "ESCALATION":
+                if _contract_risk or _term_detected:
+                    _s["label"] = (
+                        f"frustrated — {_s.get('label', 'SLA breach + contract risk')}"
+                    )
+                    _s["risk_to_relationship"] = "high"
+                else:
+                    _s["label"] = (
+                        f"frustrated — {_s.get('label', 'SLA breach complaint')}"
+                    )
+                    _s["risk_to_relationship"] = "medium"
+            elif _risk_category == "SOFT_REJECTION":
+                _s["label"] = (
+                    f"politely_evasive — {_s.get('label', 'indirect deferral detected')}"
+                )
+                _s["risk_to_relationship"] = "medium"
+            else:
+                # MIXED or unclassified
                 if _contract_risk or _term_detected:
                     _s["label"] = (
                         f"⚠️ Relationship at risk — "
@@ -1628,11 +1704,14 @@ def _sentiment_backstop_block(result: dict, text: str) -> None:
                         f"{_s.get('label', 'elevated risk signals present')}"
                     )
                     _s["risk_to_relationship"] = "medium"
-                print(
-                    f"[SENTIMENT] Backstop T3: neutral→negative for "
-                    f"{_s.get('speaker')} (SR={_sr_level})",
-                    file=sys.stderr, flush=True,
-                )
+
+            _s["_backstop_role"] = "escalating"  # debug tag
+            print(
+                f"[SENTIMENT] Backstop T3: escalating speaker {_s.get('speaker')} "
+                f"→ score={_s.get('score')} valence={_s.get('valence', 0.0):.2f} "
+                f"category={_risk_category} (SR={_sr_level})",
+                file=sys.stderr, flush=True,
+            )
 
     _sent_sync = {
         s["speaker"]: s["score"] for s in result.get("sentiment", [])
@@ -1642,6 +1721,76 @@ def _sentiment_backstop_block(result: dict, text: str) -> None:
             _spk.get("name", ""),
             _spk.get("sentiment_score", "neutral"),
         )
+
+
+# NEW — paste at top of SECTION 13
+def _consistency_validate(result: dict) -> dict:
+    """
+    Cross-module consistency layer. Runs after all 12 pipeline stages.
+    Ensures independent modules produce a coherent picture.
+
+    C1: Expose risk_category at result top level — UI reads one field.
+    C2: Add _comm_risk_score (0-25 int) — same scale as health breakdown.
+        Fixes the "Comm Risk 0/25 vs Comm Risk HIGH" contradiction:
+        0/25 means HIGH risk (scored zero points), not zero risk.
+        The UI in Step 5 will display this with the right label.
+    C3: Strip soft_rejection framing from action items when risk is ESCALATION.
+        Escalation is a demand for resolution, not a rejection.
+    C4: Write _consistency dict — consumed by tests + eval pipeline.
+
+    DSA: O(A + S + N) — action items, sentiment entries, signals. All < 20.
+    """
+    sr            = result.get("soft_rejections", {}) or {}
+    risk_level    = sr.get("risk_level",    "NONE")
+    risk_category = sr.get("risk_category", "NONE")
+
+    # C1: top-level exposure so renderer never has to dig into soft_rejections
+    result["_risk_category"] = risk_category
+    result["_risk_level"]    = risk_level
+
+    # C2: explicit numeric score (0–25) + its human label — two sides of same metric
+    _risk_pts: dict[str, int] = {
+        "NONE": 25, "MINIMAL": 20, "LOW": 15, "MEDIUM": 8, "HIGH": 0, "CRITICAL": 0,
+    }
+    result["_comm_risk_score"] = _risk_pts.get(risk_level, 25)
+    result["_comm_risk_level"] = risk_level     # renderer uses this for the label
+
+    # C3: Escalation ≠ soft rejection — strip wrong framing from action items
+    if risk_category == "ESCALATION":
+        for item in result.get("action_items", []):
+            for field in ("task", "task_en", "description"):
+                val = item.get(field, "")
+                if "soft rejection" in val.lower() or "indirect refusal" in val.lower():
+                    item[field]          = re.sub(
+                        r"(?i)soft.?rejection|indirect.?refusal", "escalation",
+                        val,
+                    )
+                    item["_reclassified"] = True
+
+    sentiments   = result.get("sentiment", [])
+    neg_count    = sum(1 for s in sentiments if s.get("score") == "negative")
+    unique_roles = {s.get("_backstop_role", "unknown") for s in sentiments}
+
+    result["_consistency"] = {
+        "risk_level":              risk_level,
+        "risk_category":           risk_category,
+        "comm_risk_pts":           result["_comm_risk_score"],
+        "negative_sentiment_count": neg_count,
+        "total_sentiment_count":   len(sentiments),
+        "speaker_roles_detected":  list(unique_roles),
+        # True when at least one escalating + one responder speaker identified
+        "speaker_roles_separated": (
+            "escalating" in unique_roles and "responder" in unique_roles
+        ),
+        "modules_consistent": not (
+            risk_level in ("HIGH", "CRITICAL") and
+            result["_comm_risk_score"] > 8
+            # If risk is HIGH but score > 8, something is wrong upstream
+        ),
+    }
+
+    return result
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2148,6 +2297,9 @@ def analyze_transcript(
 
     # Stage 12b: sentiment backstop
     _sentiment_backstop_block(result, text)
+
+    # Stage 12b-post: cross-module consistency validation  # NEW
+    result = _consistency_validate(result)
 
     # Stage 12c: communicative function detection
     try:
