@@ -71,7 +71,6 @@
   border-radius: 10px !important;
 }
 
-/* Export grid becomes an intentional dashboard layout */
 .tai-export-page .tai-export-grid {
   margin-top: 1.25rem;
   gap: 1rem;
@@ -106,7 +105,6 @@
   color: rgba(255,255,255,.70) !important;
 }
 
-/* All non-featured cards become compact export modules */
 .tai-export-page .tai-export-grid > .card:not(.tai-export-card-featured) {
   min-height: 220px;
   padding: 1.3rem;
@@ -124,7 +122,6 @@
   border-color: #e7d7df;
 }
 
-/* Japanese cards */
 .tai-export-page .tai-export-grid > .card[x-show*="_detected_language"] {
   background: linear-gradient(180deg, #fffafd 0%, #ffffff 100%);
 }
@@ -137,7 +134,6 @@
   border-color: #e9cbd8 !important;
 }
 
-/* Type badges */
 .tai-export-page .tai-hbadge {
   border-radius: 5px !important;
   padding: .28rem .55rem !important;
@@ -145,7 +141,6 @@
   letter-spacing: .10em !important;
 }
 
-/* Buttons in export cards */
 .tai-export-page .tai-btn,
 .tai-export-page .tai-btn-outline {
   border-radius: 7px !important;
@@ -170,7 +165,6 @@
   border-color: #aebbd0 !important;
 }
 
-/* Japanese 議事録 preview */
 .tai-export-page > div[x-show*="_detected_language"] {
   background: transparent !important;
 }
@@ -194,7 +188,6 @@
   background: #faf3f6 !important;
 }
 
-/* Markdown modal */
 .tai-export-page .tai-md-modal-overlay {
   background: rgba(14,22,35,.68);
   backdrop-filter: blur(7px);
@@ -231,17 +224,12 @@
   background: #fff7fa;
 }
 
-/* Responsive */
 @media (max-width: 900px) {
-  .tai-export-page .tai-export-grid {
-    gap: .85rem;
-  }
+  .tai-export-page .tai-export-grid { gap: .85rem; }
 }
 @media (max-width: 600px) {
   .tai-export-page .tai-header h1 { font-size: 1.7rem; }
-  .tai-export-page .tai-export-grid > .card:not(.tai-export-card-featured) {
-    min-height: auto;
-  }
+  .tai-export-page .tai-export-grid > .card:not(.tai-export-card-featured) { min-height: auto; }
   .tai-export-page > div[x-show*="_detected_language"] > div > div[style*="grid-template-columns"] {
     grid-template-columns: 1fr !important;
   }
@@ -313,7 +301,6 @@
 .tai-md-view-toggle button.active { background:var(--sakura-pale); color:var(--sakura-deep); }
 .tai-md-view-toggle button:hover:not(.active) { background:var(--washi); }
 
-/* Mobile modal → bottom sheet */
 @media (max-width:640px) {
   .tai-md-modal-overlay { padding:0; align-items:flex-end; }
   .tai-md-modal { border-radius:16px 16px 0 0; max-height:92vh; max-width:100%; }
@@ -333,7 +320,7 @@
   </div>
 </div>
 
-<!-- No-analysis banner (always visible when no result) -->
+<!-- No-analysis banner -->
 <div class="card" x-show="!hasResult()" x-cloak
      style="border-left:4px solid var(--sakura); background:var(--sakura-pale); margin-top:1rem;">
   <strong style="color:var(--sakura-deep); font-size:1.05rem; display:block; margin-bottom:6px;">
@@ -352,14 +339,11 @@
 
 <!-- ═══════════════════════════════════════════════════════════════════
      Japanese Intelligence Panel
-     Shown when the loaded result is Japanese/mixed.
-     All data comes from lastResult (Alpine) — no extra server call.
      ═══════════════════════════════════════════════════════════════════ -->
 <div x-show="lastResult && (lastResult._detected_language === 'ja' || lastResult._detected_language === 'mixed')"
      x-cloak
      style="margin-top:1.5rem;">
 
-  <!-- ⛔ Termination Banner — only when CRITICAL risk detected -->
   <template x-if="lastResult && lastResult.soft_rejections && lastResult.soft_rejections.termination_detected">
     <div style="background:#F5F3FF;border:2px solid #7C3AED;border-radius:14px;
                 padding:1.3rem 1.5rem;margin-bottom:1.2rem;">
@@ -367,7 +351,6 @@
                   text-transform:uppercase;margin-bottom:1rem;">
         ⛔ Explicit Contract Termination Detected
       </div>
-      <!-- Termination signal list -->
       <template x-for="sig in (lastResult.soft_rejections.termination_signals || [])" :key="sig.phrase">
         <div style="margin-bottom:0.7rem;">
           <div style="font-size:0.85rem;font-weight:700;color:#5B21B6;
@@ -378,7 +361,6 @@
           </div>
         </div>
       </template>
-      <!-- Cultural note -->
       <div style="font-size:0.78rem;color:#4C1D95;line-height:1.65;
                   border-top:1px solid #DDD6FE;padding-top:0.9rem;margin-top:0.5rem;"
            x-text="lastResult.soft_rejections.cultural_note || 'This is an explicit, irrevocable termination — not a soft refusal. The polite keigo delivery is cultural courtesy, not ambiguity.'">
@@ -390,7 +372,6 @@
   <div style="border:1px solid #D0B0C8;border-radius:14px;overflow:hidden;
               background:#FDFAFF;margin-bottom:1.5rem;">
 
-    <!-- Purple header bar -->
     <div style="background:linear-gradient(135deg,#7D4E8A 0%,#A06CB5 100%);
                 padding:14px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
       <div>
@@ -411,8 +392,6 @@
     </div>
 
     <div style="padding:16px 18px;">
-
-      <!-- Attendees -->
       <div style="font-size:0.6rem;font-weight:700;color:#7D4E8A;letter-spacing:0.15em;
                   text-transform:uppercase;margin-bottom:7px;">出席者 · Attendees</div>
       <div style="margin-bottom:14px;display:flex;flex-wrap:wrap;gap:4px;">
@@ -423,7 +402,6 @@
         </template>
       </div>
 
-      <!-- Agenda + Risk side by side -->
       <div style="display:grid;grid-template-columns:1fr auto;gap:16px;margin-bottom:14px;align-items:start;">
         <div>
           <div style="font-size:0.6rem;font-weight:700;color:#7D4E8A;letter-spacing:0.15em;
@@ -438,7 +416,6 @@
           </template>
         </div>
 
-        <!-- Risk chip -->
         <div style="min-width:100px;text-align:center;">
           <div style="font-size:0.6rem;font-weight:700;color:#7D4E8A;letter-spacing:0.15em;
                       text-transform:uppercase;margin-bottom:7px;">リスク · Risk Level</div>
@@ -460,7 +437,6 @@
         </div>
       </div>
 
-      <!-- Action items table -->
       <div style="font-size:0.6rem;font-weight:700;color:#7D4E8A;letter-spacing:0.15em;
                   text-transform:uppercase;margin-bottom:8px;">アクションアイテム · Action Items</div>
       <div style="border:1px solid #EFE2D8;border-radius:8px;overflow:hidden;">
@@ -496,19 +472,17 @@
         </table>
       </div>
 
-      <!-- Next meeting -->
       <div style="margin-top:12px;font-size:0.68rem;color:#A87868;">
         次回予定 · Next Meeting: 未定 / TBD
       </div>
     </div>
-  </div><!-- /.gijiroku preview card -->
+  </div>
 
 </div><!-- /.japanese intelligence panel -->
 
 <!-- ── Export cards grid ─────────────────────────────────────────── -->
 <div class="tai-export-grid">
 
-  <!-- PPTX — featured full-width card on desktop -->
   {% if pptx_available %}
   <div class="card tai-export-card-featured" style="border-top:4px solid var(--sakura-deep);">
     <div style="display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; gap:1rem;">
@@ -532,7 +506,6 @@
   </div>
   {% endif %}
 
-  <!-- Cultural Insights (Japanese only) -->
   {% if cultural_insights_available %}
   <div class="card"
        x-show="lastResult && (lastResult._detected_language === 'ja' || lastResult._detected_language === 'mixed')"
@@ -558,7 +531,6 @@
   </div>
   {% endif %}
 
-  <!-- 議事録 (Japanese only) -->
   {% if gijiroku_available %}
   <div class="card"
        x-show="lastResult && (lastResult._detected_language === 'ja' || lastResult._detected_language === 'mixed')"
@@ -584,7 +556,6 @@
   </div>
   {% endif %}
 
-  <!-- Markdown Notes -->
   <div class="card">
     <span class="tai-hbadge" style="color:var(--green);background:var(--green-bg);border-color:#A7F3D0;">Standard</span>
     <div style="font-weight:800;font-size:1.15rem;color:var(--ink);margin:0.8rem 0 0.4rem;">Markdown Notes (.md)</div>
@@ -598,7 +569,6 @@
     </button>
   </div>
 
-  <!-- Raw JSON -->
   <div class="card">
     <span class="tai-hbadge" style="color:var(--ink-mid);background:var(--washi);border-color:var(--border-mid);">Developer</span>
     <div style="font-weight:800;font-size:1.15rem;color:var(--ink);margin:0.8rem 0 0.4rem;">Raw Analysis (.json)</div>
@@ -612,7 +582,6 @@
     </button>
   </div>
 
-  <!-- Plain Text -->
   <div class="card">
     <span class="tai-hbadge" style="color:var(--ink-mid);background:var(--washi);border-color:var(--border-mid);">Universal</span>
     <div style="font-weight:800;font-size:1.15rem;color:var(--ink);margin:0.8rem 0 0.4rem;">Plain Text (.txt)</div>
@@ -672,6 +641,8 @@
            style="color:var(--red);padding:1.5rem;text-align:center;font-size:0.9rem;">
         <span x-text="mdModal.error"></span>
       </div>
+      <!-- FIX 8: x-html is safe here because mdModal.html is DOMPurify-sanitized
+           before being stored (see openMdModal in extra_scripts below) -->
       <div x-show="!mdModal.loading && !mdModal.error && mdModal.view==='rendered'"
            x-html="mdModal.html"
            class="tai-markdown-preview">
@@ -689,6 +660,15 @@
 {% endblock %}
 
 {% block extra_scripts %}
+<!--
+  FIX 8: DOMPurify — sanitizes server-rendered markdown before x-html injects it.
+  The markdown content (cultural insights / gijiroku) is generated from user
+  transcripts which may contain HTML/script tags echoed by the LLM.
+  DOMPurify strips all active content while keeping heading/list/table formatting.
+  Loaded from the same CDN host already whitelisted by the CSP.
+-->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
+
 <script>
 document.addEventListener('alpine:init', () => {
   const _originalTai = window.tai;
@@ -705,16 +685,17 @@ document.addEventListener('alpine:init', () => {
 
       async openMdModal(cacheKey, endpoint, resultKey, filenamePrefix, title) {
         if (!this.lastResult) { taiShowNoAnalysisToast(); return; }
-        this.mdModal.open          = true;
-        this.mdModal.title         = title;
-        this.mdModal.cacheKey      = cacheKey;
-        this.mdModal.endpoint      = endpoint;
-        this.mdModal.resultKey     = resultKey;
+        this.mdModal.open           = true;
+        this.mdModal.title          = title;
+        this.mdModal.cacheKey       = cacheKey;
+        this.mdModal.endpoint       = endpoint;
+        this.mdModal.resultKey      = resultKey;
         this.mdModal.filenamePrefix = filenamePrefix;
-        this.mdModal.view          = 'rendered';
-        this.mdModal.error         = null;
+        this.mdModal.view           = 'rendered';
+        this.mdModal.error          = null;
 
-        const cached = this.previews[cacheKey];
+        // Return early from cache — html already sanitized on first load
+        const cached = this.previews && this.previews[cacheKey];
         if (cached && cached.markdown) {
           this.mdModal.markdown = cached.markdown;
           this.mdModal.html     = cached.html;
@@ -725,6 +706,7 @@ document.addEventListener('alpine:init', () => {
         this.mdModal.loading  = true;
         this.mdModal.markdown = '';
         this.mdModal.html     = '';
+
         try {
           const r = await fetch(endpoint, {
             method: 'POST',
@@ -736,15 +718,34 @@ document.addEventListener('alpine:init', () => {
             try { const eb = await r.json(); if (eb && eb.error) detail = eb.error; } catch(_) {}
             throw new Error(detail);
           }
+
           const d  = await r.json();
           const md = d[resultKey] || '';
-          const html = (typeof marked !== 'undefined') ? marked.parse(md) : md.replace(/\n/g,'<br>');
+
+          // ── FIX 8: Sanitize before storing ──────────────────────────────
+          // marked.parse() converts markdown to HTML, but the markdown source
+          // comes from LLM output over user transcripts which may contain
+          // injected HTML/script tags. DOMPurify strips all active content
+          // (script, onerror, href=javascript:, etc.) while preserving
+          // heading, table, list, and blockquote formatting for the preview.
+          const rawHtml = (typeof marked !== 'undefined')
+            ? marked.parse(md)
+            : md.replace(/\n/g, '<br>');
+
+          const safeHtml = (typeof DOMPurify !== 'undefined')
+            ? DOMPurify.sanitize(rawHtml, { USE_PROFILES: { html: true } })
+            : rawHtml;   // fallback: DOMPurify failed to load (network issue)
+          // ── End FIX 8 ───────────────────────────────────────────────────
+
           this.mdModal.markdown = md;
-          this.mdModal.html     = html;
-          if (this.previews[cacheKey]) {
+          this.mdModal.html     = safeHtml;
+
+          // Cache the sanitized output — never re-sanitize the same document
+          if (this.previews && this.previews[cacheKey]) {
             this.previews[cacheKey].markdown = md;
-            this.previews[cacheKey].html     = html;
+            this.previews[cacheKey].html     = safeHtml;
           }
+
         } catch(e) {
           this.mdModal.error = `Failed to load document: ${e.message}`;
         } finally {

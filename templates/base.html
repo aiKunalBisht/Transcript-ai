@@ -515,7 +515,7 @@
           </a>
 
           {% else %}
-          <!-- Unauthenticated State: Collapses into options for login/signup classic page -->
+          <!-- Unauthenticated State -->
           <div class="tai-profile-menu-header">
             <div class="tai-profile-icon tai-profile-icon--lg">
               <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -760,7 +760,19 @@ function tai() {
         const isNavigation  = pageToken && navToken && pageToken === navToken;
 
         if (savedResult) {
+          // Same-tab navigation — sessionStorage has it
           this.lastResult = JSON.parse(savedResult);
+        } else {
+          // FIX 2: fallback to localStorage so result survives:
+          //   - opening /export in a new tab
+          //   - returning after browser restart
+          //   - async job flow where sessionStorage wasn't written yet
+          try {
+            const lsResult = localStorage.getItem(TAI_LAST_RESULT_KEY);
+            if (lsResult) this.lastResult = JSON.parse(lsResult);
+          } catch(e) {
+            localStorage.removeItem(TAI_LAST_RESULT_KEY); // clear corrupt entry
+          }
         }
 
         if (isNavigation && savedHtml && this.lastResult) {
@@ -786,8 +798,10 @@ function tai() {
       try { localStorage.setItem(TAI_HISTORY_KEY, JSON.stringify(this.history)); } catch(e) {}
 
       try {
-        sessionStorage.setItem(TAI_LAST_RESULT_KEY, JSON.stringify(resultJson));
+        const s = JSON.stringify(resultJson);
+        sessionStorage.setItem(TAI_LAST_RESULT_KEY, s);
         sessionStorage.setItem(TAI_LAST_RESULT_HTML_KEY, html);
+        localStorage.setItem(TAI_LAST_RESULT_KEY, s);   // FIX 2: mirror to localStorage
         const token = Date.now().toString(36);
         sessionStorage.setItem(TAI_PAGE_TOKEN_KEY, token);
       } catch(e) {}
@@ -800,8 +814,10 @@ function tai() {
       if (target) target.innerHTML = entry.html;
       this.lastResult = entry.result;
       try {
-        sessionStorage.setItem(TAI_LAST_RESULT_KEY, JSON.stringify(entry.result));
+        const s = JSON.stringify(entry.result);
+        sessionStorage.setItem(TAI_LAST_RESULT_KEY, s);
         sessionStorage.setItem(TAI_LAST_RESULT_HTML_KEY, entry.html);
+        localStorage.setItem(TAI_LAST_RESULT_KEY, s);   // FIX 2: mirror to localStorage
         const token = Date.now().toString(36);
         sessionStorage.setItem(TAI_PAGE_TOKEN_KEY, token);
       } catch(e) {}
@@ -844,6 +860,21 @@ function tai() {
       try {
         this.lastResult = JSON.parse(s);
         sessionStorage.setItem(TAI_LAST_RESULT_KEY, s);
+        localStorage.setItem(TAI_LAST_RESULT_KEY, s);   // FIX 2: mirror to localStorage
+      } catch(e) {}
+    },
+
+    // FIX 2: public helper for async job poll handlers in index.html.
+    // Call  this.setResult(data.result)  wherever you currently do
+    // this.lastResult = data.result  in the async job flow.
+    // Saves to both storages so /export works from any tab or session.
+    setResult(result) {
+      if (!result) return;
+      this.lastResult = result;
+      try {
+        const s = JSON.stringify(result);
+        sessionStorage.setItem(TAI_LAST_RESULT_KEY, s);
+        localStorage.setItem(TAI_LAST_RESULT_KEY, s);
       } catch(e) {}
     },
 

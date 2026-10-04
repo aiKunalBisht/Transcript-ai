@@ -1,34 +1,30 @@
-# main.py — TranscriptAI v3.4
+# main.py — TranscriptAI v3.5
 # FastAPI server. Run: uvicorn main:app --reload --port 7860
 #
 # REQUIRES: api/async_processor.py v2.1 (user_id + requesting_user params).
-#           Drop the v2.1 file generated in this session before deploying.
 #
-# v3.4 fixes applied over v3.3.1:
+# v3.5 fixes applied over v3.4:
 #
-#   FIX 1 — /evaluate/run uses 20-scenario suite instead of 3 TEST_CASES.
-#     Imports utils/scenario_loader.py. Scenario count on /evaluate page
-#     is now a live count from tests/scenarios/*.json, not a constant.
+#   FIX 3 — _setup_auth no longer crashes when SESSION_SECRET is missing
+#     and AUTH_ENABLED=0. In v3.4 a missing SESSION_SECRET always raised
+#     RuntimeError at startup, even for local dev runs that don't need auth.
+#     Now only raises when AUTH_ENABLED=1 actually requires a secret.
+#     get_current_user() already has a try/except fallback, so running
+#     without SessionMiddleware is safe.
 #
-#   FIX 2 — user_id flows through async job submission.
-#     /jobs/submit captures get_current_user(request) before submit_job()
-#     and passes it as user_id= so the async worker uses the per-user cache.
+#   FIX 4 — evaluate_run no longer passes bypass_cache=True to
+#     analyze_transcript. That kwarg is not in the analyzer.py signature,
+#     causing a TypeError on every /evaluate/run call.
 #
-#   FIX 3 — /jobs/{job_id} enforces ownership.
-#     get_job_status() and get_job_result() both receive requesting_user.
-#     Cross-user reads return 404 — existence of the job is not revealed.
+#   FIX 7 — _err() now HTML-escapes exception messages before embedding
+#     them in the response. Raw exception strings could contain angle
+#     brackets from tracebacks or user-controlled input, causing XSS.
 #
-#   FIX 4 — Rate limits on /transcribe and /evaluate/run.
-#     /transcribe:    5/minute (Groq Whisper is expensive per call).
-#     /evaluate/run:  3/minute (runs N full LLM analyses in parallel).
-#     Both now accept request: Request as required by slowapi.
-#
-#   FIX 5 — mask_pii form parameter removed from /analyze-text.
-#     It appeared to toggle PII masking but did nothing. analyzer.py handles
-#     masking internally in Stage A3+A4. A security toggle that ignores its
-#     value is misleading — removed entirely.
+#   FIX 9 — robots_txt route wraps open() in try/except. A missing
+#     robots.txt raised FileNotFoundError → HTTP 500.
 
 import asyncio
+import html as _html        # FIX 7: for _err() escaping
 import io
 import json as _json
 import os
@@ -67,11 +63,18 @@ except ImportError:
 def _setup_auth(app):
     secret = os.getenv("SESSION_SECRET")
     if not secret:
-        raise RuntimeError(
-            "SESSION_SECRET env variable is not set. "
-            "Add it to your HF Space secrets (Settings → Variables and secrets). "
-            "Use any random string of 32+ characters."
-        )
+        if AUTH_ENABLED:
+            # FIX 3: only crash when auth is actually required
+            raise RuntimeError(
+                "SESSION_SECRET env variable is not set. "
+                "Add it to your HF Space secrets (Settings → Variables and secrets). "
+                "Use any random string of 32+ characters."
+            )
+        # FIX 3: AUTH_ENABLED=0 → sessions not needed.
+        # get_current_user() has a try/except fallback, so skipping
+        # SessionMiddleware here is safe — it just returns None for all users.
+        return None
+
     try:
         from starlette.middleware.sessions import SessionMiddleware
         app.add_middleware(SessionMiddleware, secret_key=secret,
@@ -229,7 +232,7 @@ try:
 except ImportError:
     ASYNC_PROCESSOR_AVAILABLE = False
 
-# ── Evaluation — FIX 1: scenario_loader replaces TEST_CASES ───────────────────
+# ── Evaluation ─────────────────────────────────────────────────────────────────
 try:
     from utils.evaluator import evaluate, MLFLOW_AVAILABLE
     from utils.html_renderer import build_evaluation_html
@@ -270,7 +273,7 @@ async def lifespan(app: FastAPI):
 # ── App ────────────────────────────────────────────────────────────────────────
 app = FastAPI(
     title="TranscriptAI",
-    version="3.4",
+    version="3.5",
     docs_url="/docs",
     lifespan=lifespan,
 )
@@ -512,7 +515,6 @@ async def export_page(request: Request):
     })
 
 
-# ── FIX 1: live scenario count from disk ──────────────────────────────────────
 @app.get("/evaluate", response_class=HTMLResponse)
 async def evaluate_page(request: Request):
     summary = _get_scenario_summary() if EVAL_AVAILABLE else {
@@ -529,14 +531,13 @@ async def evaluate_page(request: Request):
     })
 
 
-# ── FIX 1 + FIX 4: 20 scenarios, rate-limited ─────────────────────────────────
 @app.post("/evaluate/run", response_class=HTMLResponse)
-@limiter.limit("3/minute")   # FIX 4: N parallel LLM calls per run
+@limiter.limit("3/minute")
 async def evaluate_run(request: Request):
     if not EVAL_AVAILABLE:
         return HTMLResponse(content=_err("Evaluation module unavailable."), status_code=500)
 
-    scenarios = _load_scenarios()   # FIX 1: reads tests/scenarios/*.json
+    scenarios = _load_scenarios()
     if not scenarios:
         return HTMLResponse(
             content=_err(
@@ -553,9 +554,12 @@ async def evaluate_run(request: Request):
         language   = sc.get("language", "en")
         expected   = sc.get("expected", {})
 
+        # FIX 4: removed bypass_cache=True — analyze_transcript doesn't accept
+        # that kwarg in its current signature, causing TypeError on every eval run.
+        # Per-user cache invalidation is handled inside the analyzer via user_id.
         prediction = await asyncio.to_thread(
             analyze_transcript, transcript, language,
-            user_id=user_id, bypass_cache=True,
+            user_id=user_id,
         )
 
         report = await asyncio.to_thread(
@@ -602,7 +606,6 @@ async def evaluate_run(request: Request):
 # Job queue routes
 # ══════════════════════════════════════════════════════════════════════════════
 
-# ── FIX 2: user_id captured and forwarded to submit_job ───────────────────────
 @app.post("/jobs/submit")
 @limiter.limit("10/minute")
 async def jobs_submit(
@@ -624,7 +627,6 @@ async def jobs_submit(
     detected_lang = language or detect_language(cleaned)
     cleaned, _    = _ensure_speaker_labels(cleaned)
 
-    # FIX 2: capture before submit so ownership is stored on the job
     user_id = get_current_user(request)
 
     try:
@@ -639,13 +641,11 @@ async def jobs_submit(
     })
 
 
-# ── FIX 3: ownership enforced on both status and result reads ─────────────────
 @app.get("/jobs/{job_id}")
 async def jobs_status(job_id: str, request: Request):
     """
     Poll job status and retrieve result when done.
 
-    FIX 3: requesting_user passed to both get_job_status() and get_job_result().
     Cross-user reads return 404 — job existence is not revealed to other users.
 
     Returns:
@@ -656,7 +656,6 @@ async def jobs_status(job_id: str, request: Request):
     if not ASYNC_PROCESSOR_AVAILABLE:
         return JSONResponse({"error": "Async processor not available"}, status_code=503)
 
-    # FIX 3: ownership check on status
     user_id = get_current_user(request)
     status  = get_job_status(job_id, requesting_user=user_id)
     if "error" in status:
@@ -670,7 +669,6 @@ async def jobs_status(job_id: str, request: Request):
 
     if status["status"] == "done":
         try:
-            # FIX 3: ownership check on result
             result = get_job_result(
                 job_id, timeout_sec=0, requesting_user=user_id
             )
@@ -717,7 +715,6 @@ class _FileShim:
     def read(self):     return self._data
 
 
-# FIX 4: rate-limited + request: Request added (required by slowapi)
 @app.post("/transcribe")
 @limiter.limit("5/minute")
 async def transcribe(request: Request, file: UploadFile = File(...)):
@@ -768,16 +765,12 @@ async def transcribe(request: Request, file: UploadFile = File(...)):
 # /analyze-text
 # ══════════════════════════════════════════════════════════════════════════════
 
-# FIX 5: mask_pii removed. It appeared to toggle PII masking but did nothing.
-# analyzer.py handles masking in Stage A3 and restoration in Stage A4.
-# API callers that sent mask_pii=false should simply drop that field.
 @app.post("/analyze-text", response_class=HTMLResponse)
 @limiter.limit("3/minute")
 async def analyze_text_route(
     request:    Request,
     transcript: str           = Form(...),
     language:   Optional[str] = Form(None),
-    # mask_pii removed — FIX 5
 ):
     if len(transcript.strip()) < 20:
         return HTMLResponse(content=_err("Transcript too short (min 20 chars)."), status_code=400)
@@ -812,7 +805,7 @@ async def analyze_text_route(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Export routes — unchanged from v3.3.1
+# Export routes
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.post("/export/pptx")
@@ -940,7 +933,7 @@ async def health():
     scenario_count = _get_scenario_summary().get("total", 0) if EVAL_AVAILABLE else 0
     return {
         "status":           "healthy",
-        "version":          "3.4",
+        "version":          "3.5",
         "provider":         os.getenv("TRANSCRIPT_AI_PROVIDER", "auto"),
         "nim_configured":   bool(os.getenv("NIM_API_KEY")),
         "groq_configured":  bool(os.getenv("GROQ_API_KEY")),
@@ -967,7 +960,12 @@ async def health():
 
 @app.get("/robots.txt", response_class=HTMLResponse)
 async def robots_txt():
-    return HTMLResponse(open("robots.txt").read(), media_type="text/plain")
+    # FIX 9: guard open() — missing file was raising FileNotFoundError → HTTP 500
+    try:
+        content = open("robots.txt").read()
+    except FileNotFoundError:
+        content = "User-agent: *\nAllow: /\n"
+    return HTMLResponse(content, media_type="text/plain")
 
 
 @app.get("/sitemap.xml", response_class=HTMLResponse)
@@ -1013,10 +1011,14 @@ async def manifest():
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 def _err(msg: str) -> str:
+    # FIX 7: HTML-escape msg before embedding.
+    # Raw exception strings can contain angle brackets from tracebacks or
+    # user-controlled transcript content, which previously rendered as live HTML (XSS).
+    safe_msg = _html.escape(str(msg))
     return (
         f'<div style="background:var(--red-bg);border-left:3px solid var(--red);'
         f'border-radius:0 10px 10px 0;padding:14px 18px;color:#3C2416;margin-top:12px">'
-        f'<b style="color:var(--red)">⚠ Error</b><br>{msg}</div>'
+        f'<b style="color:var(--red)">⚠ Error</b><br>{safe_msg}</div>'
     )
 
 

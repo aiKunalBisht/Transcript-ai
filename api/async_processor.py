@@ -1,5 +1,19 @@
 # api/async_processor.py
-# Async Processing Layer for TranscriptAI v2.0
+# Async Processing Layer for TranscriptAI v2.1
+#
+# v2.1 FIXES over v2.0:
+#
+#   FIX 1 — user_id added to AnalysisJob, submit_job, get_job_status, get_job_result.
+#     main.py v3.4 passes user_id= and requesting_user= kwargs that v2.0 didn't accept,
+#     causing TypeError on every call to /jobs/submit and /jobs/{job_id}.
+#
+#   FIX 5 — _run_job now passes user_id to analyze_transcript.
+#     v2.0 always called analyze_transcript without user_id, so async jobs hit the
+#     anonymous cache and bypassed per-user cache entirely.
+#
+#   FIX 6 — submit_job now increments _metrics["submitted"].
+#     v2.0 tracked completed and failed but never submitted, so
+#     get_queue_stats() always returned lifetime_submitted: 0.
 #
 # Architecture: ThreadPoolExecutor over asyncio because analyze_transcript
 # calls sync C extensions (MeCab, sentence-transformers) that don't release
@@ -10,16 +24,9 @@
 #   2. Serialize AnalysisJob to/from JSON.
 #   3. Use Redis TTL instead of background cleanup thread.
 #   Everything outside JobStore stays identical — callers don't change.
-#
-# Interview answer for "how would you scale to 10k/day":
-#   - This file: in-process ThreadPoolExecutor, good for ~100 req/min
-#   - Next step: Celery + Redis broker, multiple worker processes
-#   - At scale: vLLM for batch inference, horizontal worker scaling
-#   - Observability: swap _metrics dict for Prometheus Counter/Gauge
 
 import concurrent.futures
 import logging
-import re
 import threading
 import time
 import uuid
@@ -44,6 +51,7 @@ class AnalysisJob:
     status:      str               # queued | running | done | failed
     transcript:  str
     language:    str
+    user_id:     Optional[str] = None   # FIX 1: ownership tracking (was missing)
     result:      Optional[dict] = None
     error:       Optional[str]  = None
     created_at:  float = field(default_factory=time.time)
@@ -127,7 +135,7 @@ class JobStore:
 
     def values(self) -> list[AnalysisJob]:
         with self._lock:
-            return list(self._store.values())
+            return list(self._store.values())   # copy — safe to iterate outside lock
 
     def __len__(self) -> int:
         with self._lock:
@@ -241,6 +249,9 @@ def _run_job(job_id: str) -> None:
     Imports analyzer lazily to avoid circular imports at module load.
     Sets _cleaned_transcript and _detected_language on the result so that
     downstream consumers (soft-rejection, rag_evaluator) have the source text.
+
+    FIX 5: now passes job.user_id to analyze_transcript so async jobs use
+    the per-user cache instead of the anonymous pool.
     """
     job = _store.get(job_id)
     if not job:
@@ -253,7 +264,12 @@ def _run_job(job_id: str) -> None:
 
     try:
         from analysis.analyzer import analyze_transcript
-        result = analyze_transcript(job.transcript, job.language)
+        # FIX 5: pass user_id so per-user cache is respected
+        result = analyze_transcript(
+            job.transcript,
+            job.language,
+            user_id=job.user_id,    # was: analyze_transcript(job.transcript, job.language)
+        )
 
         # Ensure downstream modules always find these keys
         result.setdefault("_cleaned_transcript", job.transcript)
@@ -283,10 +299,17 @@ def _run_job(job_id: str) -> None:
 
 
 # ── Public API ─────────────────────────────────────────────────────────────────
-def submit_job(transcript: str, language: str = "en") -> str:
+def submit_job(
+    transcript: str,
+    language:   str = "en",
+    user_id:    Optional[str] = None,   # FIX 1: accept user_id (main.py v3.4 passes it)
+) -> str:
     """
     Submit a transcript for async analysis.
     Returns job_id immediately — never blocks.
+
+    FIX 1: user_id stored on the job for ownership checks and per-user caching.
+    FIX 6: increments _metrics["submitted"] so queue stats are accurate.
 
     Raises:
         RuntimeError: if the job store is at capacity with no evictable slots.
@@ -295,22 +318,41 @@ def submit_job(transcript: str, language: str = "en") -> str:
     job = AnalysisJob(
         job_id=job_id, status="queued",
         transcript=transcript, language=language,
+        user_id=user_id,                # FIX 1
     )
-    _store.put(job)                           # raises RuntimeError if full
+    _store.put(job)                     # raises RuntimeError if full
     _get_executor().submit(_run_job, job_id)
-    log.debug("Submitted job %s lang=%s", job_id, language)
+    _inc("submitted")                   # FIX 6: was missing — lifetime_submitted was always 0
+    log.debug("Submitted job %s lang=%s user=%s", job_id, language, user_id)
     return job_id
 
 
-def get_job_status(job_id: str) -> dict:
-    """Return current status without waiting."""
+def get_job_status(
+    job_id:          str,
+    requesting_user: Optional[str] = None,  # FIX 1: accept requesting_user
+) -> dict:
+    """
+    Return current status without waiting.
+
+    FIX 1 / FIX 3: ownership check — cross-user reads return an error that
+    does not reveal whether the job exists (same message as not-found).
+    Check only fires when both sides are set, so unauthenticated users
+    (user_id=None) still share the anonymous pool.
+    """
     job = _store.get(job_id)
     if not job:
+        return {"error": f"Job {job_id} not found"}
+    # FIX 3: hide job existence from other authenticated users
+    if requesting_user and job.user_id and job.user_id != requesting_user:
         return {"error": f"Job {job_id} not found"}
     return job.to_status_dict()
 
 
-def get_job_result(job_id: str, timeout_sec: float = 30.0) -> dict:
+def get_job_result(
+    job_id:          str,
+    timeout_sec:     float = 30.0,
+    requesting_user: Optional[str] = None,  # FIX 1: accept requesting_user
+) -> dict:
     """
     Return the result for a job.
 
@@ -318,17 +360,23 @@ def get_job_result(job_id: str, timeout_sec: float = 30.0) -> dict:
     in microseconds regardless of timeout_sec. The poll loop only runs when
     the job is still queued/running.
 
+    FIX 1 / FIX 3: ownership enforced on both the immediate and poll paths.
+
     Args:
-        timeout_sec: Max seconds to wait. Pass 0 to get the result only if
-                     it's already available (raises TimeoutError otherwise).
+        timeout_sec:     Max seconds to wait. Pass 0 to get the result only if
+                         it's already available (raises TimeoutError otherwise).
+        requesting_user: If set, result is only returned to the job's owner.
 
     Raises:
-        ValueError:    Job ID not found.
+        ValueError:    Job ID not found or not owned by requesting_user.
         RuntimeError:  Job failed.
         TimeoutError:  Job not done within timeout_sec.
     """
     job = _store.get(job_id)
     if not job:
+        raise ValueError(f"Job {job_id} not found")
+    # FIX 3: ownership check on immediate path
+    if requesting_user and job.user_id and job.user_id != requesting_user:
         raise ValueError(f"Job {job_id} not found")
 
     # ── Immediate path ─────────────────────────────────────────────────────
@@ -349,6 +397,9 @@ def get_job_result(job_id: str, timeout_sec: float = 30.0) -> dict:
         job = _store.get(job_id)
         if job is None:
             raise ValueError(f"Job {job_id} disappeared (evicted during wait)")
+        # FIX 3: re-check ownership after each re-fetch
+        if requesting_user and job.user_id and job.user_id != requesting_user:
+            raise ValueError(f"Job {job_id} not found")
         if job.status == "done":
             return job.result
         if job.status == "failed":
@@ -362,14 +413,18 @@ def process_batch(transcripts: list[dict]) -> list[dict]:
     Submit N transcripts concurrently and wait for all to finish.
 
     Args:
-        transcripts: [{"transcript": str, "language": str}, ...]
+        transcripts: [{"transcript": str, "language": str, "user_id": str|None}, ...]
 
     Returns:
         [{"status": "success"|"failed", "result": dict|None, "error": str|None}, ...]
         in the same order as input.
     """
     job_ids = [
-        submit_job(item.get("transcript", ""), item.get("language", "en"))
+        submit_job(
+            item.get("transcript", ""),
+            item.get("language", "en"),
+            user_id=item.get("user_id"),    # FIX 1: forward user_id in batch too
+        )
         for item in transcripts
     ]
     results = []
@@ -399,7 +454,7 @@ def get_queue_stats() -> dict:
             round(sum(j.duration_ms for j in done_jobs) / len(done_jobs), 1)
             if done_jobs else 0
         ),
-        "lifetime_submitted": int(m.get("submitted",    0)),
+        "lifetime_submitted": int(m.get("submitted",    0)),   # FIX 6: now accurate
         "lifetime_completed": int(m.get("completed",    0)),
         "lifetime_failed":    int(m.get("failed",       0)),
         "store_size":         len(_store),
@@ -433,6 +488,8 @@ if __name__ == "__main__":
         else:
             print(f"  [{i+1}] ❌ {r['error']}")
 
+    stats = get_queue_stats()
     print(f"\nCompleted in {elapsed}s")
-    print(json.dumps(get_queue_stats(), indent=2))
+    print(f"lifetime_submitted: {stats['lifetime_submitted']}")  # FIX 6: should now == len(samples)
+    print(json.dumps(stats, indent=2))
     shutdown()
