@@ -794,8 +794,16 @@ async def analyze_text_route(
         pii_report = result.get("_pii_report", None)
 
         html = build_results_html(result, detected_lang, features, pii_report)
-        tag  = ('<div id="tai-result-data" style="display:none">' +
-                _json.dumps(result, ensure_ascii=False) + '</div>')
+        # FIX: use <script type="application/json"> instead of <div>.
+        # A <div> breaks when the result JSON contains </div> (e.g. in summaries
+        # of web meetings or transcripts quoting HTML). The browser's HTML parser
+        # closes the div early, truncating the JSON so JSON.parse() throws inside
+        # captureResult's silent catch — lastResult stays null, export page shows
+        # "run analysis first" even though results rendered fine.
+        # <script type="application/json"> is not parsed as HTML so </div> is safe;
+        # only </script> needs escaping, which is extremely rare in meeting content.
+        _rjson = _json.dumps(result, ensure_ascii=False).replace('</script>', r'<\/script>')
+        tag    = f'<script id="tai-result-data" type="application/json">{_rjson}</script>'
         return HTMLResponse(content=html + tag)
 
     except Exception as exc:

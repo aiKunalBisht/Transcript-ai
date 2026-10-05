@@ -676,6 +676,24 @@ document.addEventListener('alpine:init', () => {
     const base = _originalTai();
     return Object.assign(base, {
 
+      // ── Resilient loadHistory override ─────────────────────────────────
+      // Calls base loadHistory(), then independently re-checks storage if
+      // lastResult is still null — catches any edge case where the base
+      // version silently failed (corrupt JSON, storage quota, etc.)
+      loadHistory() {
+        base.loadHistory.call(this);
+
+        if (!this.lastResult) {
+          const _keys = ['tai_last_result_v1'];
+          for (const k of _keys) {
+            let found = null;
+            try { const ss = sessionStorage.getItem(k); if (ss && ss !== 'null') found = JSON.parse(ss); } catch(e) {}
+            if (!found) { try { const ls = localStorage.getItem(k); if (ls && ls !== 'null') found = JSON.parse(ls); } catch(e) {} }
+            if (found) { this.lastResult = found; console.log('[TAI export] lastResult rescued from storage:', found.meeting_title); break; }
+          }
+        }
+      },
+
       mdModal: {
         open: false, loading: false, error: null,
         title: '', html: '', markdown: '',

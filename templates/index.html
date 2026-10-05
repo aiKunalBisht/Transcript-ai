@@ -69,7 +69,7 @@
   <button type="button" class="tai-sample-btn" title="Hindi + English + Japanese" @click="transcriptText = SAMPLE_TRILINGUAL">🌐 Try Trilingual Demo</button>
   <button type="button" class="tai-sample-btn" title="High-conflict EN+JA" @click="transcriptText = SAMPLE_HIGH_CONFLICT">⚡ Try Conflict Demo</button>
   <button type="button" class="tai-sample-btn" title="Pure Hinglish standup" @click="transcriptText = SAMPLE_HINGLISH_STANDUP">🗣️ Try Hinglish</button>
-  <button type="button" class="tai-clear-btn" @click="transcriptText=''; document.getElementById('results').innerHTML=''; lastResult=null;">Clear Text</button>
+  <button type="button" class="tai-clear-btn" @click="transcriptText=''; document.getElementById('results').innerHTML=''; lastResult=null; try{localStorage.removeItem('tai_last_result_v1'); sessionStorage.removeItem('tai_last_result_v1');}catch(e){}">Clear Text</button>
 </div>
 
 <div style="margin-top:2rem; display:flex; align-items:center; gap:1.5rem; flex-wrap:wrap;">
@@ -94,7 +94,16 @@
 
 <div style="margin-top:3rem; padding-top: 2rem; border-top: 1px dashed var(--border);" x-show="hasResult()" x-cloak>
   <div class="sh">Next Steps</div>
-  <a href="/export" class="tai-btn-outline" style="text-decoration:none;display:inline-flex;align-items:center;gap:8px;">
+  <!--
+    FIX: added onclick="taiSetNavToken()" so the page token is copied to the
+    nav token before navigating. Without this, the "Next Steps" export link
+    was the only nav path that skipped taiSetNavToken(), meaning the HTML
+    restore on the export page wouldn't fire (isNavigation stayed false).
+    lastResult is now restored from localStorage regardless, but the token
+    also ensures the results HTML is re-injected if the user comes back.
+  -->
+  <a href="/export" class="tai-btn-outline" onclick="taiSetNavToken()"
+     style="text-decoration:none;display:inline-flex;align-items:center;gap:8px;">
     <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
     Export Documents (PPT, MD, JSON)
   </a>

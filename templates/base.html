@@ -748,45 +748,57 @@ function tai() {
     },
 
     loadHistory() {
+      // ── Restore history sidebar ──────────────────────────────────────────
       try {
         this.history = JSON.parse(localStorage.getItem(TAI_HISTORY_KEY) || '[]');
       } catch(e) { this.history = []; }
 
-      try {
-        const savedResult   = sessionStorage.getItem(TAI_LAST_RESULT_KEY);
-        const savedHtml     = sessionStorage.getItem(TAI_LAST_RESULT_HTML_KEY);
-        const pageToken     = sessionStorage.getItem(TAI_PAGE_TOKEN_KEY);
-        const navToken      = sessionStorage.getItem(TAI_NAV_TOKEN_KEY);
-        const isNavigation  = pageToken && navToken && pageToken === navToken;
+      // ── Restore lastResult ───────────────────────────────────────────────
+      // Each storage read is wrapped in its OWN try/catch so a corrupt entry
+      // in sessionStorage doesn't swallow the entire block and skip the
+      // localStorage fallback. The old single outer try/catch was causing:
+      //   JSON.parse(sessionStorage) throws → outer catch → lastResult = null
+      //   → localStorage fallback is never reached → export page shows banner.
+      let _restored = null;
 
-        if (savedResult) {
-          // Same-tab navigation — sessionStorage has it
-          this.lastResult = JSON.parse(savedResult);
-        } else {
-          // FIX 2: fallback to localStorage so result survives:
-          //   - opening /export in a new tab
-          //   - returning after browser restart
-          //   - async job flow where sessionStorage wasn't written yet
-          try {
-            const lsResult = localStorage.getItem(TAI_LAST_RESULT_KEY);
-            if (lsResult) this.lastResult = JSON.parse(lsResult);
-          } catch(e) {
-            localStorage.removeItem(TAI_LAST_RESULT_KEY); // clear corrupt entry
-          }
+      // 1. Try sessionStorage first (fastest — same-tab navigation)
+      try {
+        const ss = sessionStorage.getItem(TAI_LAST_RESULT_KEY);
+        if (ss && ss !== 'null') _restored = JSON.parse(ss);
+      } catch(e) {
+        console.warn('[TAI] sessionStorage result corrupt, clearing:', e.message);
+        sessionStorage.removeItem(TAI_LAST_RESULT_KEY);
+      }
+
+      // 2. Fall through to localStorage if sessionStorage was empty OR corrupt
+      //    (covers new tabs, browser restarts, and corrupt session data)
+      if (!_restored) {
+        try {
+          const ls = localStorage.getItem(TAI_LAST_RESULT_KEY);
+          if (ls && ls !== 'null') _restored = JSON.parse(ls);
+        } catch(e) {
+          console.warn('[TAI] localStorage result corrupt, clearing:', e.message);
+          localStorage.removeItem(TAI_LAST_RESULT_KEY);
         }
+      }
+
+      if (_restored) this.lastResult = _restored;
+
+      // ── Restore result HTML (same-tab navigation only) ───────────────────
+      try {
+        const savedHtml    = sessionStorage.getItem(TAI_LAST_RESULT_HTML_KEY);
+        const pageToken    = sessionStorage.getItem(TAI_PAGE_TOKEN_KEY);
+        const navToken     = sessionStorage.getItem(TAI_NAV_TOKEN_KEY);
+        const isNavigation = pageToken && navToken && pageToken === navToken;
 
         if (isNavigation && savedHtml && this.lastResult) {
           this.$nextTick(() => {
             const el = document.getElementById('results');
-            if (el && !el.innerHTML.trim()) {
-              el.innerHTML = savedHtml;
-            }
+            if (el && !el.innerHTML.trim()) el.innerHTML = savedHtml;
           });
         }
-
         sessionStorage.removeItem(TAI_NAV_TOKEN_KEY);
-
-      } catch(e) { this.lastResult = null; }
+      } catch(e) { /* non-critical — HTML restore is cosmetic only */ }
     },
 
     pushHistory(meetingTitle, lang, html, resultJson) {
@@ -861,7 +873,14 @@ function tai() {
         this.lastResult = JSON.parse(s);
         sessionStorage.setItem(TAI_LAST_RESULT_KEY, s);
         localStorage.setItem(TAI_LAST_RESULT_KEY, s);   // FIX 2: mirror to localStorage
-      } catch(e) {}
+      } catch(e) {
+        // Silent catch was hiding JSON parse failures caused by truncated JSON
+        // (browser closing the old <div> early when content had </div> in it).
+        // main.py now uses <script type="application/json"> which is immune,
+        // but we log here so any future parse failure is visible in DevTools.
+        console.error('[TAI] captureResult: JSON parse failed. Check #tai-result-data content.', e);
+        console.error('[TAI] First 300 chars of raw string:', s?.slice(0, 300));
+      }
     },
 
     // FIX 2: public helper for async job poll handlers in index.html.
