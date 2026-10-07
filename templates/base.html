@@ -782,6 +782,20 @@ function tai() {
         }
       }
 
+      // 3. Last resort: window.name — persists across same-tab navigation and
+      //    is never blocked by Edge Tracking Prevention or privacy modes.
+      //    Prefixed with 'tai:' to avoid collisions with other sites.
+      if (!_restored) {
+        try {
+          if (typeof window.name === 'string' && window.name.startsWith('tai:')) {
+            const s = window.name.slice(4);
+            if (s && s !== 'null') _restored = JSON.parse(s);
+          }
+        } catch(e) {
+          console.warn('[TAI] window.name fallback failed:', e.message);
+        }
+      }
+
       if (_restored) this.lastResult = _restored;
 
       // ── Restore result HTML (same-tab navigation only) ───────────────────
@@ -811,11 +825,12 @@ function tai() {
 
       try {
         const s = JSON.stringify(resultJson);
-        sessionStorage.setItem(TAI_LAST_RESULT_KEY, s);
-        sessionStorage.setItem(TAI_LAST_RESULT_HTML_KEY, html);
-        localStorage.setItem(TAI_LAST_RESULT_KEY, s);   // FIX 2: mirror to localStorage
+        try { sessionStorage.setItem(TAI_LAST_RESULT_KEY, s); }      catch(e) {}
+        try { sessionStorage.setItem(TAI_LAST_RESULT_HTML_KEY, html); } catch(e) {}
+        try { localStorage.setItem(TAI_LAST_RESULT_KEY, s); }         catch(e) {}
+        try { window.name = 'tai:' + s; }                             catch(e) {}
         const token = Date.now().toString(36);
-        sessionStorage.setItem(TAI_PAGE_TOKEN_KEY, token);
+        try { sessionStorage.setItem(TAI_PAGE_TOKEN_KEY, token); }    catch(e) {}
       } catch(e) {}
     },
 
@@ -827,11 +842,12 @@ function tai() {
       this.lastResult = entry.result;
       try {
         const s = JSON.stringify(entry.result);
-        sessionStorage.setItem(TAI_LAST_RESULT_KEY, s);
-        sessionStorage.setItem(TAI_LAST_RESULT_HTML_KEY, entry.html);
-        localStorage.setItem(TAI_LAST_RESULT_KEY, s);   // FIX 2: mirror to localStorage
+        try { sessionStorage.setItem(TAI_LAST_RESULT_KEY, s); }         catch(e) {}
+        try { sessionStorage.setItem(TAI_LAST_RESULT_HTML_KEY, entry.html); } catch(e) {}
+        try { localStorage.setItem(TAI_LAST_RESULT_KEY, s); }            catch(e) {}
+        try { window.name = 'tai:' + s; }                                catch(e) {}
         const token = Date.now().toString(36);
-        sessionStorage.setItem(TAI_PAGE_TOKEN_KEY, token);
+        try { sessionStorage.setItem(TAI_PAGE_TOKEN_KEY, token); }       catch(e) {}
       } catch(e) {}
       setTimeout(function() {
         document.getElementById('results-top')?.scrollIntoView({behavior:'smooth', block:'start'});
@@ -871,13 +887,14 @@ function tai() {
     captureResult(s) {
       try {
         this.lastResult = JSON.parse(s);
-        sessionStorage.setItem(TAI_LAST_RESULT_KEY, s);
-        localStorage.setItem(TAI_LAST_RESULT_KEY, s);   // FIX 2: mirror to localStorage
+        // Three-layer persistence — each is tried independently:
+        //   1. sessionStorage  — fast, same-tab navigation
+        //   2. localStorage    — survives new tabs and browser restart
+        //   3. window.name     — immune to Edge Tracking Prevention blocking storage
+        try { sessionStorage.setItem(TAI_LAST_RESULT_KEY, s); } catch(e) {}
+        try { localStorage.setItem(TAI_LAST_RESULT_KEY, s); }  catch(e) {}
+        try { window.name = 'tai:' + s; }                      catch(e) {}
       } catch(e) {
-        // Silent catch was hiding JSON parse failures caused by truncated JSON
-        // (browser closing the old <div> early when content had </div> in it).
-        // main.py now uses <script type="application/json"> which is immune,
-        // but we log here so any future parse failure is visible in DevTools.
         console.error('[TAI] captureResult: JSON parse failed. Check #tai-result-data content.', e);
         console.error('[TAI] First 300 chars of raw string:', s?.slice(0, 300));
       }

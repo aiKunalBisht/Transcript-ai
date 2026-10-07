@@ -257,6 +257,14 @@ except ImportError:
 AUDIO_EXT = {".mp3", ".wav", ".m4a", ".mp4", ".ogg", ".webm"}
 TEXT_EXT  = {".txt", ".vtt", ".json"}
 
+# ── Server-side last-result cache ──────────────────────────────────────────────
+# Stores the most recent analysis result per user/IP so the export page can
+# retrieve it via /api/last-result regardless of whether the browser allows
+# localStorage/sessionStorage (e.g. Edge Tracking Prevention blocks storage).
+# Simple dict — fine for single-worker local/HF deployment.
+# For multi-worker: replace with Redis or shared session storage.
+_last_result_cache: dict[str, dict] = {}
+
 
 # ── Lifespan ───────────────────────────────────────────────────────────────────
 @asynccontextmanager
@@ -505,6 +513,16 @@ async def auth_me(request: Request):
 
 @app.get("/export", response_class=HTMLResponse)
 async def export_page(request: Request):
+    # Embed the last analysis result directly in the page HTML so the export
+    # page works even when ALL browser storage is blocked (Edge Tracking
+    # Prevention blocks localStorage + sessionStorage on /export).
+    # The result is read from the server-side cache set by /analyze-text.
+    _cache_key   = get_current_user(request) or getattr(request.client, "host", "anon")
+    _last_result = _last_result_cache.get(_cache_key)
+    _result_json = (
+        _json.dumps(_last_result, ensure_ascii=False).replace("</script>", r"<\/script>")
+        if _last_result else "null"
+    )
     return templates.TemplateResponse(request, "export.html", {
         "pptx_available":              PPTX_AVAILABLE,
         "gijiroku_available":          GIJIROKU_AVAILABLE,
@@ -512,6 +530,7 @@ async def export_page(request: Request):
         "cache_stats":                 _get_cache_stats(get_current_user(request)),
         "current_user":                get_current_user(request),
         "auth_enabled":                AUTH_ENABLED,
+        "server_result_json":          _result_json,   # injected directly — no storage needed
     })
 
 
@@ -793,6 +812,11 @@ async def analyze_text_route(
         features   = get_features(detected_lang)
         pii_report = result.get("_pii_report", None)
 
+        # Cache result server-side so /export page can fetch it as fallback
+        # when browser storage is blocked (e.g. Edge Tracking Prevention).
+        _cache_key = get_current_user(request) or getattr(request.client, "host", "anon")
+        _last_result_cache[_cache_key] = result
+
         html = build_results_html(result, detected_lang, features, pii_report)
         # FIX: use <script type="application/json"> instead of <div>.
         # A <div> breaks when the result JSON contains </div> (e.g. in summaries
@@ -810,6 +834,23 @@ async def analyze_text_route(
         print(f"[ANALYZE ERROR] {exc}", flush=True)
         import traceback; traceback.print_exc()
         return HTMLResponse(content=_err(str(exc)), status_code=500)
+
+
+# ── Server-side last-result retrieval ─────────────────────────────────────────
+@app.get("/api/last-result")
+async def api_last_result(request: Request):
+    """
+    Returns the most recent analysis result for this user/IP.
+
+    Used by the export page as a 4th-layer fallback when all browser storage
+    options are blocked (sessionStorage, localStorage, window.name).
+    Works regardless of browser privacy settings or tracking prevention.
+    """
+    cache_key = get_current_user(request) or getattr(request.client, "host", "anon")
+    result    = _last_result_cache.get(cache_key)
+    if not result:
+        return JSONResponse({"error": "No result cached — run an analysis first"}, status_code=404)
+    return JSONResponse(result)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

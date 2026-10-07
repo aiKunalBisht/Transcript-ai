@@ -3,6 +3,15 @@
 {% block title %}TranscriptAI · Export Documents{% endblock %}
 
 {% block content %}
+{#
+  Server-side result injection — the ONLY reliable way to pass data to the
+  export page when Edge Tracking Prevention blocks all browser storage.
+  Rendered by main.py's /export route from _last_result_cache.
+  If the server was restarted since the last analysis, this will be "null"
+  and the client-side storage fallbacks below will take over.
+#}
+<script id="tai-server-result" type="application/json">{{ server_result_json | default("null") | safe }}</script>
+
 <div class="tai-export-page">
 
 <style>
@@ -674,24 +683,85 @@ document.addEventListener('alpine:init', () => {
   const _originalTai = window.tai;
   window.tai = function() {
     const base = _originalTai();
+
+    // Save the ORIGINAL loadHistory before Object.assign mutates base.
+    // Object.assign overwrites base.loadHistory with our override, so
+    // calling _baseLoadHistory.call(this) inside the override without this
+    // would call itself → infinite recursion → page hangs entirely.
+    const _baseLoadHistory = base.loadHistory;
+
     return Object.assign(base, {
 
-      // ── Resilient loadHistory override ─────────────────────────────────
-      // Calls base loadHistory(), then independently re-checks storage if
-      // lastResult is still null — catches any edge case where the base
-      // version silently failed (corrupt JSON, storage quota, etc.)
+      // ── loadHistory — server-first, 4-layer fallback ────────────────────
+      //
+      // Why this is needed: Edge's Tracking Prevention blocks ALL localStorage
+      // and sessionStorage on /export (confirmed by empty history sidebar in
+      // screenshots despite history existing on main page). Every client-side
+      // storage approach fails silently.
+      //
+      // Layer 0 — server-embedded (SYNCHRONOUS, works always)
+      //   main.py renders the last result directly into the page HTML via
+      //   <script id="tai-server-result" type="application/json">.
+      //   Parsed here before Alpine renders anything — no async, no storage.
+      //
+      // Layers 1-3 — client-side fallbacks (for when server cache is cold,
+      //   e.g. uvicorn restarted since last analysis)
+      //   1. sessionStorage, 2. localStorage, 3. window.name
+      //
+      // Layer 4 — async server fetch (for cold server + blocked storage)
       loadHistory() {
-        base.loadHistory.call(this);
-
-        if (!this.lastResult) {
-          const _keys = ['tai_last_result_v1'];
-          for (const k of _keys) {
-            let found = null;
-            try { const ss = sessionStorage.getItem(k); if (ss && ss !== 'null') found = JSON.parse(ss); } catch(e) {}
-            if (!found) { try { const ls = localStorage.getItem(k); if (ls && ls !== 'null') found = JSON.parse(ls); } catch(e) {} }
-            if (found) { this.lastResult = found; console.log('[TAI export] lastResult rescued from storage:', found.meeting_title); break; }
+        // ── Layer 0: server-embedded result (synchronous, no storage needed) ──
+        try {
+          const el = document.getElementById('tai-server-result');
+          if (el) {
+            const data = JSON.parse(el.textContent);
+            if (data && typeof data === 'object') {
+              this.lastResult = data;
+              console.log('[TAI export] ✅ result from server embed:', data.meeting_title);
+              // Still run base to load the history sidebar
+              _baseLoadHistory.call(this);
+              return;
+            }
           }
+        } catch(e) {
+          console.warn('[TAI export] server embed parse failed:', e.message);
         }
+
+        // ── Layers 1-3: client-side fallbacks ────────────────────────────────
+        _baseLoadHistory.call(this);   // tries sessionStorage → localStorage → window.name
+
+        // Retry each layer manually in case base's outer catch swallowed errors
+        if (!this.lastResult) {
+          try { const ss = sessionStorage.getItem('tai_last_result_v1'); if (ss && ss !== 'null') this.lastResult = JSON.parse(ss); } catch(e) {}
+        }
+        if (!this.lastResult) {
+          try { const ls = localStorage.getItem('tai_last_result_v1'); if (ls && ls !== 'null') this.lastResult = JSON.parse(ls); } catch(e) {}
+        }
+        if (!this.lastResult) {
+          try {
+            if (typeof window.name === 'string' && window.name.startsWith('tai:')) {
+              const s = window.name.slice(4);
+              if (s && s !== 'null') this.lastResult = JSON.parse(s);
+            }
+          } catch(e) {}
+        }
+
+        if (this.lastResult) {
+          console.log('[TAI export] ✅ result from client storage:', this.lastResult.meeting_title);
+          return;
+        }
+
+        // ── Layer 4: async server fetch (cold server + blocked storage) ───────
+        fetch('/api/last-result')
+          .then(r => r.ok ? r.json() : null)
+          .then(data => {
+            if (data && !data.error && typeof data === 'object') {
+              this.lastResult = data;
+              console.log('[TAI export] ✅ result from server fetch:', data.meeting_title);
+              try { window.name = 'tai:' + JSON.stringify(data); } catch(e) {}
+            }
+          })
+          .catch(e => console.warn('[TAI export] server fetch failed:', e));
       },
 
       mdModal: {
