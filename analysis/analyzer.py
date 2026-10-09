@@ -177,6 +177,29 @@ def _truncate_transcript(text: str) -> str:
     )
 
 
+_JAPANESE_RANGES: tuple = (
+    (0x3040, 0x309F),  # Hiragana   ひ あ い う
+    (0x30A0, 0x30FF),  # Katakana   ア イ ウ エ
+    (0x4E00, 0x9FFF),  # CJK Kanji  会 議 録
+    (0x3400, 0x4DBF),  # CJK Ext-A  (rare kanji)
+    (0xFF65, 0xFF9F),  # Half-width Katakana
+    (0x3000, 0x303F),  # CJK Punctuation 。「」
+)
+
+def _has_japanese_characters(text: str) -> bool:
+    """
+    Returns True the moment any Japanese codepoint appears.
+    Used to gate 議事録 independently of majority-vote _detected_language.
+    A bilingual meeting where one word is Japanese still qualifies.
+    """
+    for char in text:
+        cp = ord(char)
+        for lo, hi in _JAPANESE_RANGES:
+            if lo <= cp <= hi:
+                return True
+    return False
+
+
 def _select_model(text: str, language: str, has_japanese: bool) -> str:
     """Route to fast model for short English-only transcripts."""
     if has_japanese:                return GROQ_MODEL
@@ -2384,6 +2407,11 @@ def analyze_transcript(
     result["_duration_ms"] = round(duration_ms, 1)
     if last_error:
         result["_last_error"] = last_error
+
+    # Japanese content flag — scans normalized original text, not truncated.
+    # Triggers 議事録 even when _detected_language is 'en' or 'hi'
+    # because the majority-vote label can miss bilingual meetings.
+    result["has_japanese_content"] = _has_japanese_characters(text)
 
     # Stage 15: log + cache store
     try:

@@ -349,7 +349,7 @@
 <!-- ═══════════════════════════════════════════════════════════════════
      Japanese Intelligence Panel
      ═══════════════════════════════════════════════════════════════════ -->
-<div x-show="lastResult && (lastResult._detected_language === 'ja' || lastResult._detected_language === 'mixed')"
+<div x-show="lastResult && (lastResult._detected_language === 'ja' || lastResult._detected_language === 'mixed' || lastResult.has_japanese_content === true)"
      x-cloak
      style="margin-top:1.5rem;">
 
@@ -517,7 +517,7 @@
 
   {% if cultural_insights_available %}
   <div class="card"
-       x-show="lastResult && (lastResult._detected_language === 'ja' || lastResult._detected_language === 'mixed')"
+       x-show="lastResult && (lastResult._detected_language === 'ja' || lastResult._detected_language === 'mixed' || lastResult.has_japanese_content === true)"
        x-cloak
        style="border-top:4px solid var(--sakura-deep);">
     <span class="tai-hbadge" style="color:var(--sakura-deep);background:var(--sakura-pale);border-color:var(--sakura-light);">🗾 Japanese Format</span>
@@ -542,7 +542,7 @@
 
   {% if gijiroku_available %}
   <div class="card"
-       x-show="lastResult && (lastResult._detected_language === 'ja' || lastResult._detected_language === 'mixed')"
+       x-show="lastResult && (lastResult._detected_language === 'ja' || lastResult._detected_language === 'mixed' || lastResult.has_japanese_content === true)"
        x-cloak
        style="border-top:4px solid var(--sakura-deep);">
     <span class="tai-hbadge" style="color:var(--sakura-deep);background:var(--sakura-pale);border-color:var(--sakura-light);">🗾 Japanese Format</span>

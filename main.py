@@ -808,6 +808,16 @@ async def analyze_text_route(
 
         result["_detected_language"]    = detected_lang
         result["_unlabeled_transcript"] = was_unlabeled
+        result.setdefault(
+            "has_japanese_content",
+            bool(_re.search(r"[\u3040-\u9fff\u4e00-\u9fff]", cleaned))
+        )
+        # Safety net: set flag here too in case result came from cache
+        # and was stored before this field existed in the schema.
+        result.setdefault(
+            "has_japanese_content",
+            bool(_re.search(r"[\u3040-\u9fff\u4e00-\u9fff]", cleaned))
+        )
 
         features   = get_features(detected_lang)
         pii_report = result.get("_pii_report", None)
