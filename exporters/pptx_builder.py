@@ -507,21 +507,34 @@ def build_pptx(plan: dict, timeout: int = 90) -> bytes:
         with open(plan_path, "w", encoding="utf-8") as f:
             json.dump(plan, f, ensure_ascii=False)
 
-        # Inject paths into JS template
+        # Inject paths into JS template (use forward slashes for Windows compatibility in JS string literals)
         script = (
             _JS
-            .replace("__PLAN_PATH__", plan_path)
-            .replace("__OUT_PATH__",  out_path)
+            .replace("__PLAN_PATH__", plan_path.replace("\\", "/"))
+            .replace("__OUT_PATH__",  out_path.replace("\\", "/"))
         )
         with open(js_path, "w", encoding="utf-8") as f:
             f.write(script)
 
-        # Execute
+        # Execute with NODE_PATH pointing to workspace node_modules
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        node_modules = os.path.join(project_root, "node_modules")
+
+        env = os.environ.copy()
+        existing_node_path = env.get("NODE_PATH", "")
+        env["NODE_PATH"] = (
+            f"{node_modules}{os.pathsep}{existing_node_path}"
+            if existing_node_path
+            else node_modules
+        )
+
         proc = subprocess.run(
             ["node", js_path],
             capture_output=True,
             text=True,
             timeout=timeout,
+            env=env,
+            cwd=project_root,
         )
 
         if proc.returncode != 0:

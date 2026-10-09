@@ -87,8 +87,11 @@ class GijirokulFormatter:
             nichiji = timestamp
         else:
             now = datetime.now()
+            # 和暦 — Reiwa started May 1 2019
+            _reiwa_year = now.year - 2018
             nichiji = (
-                f"{now.year}年{now.month:02d}月{now.day:02d}日 "
+                f"令和{_reiwa_year}年（{now.year}年）"
+                f"{now.month:02d}月{now.day:02d}日 "
                 f"{now.hour:02d}:{now.minute:02d}"
             )
 
