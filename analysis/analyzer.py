@@ -1736,6 +1736,30 @@ def _sentiment_backstop_block(result: dict, text: str) -> None:
                 file=sys.stderr, flush=True,
             )
 
+    # P6-FIX: Formal keigo + frustrated/irritated → politely_evasive
+    # Frustration in FORMAL Japanese register is deliberate evasion, not leakage.
+    # Runs AFTER all SR overrides so it refines, never clobbers, SR-driven labels.
+    # DSA: O(speakers) — single pass.
+    _keigo_lvl = result.get("japan_insights", {}).get("keigo_level", "unknown")
+    if _keigo_lvl in ("FORMAL", "high", "SEMI-FORMAL", "medium"):
+        for _s in result.get("sentiment", []):
+            if (
+                _s.get("label") in ("frustrated", "irritated")
+                and float(_s.get("valence", 0.0)) > -0.80   # not rage — controlled
+            ):
+                _old = _s["label"]
+                _s["label"] = "politely_evasive"
+                _s.setdefault("secondary_labels", [])
+                if _old not in _s["secondary_labels"]:
+                    _s["secondary_labels"] = [_old] + _s["secondary_labels"][:3]
+                _s["_label_adjusted"] = f"formal_keigo_override:{_old}→politely_evasive"
+                print(
+                    f"[SENTIMENT] P6: {_s.get('speaker')} "
+                    f"{_old} → politely_evasive (keigo={_keigo_lvl})",
+                    file=sys.stderr, flush=True,
+                )
+
+    # D2: sync sentiment_score into speaker dicts
     _sent_sync = {
         s["speaker"]: s["score"] for s in result.get("sentiment", [])
     }
@@ -2235,20 +2259,37 @@ def analyze_transcript(
         print(f"[TRANSCRIPT_AI] speaker_normalizer failed: {e}",
               file=sys.stderr, flush=True)
 
-    # Stage 9: MeCab keigo
+    # Stage 9: Keigo detection — rule-based pre-check, MeCab fallback
+    # P2-FIX: Deterministic marker scan runs first.
+    # DSA: O(k) where k = len(_KEIGO_MARKERS) = 7 — constant per transcript.
     if result.get("japan_insights", {}).get("keigo_level", "unknown") == "unknown":
-        try:
-            from analysis.japanese_tokenizer import (
-                get_keigo_level, MECAB_AVAILABLE
-            )
-            if MECAB_AVAILABLE:
-                result["japan_insights"]["keigo_level"]  = get_keigo_level(text)
-                result["japan_insights"]["keigo_source"] = "mecab"
-        except ImportError:
-            pass
-        except Exception as e:
-            print(f"[TRANSCRIPT_AI] japanese_tokenizer failed: {e}",
-                  file=sys.stderr, flush=True)
+        _KEIGO_MARKERS = [
+            "でございます", "いたします", "おります",
+            "拝受", "申し上げ", "ございます", "いただき",
+        ]
+        _hits = [m for m in _KEIGO_MARKERS if m in text]
+        if len(_hits) >= 3:
+            result["japan_insights"]["keigo_level"]          = "FORMAL"
+            result["japan_insights"]["keigo_source"]         = "rule_based"
+            result["japan_insights"]["keigo_markers_matched"] = _hits
+        elif len(_hits) >= 1:
+            result["japan_insights"]["keigo_level"]          = "SEMI-FORMAL"
+            result["japan_insights"]["keigo_source"]         = "rule_based"
+            result["japan_insights"]["keigo_markers_matched"] = _hits
+        else:
+            # MeCab fallback — only when rule-based finds nothing
+            try:
+                from analysis.japanese_tokenizer import (
+                    get_keigo_level, MECAB_AVAILABLE
+                )
+                if MECAB_AVAILABLE:
+                    result["japan_insights"]["keigo_level"]  = get_keigo_level(text)
+                    result["japan_insights"]["keigo_source"] = "mecab"
+            except ImportError:
+                pass
+            except Exception as e:
+                print(f"[TRANSCRIPT_AI] japanese_tokenizer failed: {e}",
+                      file=sys.stderr, flush=True)
 
     # Stage 10: code-switch count
     if (result.get("japan_insights", {}).get("code_switch_source")

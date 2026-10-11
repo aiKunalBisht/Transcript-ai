@@ -286,6 +286,17 @@ Use supplied timing metadata only.
 Never estimate talk-time percentages from text length.
 Use null when reliable timing metadata is unavailable.
 
+SUMMARY BULLETS — CRITICAL FORMAT RULE
+Each summary bullet MUST be an analytical insight, NOT a raw transcript line.
+Format every bullet as:
+  [Speaker or Topic] — [what happened or was strategically decided] — [why it matters]
+Example of CORRECT bullet:
+  田中 — deflected timeline using 社内確認 language — signals decision may already be made
+Example of WRONG bullet (raw line, never do this):
+  田中: 社内で確認が必要です。
+Bullets that quote or paraphrase the transcript verbatim will be penalized.
+Every bullet must add analytical value beyond what reading the transcript provides.
+
 OUTPUT
 Return only the requested structured object.
 Keep descriptions concise.
@@ -326,13 +337,25 @@ def language_hint(
 
 
 def summary_instruction(word_count: int) -> str:
+    """
+    P4-FIX: Force analytical output — every bullet must be an insight, not a line.
+    DSA: O(1) — lookup by word-count bucket.
+
+    The format rule is injected here AND reinforced in SYSTEM_PROMPT so the LLM
+    cannot ignore it even with truncated context windows.
+    """
+    _analytical_rule = (
+        "Each bullet: [Speaker/Topic] — [what happened] — [why it matters]. "
+        "Never quote or paraphrase the transcript verbatim. "
+        "Every bullet must be an analytical insight."
+    )
     if word_count < 200:
-        return "3 concise bullets."
+        return f"3 analytical insight bullets. {_analytical_rule}"
     if word_count < 600:
-        return "5 bullets covering key topics."
+        return f"5 analytical insight bullets covering key moments. {_analytical_rule}"
     if word_count < 1200:
-        return "7 bullets covering topics and decisions."
-    return "8+ bullets covering distinct topics without merging unrelated topics."
+        return f"7 analytical insight bullets covering key moments and decisions. {_analytical_rule}"
+    return f"8+ analytical insight bullets covering distinct topics without merging. {_analytical_rule}"
 
 
 def build_user_prompt(
@@ -341,7 +364,7 @@ def build_user_prompt(
     is_degenerate: bool = False,
     lang_hint: str = "English.",
     speakers_hint: str = "",
-    summary_instr: str = "5 bullets covering key topics.",
+    summary_instr: str = "5 analytical insight bullets covering key moments.",
     japan_enabled: bool = False,
 ) -> str:
     warning = (
@@ -692,4 +715,4 @@ SCHEMA_BLOCK = ""
 RULES_BLOCK = "" 
 GROUNDING_RULES       = ""   
 GROUNDING_RULES_SHORT = "" 
-japan_schema_str      = "" 
+japan_schema_str      = ""
