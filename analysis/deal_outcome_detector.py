@@ -3,6 +3,14 @@ analysis/deal_outcome_detector.py
 ==================================
 Detects EXPLICIT deal-confirmed / acceptance language — the positive
 counterpart to soft_rejection_detector.py's termination/rejection detection.
+
+v1.1 fix (P3):
+  P3-FIX: compute_meeting_outcome — added HIGH_RISK_STALL verdict.
+    When approval_gate_detected AND risk is HIGH or CRITICAL, the gate is
+    likely a deferral tactic masking a stall, not a genuine pending review.
+    Previously: approval_gate fired at priority 5, eclipsing risk level.
+    Now: gate+HIGH → HIGH_RISK_STALL (priority 5), gate alone → PENDING (5b).
+    DSA: O(1) — single additional elif in a linear verdict chain.
 """
 
 import re
@@ -27,7 +35,7 @@ EN_ACCEPTANCE_PHRASES = [
     ("decided to move forward",            "Finalized decision to proceed"),
     ("decided to proceed",                 "Finalized decision to proceed"),
     ("we will proceed with this",          "Commitment to proceed"),
-    ("we will renew the contract",         "Explicit renewal commitment — mirrors 'will not be renewing'"),
+    ("we will renew the contract",         "Explicit renewal commitment"),
     ("we have decided to renew",           "Finalized renewal decision"),
     ("the contract has been approved",     "Explicit contract approval"),
     ("the contract is approved",           "Explicit contract approval"),
@@ -85,7 +93,6 @@ JP_CONDITIONAL_PHRASES = [
 
 # ════════════════════════════════════════════════════════════════════════════════
 # DEFERRED — explicitly pushed to a future meeting
-# Fix 6: added scheduling/confirmation patterns that were misclassified UNCLEAR
 # ════════════════════════════════════════════════════════════════════════════════
 
 EN_DEFERRED_PHRASES = [
@@ -94,11 +101,10 @@ EN_DEFERRED_PHRASES = [
     ("postponing this decision",                "Explicit postponement"),
     ("decision is postponed",                   "Explicit postponement"),
     ("let's table this for now",                "Explicit deferral"),
-    ("we'll pick this up next time",             "Explicit deferral to a future session"),
+    ("we'll pick this up next time",            "Explicit deferral to a future session"),
     ("deferred to the next meeting",            "Explicit deferral, named"),
     ("revisit at our next meeting",             "Explicit future revisit"),
     ("let's continue this discussion next time", "Explicit deferral of the discussion itself"),
-    # Fix 6: scheduling confirmation patterns — outcome deferred, meeting set
     ("confirm the meeting on",                  "Scheduling confirmation — coordination meeting"),
     ("next meeting will be on",                 "Next meeting scheduled — outcome deferred"),
     ("schedule a follow-up on",                 "Follow-up scheduled — no decision yet"),
@@ -117,7 +123,6 @@ JP_DEFERRED_PHRASES = [
 
 # ════════════════════════════════════════════════════════════════════════════════
 # INFORMATIONAL — explicitly no decision needed
-# Fix 6: added coordination/alignment call patterns
 # ════════════════════════════════════════════════════════════════════════════════
 
 EN_INFORMATIONAL_PHRASES = [
@@ -129,7 +134,6 @@ EN_INFORMATIONAL_PHRASES = [
     ("just a status update",                     "Explicit status-update framing"),
     ("no action required at this time",          "Explicit no-action framing"),
     ("this was an informational session",        "Explicit informational framing, past tense"),
-    # Fix 6: coordination/alignment call patterns
     ("this is a coordination meeting",           "Explicitly a logistics/coordination session"),
     ("this call is to align on",                 "Alignment call — no decision expected"),
     ("today we are confirming",                  "Confirmation meeting — not a decision point"),
@@ -146,7 +150,7 @@ JP_INFORMATIONAL_PHRASES = [
 def _find_speaker(phrase: str, transcript: str, case_insensitive: bool = False) -> str:
     lines = transcript.split("\n")
     for line in lines:
-        check_line = line.lower() if case_insensitive else line
+        check_line   = line.lower() if case_insensitive else line
         check_phrase = phrase.lower() if case_insensitive else phrase
         if check_phrase in check_line:
             m = re.match(r"^\*?\*?([^:*\[\]【】\n]{1,50}?)\*?\*?\s*[：:]\s*", line.strip())
@@ -208,14 +212,17 @@ def detect_deal_outcome(transcript: str) -> dict:
 
 
 VERDICT_STYLES = {
-    "REJECTED":         {"emoji": "🔴", "label": "Rejected",       "color": "#C84040", "meaning": "Final decision made not to proceed"},
-    "APPROVED":         {"emoji": "🟢", "label": "Approved",       "color": "#2D9E6B", "meaning": "Final decision made to proceed"},
-    "CONDITIONAL":      {"emoji": "🔵", "label": "Conditional",    "color": "#3B82C4", "meaning": "Approved only if certain conditions are met"},
-    "DEFERRED":         {"emoji": "🟣", "label": "Deferred",       "color": "#7D4E8A", "meaning": "Decision postponed to a future meeting"},
-    "PENDING":          {"emoji": "🟡", "label": "Pending",        "color": "#B8860B", "meaning": "Waiting for internal review or approval"},
-    "INFORMATIONAL":    {"emoji": "⚪", "label": "Informational",  "color": "#7A7A7A", "meaning": "Discussion only, no decision expected"},
-    "AT_RISK":          {"emoji": "🟠", "label": "At Risk",        "color": "#D2691E", "meaning": "Trouble signals present, no resolution stated either way"},
-    "UNCLEAR":          {"emoji": "⚫", "label": "Unclear",        "color": "#3C2416", "meaning": "No decision — clear or otherwise — was stated in this transcript"},
+    "REJECTED":         {"emoji": "🔴", "label": "Rejected",          "color": "#C84040", "meaning": "Final decision made not to proceed"},
+    "APPROVED":         {"emoji": "🟢", "label": "Approved",          "color": "#2D9E6B", "meaning": "Final decision made to proceed"},
+    "CONDITIONAL":      {"emoji": "🔵", "label": "Conditional",       "color": "#3B82C4", "meaning": "Approved only if certain conditions are met"},
+    "DEFERRED":         {"emoji": "🟣", "label": "Deferred",          "color": "#7D4E8A", "meaning": "Decision postponed to a future meeting"},
+    # P3-FIX: HIGH_RISK_STALL — approval gate present but soft rejection signals are HIGH.
+    # Distinct from PENDING (genuine review) — gate is likely a deferral tactic.
+    "HIGH_RISK_STALL":  {"emoji": "🟠", "label": "High Risk Stall",   "color": "#C87030", "meaning": "Approval gate present but risk signals are HIGH — internal review may be a stall tactic"},
+    "PENDING":          {"emoji": "🟡", "label": "Pending",           "color": "#B8860B", "meaning": "Waiting for internal review or approval"},
+    "INFORMATIONAL":    {"emoji": "⚪", "label": "Informational",     "color": "#7A7A7A", "meaning": "Discussion only, no decision expected"},
+    "AT_RISK":          {"emoji": "🟠", "label": "At Risk",           "color": "#D2691E", "meaning": "Trouble signals present, no resolution stated either way"},
+    "UNCLEAR":          {"emoji": "⚫", "label": "Unclear",           "color": "#3C2416", "meaning": "No decision — clear or otherwise — was stated in this transcript"},
 }
 
 
@@ -223,38 +230,61 @@ def compute_meeting_outcome(soft_rejections: dict, deal_outcome: dict) -> dict:
     """
     Combines soft_rejection_detector output with deal_outcome into ONE verdict.
 
-    Priority order:
-      1. REJECTED    — explicit termination
-      2. CONDITIONAL — checked before APPROVED
-      3. APPROVED    — explicit, unconditional acceptance
-      4. DEFERRED    — pushed to future meeting
-      5. PENDING     — approval-gate (named authority must sign off)
-      6. INFORMATIONAL — explicitly no decision needed
-      7. AT_RISK     — soft rejection risk HIGH or MEDIUM, no resolution
-      8. UNCLEAR     — fallback
+    Priority order (P3-FIX: HIGH_RISK_STALL inserted at 5a):
+      1. REJECTED         — explicit termination
+      2. CONDITIONAL      — checked before APPROVED
+      3. APPROVED         — explicit, unconditional acceptance
+      4. DEFERRED         — pushed to future meeting
+      5a. HIGH_RISK_STALL — approval gate AND risk HIGH/CRITICAL (gate = stall tactic)
+      5b. PENDING         — approval gate alone (genuine review)
+      6. INFORMATIONAL    — explicitly no decision needed
+      7. AT_RISK          — soft rejection risk HIGH or MEDIUM, no resolution
+      8. UNCLEAR          — fallback
+
+    P3-FIX root cause: approval_gate_detected previously fired at priority 5
+    before the risk-level check at priority 7. When a meeting had 4 soft
+    rejection signals (risk=HIGH) wrapped in "need internal approval" language,
+    the gate eclipsed the risk and returned PENDING instead of HIGH_RISK_STALL.
+
+    DSA: O(1) — linear if-elif verdict chain with one added branch.
     """
     soft = soft_rejections or {}
-    deal = deal_outcome or {}
+    deal = deal_outcome    or {}
     risk = (soft.get("risk_level") or "NONE").upper()
 
     if soft.get("termination_detected"):
         verdict, detail = "REJECTED", soft.get("cultural_note", "")
+
     elif deal.get("conditional_detected"):
         sig = deal.get("conditional_signals", [])
         verdict, detail = "CONDITIONAL", (sig[0]["explanation"] if sig else "Conditional approval language detected.")
+
     elif deal.get("deal_confirmed"):
         sig = deal.get("confirmation_signals", [])
         verdict, detail = "APPROVED", (sig[0]["explanation"] if sig else "Explicit acceptance language detected.")
+
     elif deal.get("deferred_detected"):
         sig = deal.get("deferred_signals", [])
         verdict, detail = "DEFERRED", (sig[0]["explanation"] if sig else "Decision explicitly postponed to a future meeting.")
+
+    # P3-FIX: gate + HIGH/CRITICAL risk = stall, not genuine pending review
+    elif soft.get("approval_gate_detected") and risk in ("HIGH", "CRITICAL"):
+        verdict, detail = "HIGH_RISK_STALL", (
+            soft.get("cultural_note", "")
+            or "Approval gate detected alongside high soft-rejection signals — "
+               "internal review may be a deferral tactic rather than a genuine review."
+        )
+
     elif soft.get("approval_gate_detected"):
         verdict, detail = "PENDING", soft.get("cultural_note", "")
+
     elif deal.get("informational_detected"):
         sig = deal.get("informational_signals", [])
         verdict, detail = "INFORMATIONAL", (sig[0]["explanation"] if sig else "Explicitly framed as not requiring a decision.")
+
     elif risk in ("HIGH", "MEDIUM"):
         verdict, detail = "AT_RISK", soft.get("cultural_note", "")
+
     else:
         verdict, detail = "UNCLEAR", "Neither explicit acceptance, rejection, nor deferral language was found in this transcript."
 
@@ -275,21 +305,35 @@ if __name__ == "__main__":
     from analysis.soft_rejection_detector import detect_soft_rejections
 
     tests = {
-        "APPROVED":      "Client: We have reviewed everything and we accept your proposal.",
-        "REJECTED":      "Director: We have decided not to renew our contract.",
-        "CONDITIONAL":   "Client: We accept on the condition that you reduce the price by 10%.",
-        "DEFERRED":      "Tanaka: Let's discuss this in our next meeting and decide then.",
-        "PENDING":       "Director: The board has reached a different conclusion. We need approval from headquarters.",
-        "INFORMATIONAL": "Tanaka: This is just an update — no decision is needed today.",
-        "AT_RISK":       "Director: Results have not met our expectations. We have not seen sufficient improvement.",
-        "UNCLEAR":       "Tanaka: Let's continue discussing this next week.",
-        # Fix 6 test cases
-        "DEFERRED_sched": "Yamamoto: We will confirm the meeting on Friday to proceed.",
-        "INFO_coord":     "Tanaka: This is a coordination meeting — no decision needed.",
+        "APPROVED":         "Client: We have reviewed everything and we accept your proposal.",
+        "REJECTED":         "Director: We have decided not to renew our contract.",
+        "CONDITIONAL":      "Client: We accept on the condition that you reduce the price by 10%.",
+        "DEFERRED":         "Tanaka: Let's discuss this in our next meeting and decide then.",
+        # HIGH_RISK_STALL: needs multiple rejection signals (→ HIGH risk) + approval gate.
+        # "cannot commit" + "serious concerns" + "not convinced" = HIGH risk;
+        # "approval from headquarters" = gate. Combined → HIGH_RISK_STALL.
+        "HIGH_RISK_STALL": (
+            "Director: We cannot commit to this at the current pricing. "
+            "We have serious concerns about the delivery timeline. "
+            "We are not convinced this solution meets our requirements. "
+            "We will need approval from headquarters before we can consider moving forward."
+        ),
+        # PENDING: approval gate only, no rejection signals → risk stays LOW/NONE.
+        # Gate alone → PENDING.
+        "PENDING": (
+            "Director: The proposal looks promising overall. "
+            "We will need to get sign-off from our procurement committee before we can proceed."
+        ),
+        "INFORMATIONAL":    "Tanaka: This is just an update — no decision is needed today.",
+        "AT_RISK":          "Director: Results have not met our expectations. We have not seen sufficient improvement.",
+        "UNCLEAR":          "Tanaka: Let's continue discussing this next week.",
+        "DEFERRED_sched":   "Yamamoto: We will confirm the meeting on Friday to proceed.",
+        "INFO_coord":       "Tanaka: This is a coordination meeting — no decision needed.",
     }
+    print("=== P3 Verdict Engine Self-Test ===")
     for expected, t in tests.items():
-        deal = detect_deal_outcome(t)
-        soft = detect_soft_rejections(t)
+        deal    = detect_deal_outcome(t)
+        soft    = detect_soft_rejections(t)
         outcome = compute_meeting_outcome(soft, deal)
-        ok = "OK " if outcome["verdict"].startswith(expected.split("_")[0]) else "FAIL"
-        print(f"[{ok}] expected={expected:18} got={outcome['verdict']:14} {outcome['emoji']} {outcome['label']}")
+        ok = "OK  " if outcome["verdict"].startswith(expected.split("_")[0]) else "FAIL"
+        print(f"[{ok}] expected={expected:20} got={outcome['verdict']:16} {outcome['emoji']} {outcome['label']}")
