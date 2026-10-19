@@ -191,13 +191,14 @@ def _avatar(name: str, color: str) -> str:
             f"border:2px solid {color};display:flex;align-items:center;justify-content:center;"
             f"font-size:0.75rem;font-weight:700;color:{color};flex-shrink:0'>{initials}</div>")
 
-def _health_ring(score, color: str) -> str:
+def _health_ring(score, color: str, label_override: str = None) -> str:
     r,size = 54,120
     circ = 2*3.14159*r
     try:    _score = float(score) if score is not None else 0.0
     except: _score = 0.0
     dash = circ*_score/100
-    label = ("Excellent" if _score>=80 else "Good" if _score>=60 else "Fair" if _score>=40 else "At Risk")
+    # Health-label-FIX: override "Fair" for HIGH-risk meetings
+    label = label_override or ("Excellent" if _score>=80 else "Good" if _score>=60 else "Fair" if _score>=40 else "At Risk")
     if _score<=22: label = "Terminated"
     return (f"<div style='text-align:center'>"
             f"<svg width='{size}' height='{size}' viewBox='0 0 {size} {size}'>"
@@ -349,8 +350,7 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
         ver2   = R.get("verification",{})
         h_pts  = round((1 - ver2.get("overall_hallucination_risk",0))*20)
         score  = min(s_pts+a_pts+r_pts+h_pts, 100)
-        if risk in ("HIGH","CRITICAL"): score = min(score, 59)
-        elif risk == "MEDIUM":          score = min(score, 75)
+
         ag_det = soft.get("approval_gate_detected",False)
 
         # P1-FIX: _bar() — when pt==0 and label contains "Risk", render red glow bar
@@ -373,23 +373,36 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
                 f"</div></div></div>"
             )
 
+        # Score-55-FIX: HIGH/CRITICAL risk takes priority over approval_gate cap.
+        # Previously ag_det capped at 55 BEFORE the HIGH cap at 59, giving 55 not 57.
+        # Now HIGH fires first; ag_det only applies when risk is not HIGH/CRITICAL.
         if termination_detected:
-            score = min(score,22)
+            score = min(score, 22)
             color = "#7C3AED"; label = "Contract Terminated"
             bd = [("Sentiment",s_pts,30),("Clarity",a_pts,25),(f"Risk ({risk})",0,25),("AI Confidence",h_pts,20)]
+            ring_label = "Terminated"
+        elif risk in ("HIGH", "CRITICAL"):
+            # Gate + HIGH risk = stall tactic, not genuine review. Cap at 59.
+            score = min(score, 59)
+            color = "#C84040"; label = "High Risk"
+            bd = [("Sentiment",s_pts,30),("Action Clarity",a_pts,25),(f"Risk ({risk})",r_pts,25),("AI Confidence",h_pts,20)]
+            ring_label = "At Risk"   # Health-label-FIX: override "Fair" → "At Risk" for HIGH risk
         elif ag_det:
-            score = min(score,55)
+            score = min(score, 55)
             color = "#D97706"; label = "Approval Pending"
             bd = [("Sentiment",s_pts,30),("Action Clarity",a_pts,25),(f"Risk ({risk})",r_pts,25),("AI Confidence",h_pts,20)]
+            ring_label = None
         else:
+            if risk == "MEDIUM": score = min(score, 75)
             color = ("#2D9E6B" if score>=80 else "#B87830" if score>=60 else "#D96080" if score>=40 else "#C84040")
             label = ("Productive Meeting" if score>=80 else "Mostly Aligned" if score>=60 else "Needs Follow-up" if score>=40 else "High Risk")
             bd = [("Sentiment",s_pts,30),("Action Clarity",a_pts,25),(f"Risk ({risk})",r_pts,25),("AI Confidence",h_pts,20)]
+            ring_label = None
 
         bars = "".join(_bar(lb, pt, tot) for lb, pt, tot in bd)
-        return score, color, bars
+        return score, color, bars, ring_label
 
-    score,hc,hbars = _health()
+    score,hc,hbars,ring_label = _health()
 
     spk_count = len(R.get("speakers",[]))
     act_count = len(R.get("action_items",[]))
@@ -731,7 +744,7 @@ def build_results_html(R: dict, language: str, features: dict, pii_rep: dict | N
         + '<div class="tai-tiles">' + tiles + '</div>'
         + gijiroku_format_banner
         + '<div class="tai-health">'
-        +   '<div class="tai-health-left">' + _health_ring(score,hc) + '</div>'
+        +   '<div class="tai-health-left">' + _health_ring(score,hc,ring_label) + '</div>'
         +   '<div class="tai-health-right"><div class="tai-health-title">Meeting Health Breakdown</div>' + hbars + '</div>'
         + '</div>'
         + '<div class="tai-radio-tabs">'

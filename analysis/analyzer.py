@@ -1263,6 +1263,19 @@ def _no_api_sentiment_block(
             "risk_to_relationship": risk,
         })
 
+    # P6-FIX (no-API path): keigo→evasive override mirrors LLM backstop.
+    # DSA: O(k markers) × O(speakers) — constant time.
+    _k_markers = ["でございます","いたします","おります","拝受","申し上げ","ございます","いただき"]
+    if sum(1 for m in _k_markers if m in text) >= 1:
+        for _s in sentiment:
+            if _s.get("label", "").startswith(("frustrated", "irritated")):
+                _old = _s["label"]
+                _s["label"] = "politely_evasive"
+                _s.setdefault("secondary_labels", [])
+                if _old not in _s["secondary_labels"]:
+                    _s["secondary_labels"] = [_old] + _s["secondary_labels"][:3]
+                _s["_label_adjusted"] = f"noapi_keigo:{_old}→politely_evasive"
+
     sent_lookup = {s["speaker"]: s["score"] for s in sentiment}
     for spk in speakers:
         spk["sentiment_score"] = sent_lookup.get(spk["name"], "neutral")
@@ -1972,7 +1985,10 @@ def analyze_transcript(
         from analysis.meeting_function_detector import detect_functions as _df
         _nema = detect_nemawashi_sequence(_df(text))
         result["nemawashi_sequence"] = _nema
-        if _nema["nemawashi_sequence_detected"]:
+        # P5-FIX: write to japan_insights so Insights tab renders it separately
+        if result.get("japan_insights") is not None:
+            result["japan_insights"]["nemawashi"] = _nema
+        if _nema.get("nemawashi_sequence_detected"):
             print(f"[TRANSCRIPT_AI] Nemawashi sequence detected "
                   f"(conf={_nema['confidence']:.2f})", file=sys.stderr, flush=True)
     except ImportError:
