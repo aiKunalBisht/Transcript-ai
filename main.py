@@ -1,27 +1,28 @@
-# main.py — TranscriptAI v3.5
+# main.py — TranscriptAI v3.6
 # FastAPI server. Run: uvicorn main:app --reload --port 7860
 #
 # REQUIRES: api/async_processor.py v2.1 (user_id + requesting_user params).
 #
-# v3.5 fixes applied over v3.4:
+# v3.6 security patches over v3.5:
 #
-#   FIX 3 — _setup_auth no longer crashes when SESSION_SECRET is missing
-#     and AUTH_ENABLED=0. In v3.4 a missing SESSION_SECRET always raised
-#     RuntimeError at startup, even for local dev runs that don't need auth.
-#     Now only raises when AUTH_ENABLED=1 actually requires a secret.
-#     get_current_user() already has a try/except fallback, so running
-#     without SessionMiddleware is safe.
+#   SEC-1 — _last_result_cache no longer keyed by client IP for anonymous users.
+#     In v3.5, unauthenticated requests fell back to getattr(request.client,
+#     "host", "anon") as the cache key. Multiple users behind the same NAT
+#     (office, university, shared Wi-Fi) share one IP, so User B could call
+#     /api/last-result and receive User A's full meeting analysis — PII
+#     included. Fix: cache writes only happen for authenticated users.
+#     Anonymous users still get the result embedded in the HTML response via
+#     the <script id="tai-result-data"> tag, so export still works for them.
 #
-#   FIX 4 — evaluate_run no longer passes bypass_cache=True to
-#     analyze_transcript. That kwarg is not in the analyzer.py signature,
-#     causing a TypeError on every /evaluate/run call.
+#   SEC-2 — /api/last-result now requires authentication.
+#     Previously no auth check — any caller could hit the endpoint.
+#     Now returns 401 for unauthenticated requests.
 #
-#   FIX 7 — _err() now HTML-escapes exception messages before embedding
-#     them in the response. Raw exception strings could contain angle
-#     brackets from tracebacks or user-controlled input, causing XSS.
-#
-#   FIX 9 — robots_txt route wraps open() in try/except. A missing
-#     robots.txt raised FileNotFoundError → HTTP 500.
+# v3.5 fixes retained unchanged:
+#   FIX 3 — _setup_auth safe when SESSION_SECRET missing + AUTH_ENABLED=0.
+#   FIX 4 — evaluate_run no longer passes bypass_cache=True.
+#   FIX 7 — _err() HTML-escapes exception messages (XSS fix).
+#   FIX 9 — robots_txt wraps open() in try/except.
 
 import asyncio
 import html as _html        # FIX 7: for _err() escaping
@@ -71,8 +72,6 @@ def _setup_auth(app):
                 "Use any random string of 32+ characters."
             )
         # FIX 3: AUTH_ENABLED=0 → sessions not needed.
-        # get_current_user() has a try/except fallback, so skipping
-        # SessionMiddleware here is safe — it just returns None for all users.
         return None
 
     try:
@@ -258,9 +257,11 @@ AUDIO_EXT = {".mp3", ".wav", ".m4a", ".mp4", ".ogg", ".webm"}
 TEXT_EXT  = {".txt", ".vtt", ".json"}
 
 # ── Server-side last-result cache ──────────────────────────────────────────────
-# Stores the most recent analysis result per user/IP so the export page can
-# retrieve it via /api/last-result regardless of whether the browser allows
-# localStorage/sessionStorage (e.g. Edge Tracking Prevention blocks storage).
+# Stores the most recent analysis result per authenticated user so the export
+# page can retrieve it via /api/last-result when browser storage is blocked.
+# SEC-FIX v3.6: keyed by user_id only — never by IP address. Anonymous users
+# are not stored here; they rely on the <script id="tai-result-data"> tag
+# embedded directly in the /analyze-text HTML response.
 # Simple dict — fine for single-worker local/HF deployment.
 # For multi-worker: replace with Redis or shared session storage.
 _last_result_cache: dict[str, dict] = {}
@@ -281,7 +282,7 @@ async def lifespan(app: FastAPI):
 # ── App ────────────────────────────────────────────────────────────────────────
 app = FastAPI(
     title="TranscriptAI",
-    version="3.5",
+    version="3.6",
     docs_url="/docs",
     lifespan=lifespan,
 )
@@ -516,9 +517,10 @@ async def export_page(request: Request):
     # Embed the last analysis result directly in the page HTML so the export
     # page works even when ALL browser storage is blocked (Edge Tracking
     # Prevention blocks localStorage + sessionStorage on /export).
-    # The result is read from the server-side cache set by /analyze-text.
-    _cache_key   = get_current_user(request) or getattr(request.client, "host", "anon")
-    _last_result = _last_result_cache.get(_cache_key)
+    # SEC-FIX v3.6: cache key is user_id only — no IP fallback for anonymous.
+    # Anonymous users still get the embedded <script> tag from /analyze-text.
+    _cache_key   = get_current_user(request)           # None for anonymous
+    _last_result = _last_result_cache.get(_cache_key) if _cache_key else None
     _result_json = (
         _json.dumps(_last_result, ensure_ascii=False).replace("</script>", r"<\/script>")
         if _last_result else "null"
@@ -530,7 +532,7 @@ async def export_page(request: Request):
         "cache_stats":                 _get_cache_stats(get_current_user(request)),
         "current_user":                get_current_user(request),
         "auth_enabled":                AUTH_ENABLED,
-        "server_result_json":          _result_json,   # injected directly — no storage needed
+        "server_result_json":          _result_json,
     })
 
 
@@ -573,9 +575,7 @@ async def evaluate_run(request: Request):
         language   = sc.get("language", "en")
         expected   = sc.get("expected", {})
 
-        # FIX 4: removed bypass_cache=True — analyze_transcript doesn't accept
-        # that kwarg in its current signature, causing TypeError on every eval run.
-        # Per-user cache invalidation is handled inside the analyzer via user_id.
+        # FIX 4: removed bypass_cache=True — not in analyzer.py signature.
         prediction = await asyncio.to_thread(
             analyze_transcript, transcript, language,
             user_id=user_id,
@@ -664,13 +664,7 @@ async def jobs_submit(
 async def jobs_status(job_id: str, request: Request):
     """
     Poll job status and retrieve result when done.
-
     Cross-user reads return 404 — job existence is not revealed to other users.
-
-    Returns:
-        status: "queued" | "running" | "done" | "failed"
-        result: analysis dict (only when status == "done")
-        error:  message (only when status == "failed")
     """
     if not ASYNC_PROCESSOR_AVAILABLE:
         return JSONResponse({"error": "Async processor not available"}, status_code=503)
@@ -812,30 +806,21 @@ async def analyze_text_route(
             "has_japanese_content",
             bool(_re.search(r"[\u3040-\u9fff\u4e00-\u9fff]", cleaned))
         )
-        # Safety net: set flag here too in case result came from cache
-        # and was stored before this field existed in the schema.
-        result.setdefault(
-            "has_japanese_content",
-            bool(_re.search(r"[\u3040-\u9fff\u4e00-\u9fff]", cleaned))
-        )
 
         features   = get_features(detected_lang)
         pii_report = result.get("_pii_report", None)
 
-        # Cache result server-side so /export page can fetch it as fallback
-        # when browser storage is blocked (e.g. Edge Tracking Prevention).
-        _cache_key = get_current_user(request) or getattr(request.client, "host", "anon")
-        _last_result_cache[_cache_key] = result
+        # SEC-FIX v3.6: Only cache for authenticated users.
+        # Anonymous users rely on the <script id="tai-result-data"> tag below.
+        # IP-based keying was removed — multiple users behind the same NAT
+        # (office network, university, shared Wi-Fi) share one IP address,
+        # which meant User B could call /api/last-result and receive User A's
+        # full meeting analysis including PII.
+        _cache_key = get_current_user(request)   # None for anonymous — intentional
+        if _cache_key:
+            _last_result_cache[_cache_key] = result
 
         html = build_results_html(result, detected_lang, features, pii_report)
-        # FIX: use <script type="application/json"> instead of <div>.
-        # A <div> breaks when the result JSON contains </div> (e.g. in summaries
-        # of web meetings or transcripts quoting HTML). The browser's HTML parser
-        # closes the div early, truncating the JSON so JSON.parse() throws inside
-        # captureResult's silent catch — lastResult stays null, export page shows
-        # "run analysis first" even though results rendered fine.
-        # <script type="application/json"> is not parsed as HTML so </div> is safe;
-        # only </script> needs escaping, which is extremely rare in meeting content.
         _rjson = _json.dumps(result, ensure_ascii=False).replace('</script>', r'<\/script>')
         tag    = f'<script id="tai-result-data" type="application/json">{_rjson}</script>'
         return HTMLResponse(content=html + tag)
@@ -850,16 +835,30 @@ async def analyze_text_route(
 @app.get("/api/last-result")
 async def api_last_result(request: Request):
     """
-    Returns the most recent analysis result for this user/IP.
+    Returns the most recent analysis result for the authenticated user.
 
     Used by the export page as a 4th-layer fallback when all browser storage
     options are blocked (sessionStorage, localStorage, window.name).
-    Works regardless of browser privacy settings or tracking prevention.
+
+    SEC-FIX v3.6: Requires authentication. Anonymous access removed.
+    IP-based keying (the v3.5 fallback) leaked results across NAT boundaries —
+    multiple users behind the same network would share one cache slot.
+    Anonymous users get their result from the <script id="tai-result-data">
+    tag embedded in the /analyze-text response, so this endpoint is only
+    needed for authenticated sessions where the tag is consumed by a redirect.
     """
-    cache_key = get_current_user(request) or getattr(request.client, "host", "anon")
-    result    = _last_result_cache.get(cache_key)
+    cache_key = get_current_user(request)
+    if not cache_key:
+        return JSONResponse(
+            {"error": "Authentication required to retrieve cached results."},
+            status_code=401,
+        )
+    result = _last_result_cache.get(cache_key)
     if not result:
-        return JSONResponse({"error": "No result cached — run an analysis first"}, status_code=404)
+        return JSONResponse(
+            {"error": "No result cached — run an analysis first."},
+            status_code=404,
+        )
     return JSONResponse(result)
 
 
@@ -992,7 +991,7 @@ async def health():
     scenario_count = _get_scenario_summary().get("total", 0) if EVAL_AVAILABLE else 0
     return {
         "status":           "healthy",
-        "version":          "3.5",
+        "version":          "3.6",
         "provider":         os.getenv("TRANSCRIPT_AI_PROVIDER", "auto"),
         "nim_configured":   bool(os.getenv("NIM_API_KEY")),
         "groq_configured":  bool(os.getenv("GROQ_API_KEY")),
@@ -1019,7 +1018,7 @@ async def health():
 
 @app.get("/robots.txt", response_class=HTMLResponse)
 async def robots_txt():
-    # FIX 9: guard open() — missing file was raising FileNotFoundError → HTTP 500
+    # FIX 9: guard open() — missing file raised FileNotFoundError → HTTP 500
     try:
         content = open("robots.txt").read()
     except FileNotFoundError:
@@ -1070,9 +1069,8 @@ async def manifest():
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 def _err(msg: str) -> str:
-    # FIX 7: HTML-escape msg before embedding.
-    # Raw exception strings can contain angle brackets from tracebacks or
-    # user-controlled transcript content, which previously rendered as live HTML (XSS).
+    # FIX 7: HTML-escape msg before embedding — prevents XSS from exception
+    # strings that contain angle brackets (tracebacks, user transcript content).
     safe_msg = _html.escape(str(msg))
     return (
         f'<div style="background:var(--red-bg);border-left:3px solid var(--red);'

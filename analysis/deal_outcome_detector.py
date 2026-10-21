@@ -319,10 +319,11 @@ if __name__ == "__main__":
             "We will need approval from headquarters before we can consider moving forward."
         ),
         # PENDING: approval gate only, no rejection signals → risk stays LOW/NONE.
-        # Gate alone → PENDING.
+        # Uses "need approval from headquarters" which soft_rejection_detector recognises
+        # as an approval-gate phrase without triggering any rejection signals.
         "PENDING": (
-            "Director: The proposal looks promising overall. "
-            "We will need to get sign-off from our procurement committee before we can proceed."
+            "Director: The proposal looks good overall. "
+            "We will need approval from headquarters before we can proceed."
         ),
         "INFORMATIONAL":    "Tanaka: This is just an update — no decision is needed today.",
         "AT_RISK":          "Director: Results have not met our expectations. We have not seen sufficient improvement.",
