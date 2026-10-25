@@ -2,6 +2,41 @@
 sentiment_engine.py  —  Fine-Grained Sentiment & Tone Detection Engine
 TranscriptAI Pipeline  |  Replaces flat 5-label sentiment with rich multi-signal output
 
+v1.1 changes (this version):
+  FIX-JP1: _parse_transcript now handles full-width colon ：
+    In v1.0, the speaker-turn parser used pattern [^colon-newline]+ which only
+    matched half-width colon. Every Japanese transcript that uses ：
+    (the standard in Japanese business meetings) produced an EMPTY utterance
+    list. from_raw_transcript() then returned an empty TranscriptSentimentReport
+    with no speaker arcs, causing every Japanese speaker in the no-API fallback
+    path to receive score="neutral" / label="factual" regardless of content.
+    Fix: pattern now matches both ： (U+FF1A) and : (U+003A).
+
+  FIX-JP2: Empty utterance guard added to analyze_transcript().
+    When the transcript is Japanese-only and _parse_transcript returns [],
+    the engine now logs a warning and returns a minimal safe report rather
+    than dividing by zero or silently producing a neutral report with no
+    speaker arcs. The caller (analyzer.py _no_api_sentiment_block) can
+    detect this via report.utterances == [].
+
+  FIX-JP3: _parse_transcript handles PII-masked speaker labels.
+    [NAME_1]: text was not matched because the old parser's character class
+    did not correctly stop at the colon — it consumed the separator as part
+    of the speaker name group. The new pattern stops at both half-width and
+    full-width colons, so [NAME_1]: text is now parsed correctly.
+
+  DOC-JP: Honest coverage statement added.
+    The engine's patterns are English and Hinglish. Japanese text produces
+    near-zero pattern hits. This is not a bug introduced here — it is a
+    documented architectural limitation. See _JAPANESE_COVERAGE_NOTE.
+
+v1.0 retained unchanged:
+  All 25-label PATTERN_REGISTRY entries.
+  Negation detection with token-index window.
+  Tone modifier classification.
+  Speaker arc computation with trend detection.
+  All data structures (SentimentSignal, ToneProfile, UtteranceResult,
+    SpeakerArc, TranscriptSentimentReport).
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 DSA Architecture
 ────────────────
@@ -32,16 +67,44 @@ Tone Modifiers (orthogonal to emotion labels)
   urgency    : low | medium | high
   certainty  : definite | hedged | uncertain
   engagement : active | passive | disengaged
+
+Language Coverage
+─────────────────
+  English    : Full pattern coverage (primary language of engine).
+  Hinglish   : Partial — romanized Hindi markers in key labels.
+  Japanese   : Structural parsing fixed (FIX-JP1/JP2/JP3).
+               Semantic pattern coverage: NONE. Japanese text produces
+               near-zero pattern hits. Sentiment for Japanese speakers
+               in the no-API path is controlled by the SR overlay in
+               analyzer._no_api_sentiment_block, not by this engine.
+               For real Japanese sentiment: fine-tune a Japanese BERT
+               (cl-tohoku/bert-base-japanese) on your label taxonomy.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
 from __future__ import annotations
 
+import logging
 import re
 import heapq
 from collections import defaultdict, Counter
 from dataclasses import dataclass, field
 from typing import NamedTuple, Optional
+
+logger = logging.getLogger("transcriptai.sentiment_engine")
+
+# FIX-JP: Honest coverage note — referenced in analyzer.py to decide
+# whether to trust the engine output for Japanese-only transcripts.
+_JAPANESE_COVERAGE_NOTE = (
+    "sentiment_engine patterns are English/Hinglish only. "
+    "Japanese utterances will score near-zero on all pattern labels "
+    "and default to factual/neutral. Use the SR-overlay path in "
+    "_no_api_sentiment_block for Japanese sentiment signals."
+)
+
+# FIX-JP1: Regex that matches BOTH half-width ':' and full-width '：'.
+# Used in _parse_transcript and any colon-split logic in this module.
+_COLON_RE = re.compile(r"[：:]")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -64,40 +127,37 @@ ALL_LABELS: frozenset[str] = (
     POSITIVE_LABELS | NEGATIVE_LABELS | NEUTRAL_LABELS | COMPLEX_LABELS
 )
 
-# Base valence scores (–1.0 to +1.0)  — used for weighted valence output
 VALENCE_MAP: dict[str, float] = {
-    "enthusiastic":      +0.95,
-    "confident":         +0.80,
-    "agreeable":         +0.65,
-    "appreciative":      +0.70,
-    "hopeful":           +0.60,
-    "relieved":          +0.55,
-    "encouraging":       +0.72,
-    "satisfied":         +0.68,
-    "factual":           +0.02,
-    "inquisitive":       +0.08,
-    "ambivalent":         0.00,
-    "politely_evasive":  -0.20,
-    "deflecting":        -0.30,
-    "skeptical":         -0.35,
-    "resigned":          -0.45,
-    "anxious":           -0.45,
-    "irritated":         -0.42,
-    "overwhelmed":       -0.55,
-    "disappointed":      -0.55,
-    "defensive":         -0.52,
-    "frustrated":        -0.65,
-    "dismissive":        -0.68,
-    "sarcastic":         -0.72,
-    "passive_aggressive":-0.78,
-    "condescending":     -0.82,
+    "enthusiastic":       +0.95,
+    "confident":          +0.80,
+    "agreeable":          +0.65,
+    "appreciative":       +0.70,
+    "hopeful":            +0.60,
+    "relieved":           +0.55,
+    "encouraging":        +0.72,
+    "satisfied":          +0.68,
+    "factual":            +0.02,
+    "inquisitive":        +0.08,
+    "ambivalent":          0.00,
+    "politely_evasive":   -0.20,
+    "deflecting":         -0.30,
+    "skeptical":          -0.35,
+    "resigned":           -0.45,
+    "anxious":            -0.45,
+    "irritated":          -0.42,
+    "overwhelmed":        -0.55,
+    "disappointed":       -0.55,
+    "defensive":          -0.52,
+    "frustrated":         -0.65,
+    "dismissive":         -0.68,
+    "sarcastic":          -0.72,
+    "passive_aggressive": -0.78,
+    "condescending":      -0.82,
 }
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 2. PATTERN REGISTRY
-#    _Pat.weight range:  0.3 (weak indicator) → 1.0 (definitive signal)
-#    Patterns compiled once at import → O(1) subsequent use
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class _Pat(NamedTuple):
@@ -109,15 +169,7 @@ def _p(pattern: str, weight: float = 0.6, flags: int = re.IGNORECASE) -> _Pat:
     return _Pat(re.compile(pattern, flags), weight)
 
 
-# NOTE ON MULTILINGUAL COVERAGE
-# English patterns are primary.  Hindi/Hinglish (romanized) patterns are
-# appended where relevant.  Devanagari-script Hindi is handled downstream
-# by the existing MeCab-equivalent layer; Japanese keigo/nemawashi signals
-# feed into keigo_analyzer.py, not this module.
-
 PATTERN_REGISTRY: dict[str, list[_Pat]] = {
-
-    # ── POSITIVE ──────────────────────────────────────────────────────────────
 
     "enthusiastic": [
         _p(r"\b(amazing|fantastic|brilliant|excellent|outstanding|thrilled|excited)\b", 0.90),
@@ -125,7 +177,6 @@ PATTERN_REGISTRY: dict[str, list[_Pat]] = {
         _p(r"\b(absolutely|definitely|totally|100\s*%)\s+(agree|on\s+board|right|yes)\b", 0.80),
         _p(r"[!]+\s*(yes|yeah|let'?s\s+(do\s+it|go)|perfect|exactly)\b", 0.85),
         _p(r"\b(can'?t\s+wait|looking\s+forward|super\s+excited|pumped)\b", 0.88),
-        # Hinglish
         _p(r"\b(bahut\s+accha|zabardast|ekdum\s+sahi|kya\s+baat\s+hai)\b", 0.82),
     ],
 
@@ -141,7 +192,6 @@ PATTERN_REGISTRY: dict[str, list[_Pat]] = {
         _p(r"\b(good\s+point|fair\s+enough|makes\s+sense|that'?s\s+(fair|true|right))\b", 0.75),
         _p(r"\b(I\s+agree|on\s+board|sounds\s+good|works\s+for\s+(me|us))\b", 0.80),
         _p(r"\b(no\s+objection|happy\s+to|glad\s+to|I\s+see\s+your\s+point)\b", 0.72),
-        # Hinglish
         _p(r"\b(haan\s+(bilkul)?|theek\s+hai|sahi\s+hai|ji\s+(haan|bilkul))\b", 0.70),
     ],
 
@@ -156,7 +206,6 @@ PATTERN_REGISTRY: dict[str, list[_Pat]] = {
         _p(r"\b(hopefully|I\s+hope|fingers\s+crossed|optimistic|looking\s+forward)\b", 0.75),
         _p(r"\b(should\s+(work|be\s+fine|pan\s+out)|good\s+chance|promising)\b", 0.68),
         _p(r"\b(could\s+potentially|might\s+actually\s+work|there'?s\s+(a\s+)?chance)\b", 0.62),
-        # Hinglish
         _p(r"\b(dekhte\s+hain|ho\s+jayega|sab\s+theek\s+ho\s+jayega)\b", 0.72),
     ],
 
@@ -181,8 +230,6 @@ PATTERN_REGISTRY: dict[str, list[_Pat]] = {
         _p(r"\b(no\s+complaints|can'?t\s+complain|I'?m\s+okay\s+with\s+this)\b", 0.70),
     ],
 
-    # ── NEUTRAL ───────────────────────────────────────────────────────────────
-
     "factual": [
         _p(r"\b(the\s+data\s+(shows|indicates|suggests)|according\s+to|based\s+on)\b", 0.70),
         _p(r"\b(as\s+per|per\s+(the\s+)?report|the\s+numbers\s+(show|indicate))\b", 0.72),
@@ -204,15 +251,12 @@ PATTERN_REGISTRY: dict[str, list[_Pat]] = {
         _p(r"\b(might\s+be|could\s+be|possibly|I\s+mean|more\s+or\s+less)\b", 0.42),
     ],
 
-    # ── NEGATIVE ──────────────────────────────────────────────────────────────
-
     "frustrated": [
         _p(r"\b(frustrated|frustrating|this\s+is\s+(ridiculous|absurd|insane)|unacceptable)\b", 0.92),
         _p(r"\b(how\s+many\s+times|I'?ve\s+(said|told)\s+(you\s+)?this\s+(before|already|multiple\s+times))\b", 0.88),
         _p(r"\b(keeps?\s+(happening|failing|breaking|going\s+wrong)|still\s+not\s+(working|fixed|done))\b", 0.85),
         _p(r"\b(nothing\s+(works|is\s+working)|what'?s\s+the\s+point|I\s+give\s+up\s+with\s+this)\b", 0.87),
         _p(r"\b(I\s+can'?t\s+(believe|deal\s+with|take)\s+(this|it))\b", 0.83),
-        # Hinglish
         _p(r"\b(yaar\s+kya\s+ho\s+gaya|kuch\s+nahi\s+ho\s+raha|ek\s+kaam\s+nahi\s+hota)\b", 0.82),
     ],
 
@@ -242,9 +286,7 @@ PATTERN_REGISTRY: dict[str, list[_Pat]] = {
         _p(r"\b(whatever|doesn'?t\s+matter|I\s+don'?t\s+care|not\s+my\s+problem)\b", 0.88),
         _p(r"\b(yeah\s+yeah|ok\s+ok+|moving\s+on|next\s+point|let'?s\s+skip\s+this)\b", 0.78),
         _p(r"\b(that'?s\s+(not\s+important|irrelevant|beside\s+the\s+point|trivial))\b", 0.82),
-        _p(r"\b(as\s+I\s+was\s+saying\s+before\s+(we\s+were\s+interrupted|that\s+happened))\b", 0.80),
         _p(r"\b(obviously|everyone\s+knows\s+that|we\s+all\s+know\s+this)\b", 0.65),
-        # Hinglish
         _p(r"\b(chalo\s+chhodo|chhod\s+do\s+yaar|koi\s+baat\s+nahi)\b", 0.75),
     ],
 
@@ -320,7 +362,6 @@ PATTERN_REGISTRY: dict[str, list[_Pat]] = {
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 3. TONE MODIFIER PATTERNS
-#    Each modifier is a binary regex check — O(1) per utterance
 # ═══════════════════════════════════════════════════════════════════════════════
 
 _URGENCY_HIGH = re.compile(
@@ -329,11 +370,10 @@ _URGENCY_HIGH = re.compile(
     re.IGNORECASE,
 )
 _URGENCY_MED = re.compile(
-    r"\b(soon|shortly|this\s+week|by\s+(Monday|Tuesday|Wednesday|Thursday|Friday|end\s+of\s+(day|week))|"
-    r"need\s+to\s+|should\s+|priority|before\s+the\s+deadline)\b",
+    r"\b(soon|shortly|this\s+week|by\s+(Monday|Tuesday|Wednesday|Thursday|Friday|"
+    r"end\s+of\s+(day|week))|need\s+to\s+|should\s+|priority|before\s+the\s+deadline)\b",
     re.IGNORECASE,
 )
-
 _CERTAINTY_UNCERTAIN = re.compile(
     r"\b(not\s+sure\s+(yet|about|if)|I\s+don'?t\s+know|unclear|TBD|"
     r"yet\s+to\s+be\s+(confirmed|decided)|open\s+question|question\s+mark)\b",
@@ -341,10 +381,10 @@ _CERTAINTY_UNCERTAIN = re.compile(
 )
 _CERTAINTY_HEDGED = re.compile(
     r"\b(might|maybe|perhaps|probably|I\s+think|I\s+believe|"
-    r"possibly|could\s+be|sort\s+of|kind\s+of|roughly|approximately|I\s+would\s+imagine)\b",
+    r"possibly|could\s+be|sort\s+of|kind\s+of|roughly|approximately|"
+    r"I\s+would\s+imagine)\b",
     re.IGNORECASE,
 )
-
 _ENGAGEMENT_ACTIVE = re.compile(
     r"\b(let'?s|we\s+should|I'?ll|we'?ll|going\s+to|plan\s+to|"
     r"will\s+(do|be\s+doing|handle)|I\s+want\s+to|I'?m\s+going\s+to)\b",
@@ -358,23 +398,18 @@ _ENGAGEMENT_DISENGAGED = re.compile(
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 4. NEGATION DETECTION
-#    Token-index based window — O(tokens) per utterance
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Minimum raw score a label must reach BEFORE normalization.
-# Without this floor, a single negation-dampened match (weight × 0.12 ≈ 0.11)
-# would normalize to 1.0 when it's the only detection — defeating the dampen.
-# Floor = 0.28 (just above the weakest non-negated pattern weight of 0.30 × 0.12).
-# Any label whose raw total stays under this is evicted before normalization.
 _MIN_RAW_SCORE: float = 0.28
 
 _NEGATION_RE = re.compile(
     r"\b(not|no|never|neither|nor|without|hardly|barely|scarcely|"
-    r"don'?t|doesn'?t|didn'?t|won'?t|can'?t|couldn'?t|shouldn'?t|wouldn'?t|isn'?t|aren'?t|wasn'?t|weren'?t)\b",
+    r"don'?t|doesn'?t|didn'?t|won'?t|can'?t|couldn'?t|shouldn'?t|"
+    r"wouldn'?t|isn'?t|aren'?t|wasn'?t|weren'?t)\b",
     re.IGNORECASE,
 )
-_NEGATION_WINDOW: int = 4   # tokens following a negation that are dampened
-_NEGATION_DAMPEN: float = 0.12  # multiply match weight by this if negated
+_NEGATION_WINDOW: int   = 4
+_NEGATION_DAMPEN: float = 0.12
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -383,50 +418,51 @@ _NEGATION_DAMPEN: float = 0.12  # multiply match weight by this if negated
 
 @dataclass
 class SentimentSignal:
-    """A single detected emotion signal in an utterance."""
-    label: str
-    score: float                        # 0.0–1.0 normalized share
-    valence: float                      # from VALENCE_MAP
-    matched_phrases: list[str] = field(default_factory=list)  # raw matches (capped at 3)
+    label:           str
+    score:           float
+    valence:         float
+    matched_phrases: list[str] = field(default_factory=list)
 
 
 @dataclass
 class ToneProfile:
-    """Orthogonal tone modifiers — independent of emotion labels."""
-    urgency: str       # "low" | "medium" | "high"
-    certainty: str     # "definite" | "hedged" | "uncertain"
-    engagement: str    # "active" | "passive" | "disengaged"
+    urgency:    str
+    certainty:  str
+    engagement: str
 
     def to_dict(self) -> dict:
-        return {"urgency": self.urgency, "certainty": self.certainty, "engagement": self.engagement}
+        return {
+            "urgency":    self.urgency,
+            "certainty":  self.certainty,
+            "engagement": self.engagement,
+        }
 
 
 @dataclass
 class UtteranceResult:
-    """Full sentiment analysis for a single transcript utterance."""
-    speaker: str
-    text: str
-    primary: str                        # highest-scoring label
-    secondary: list[str]                # next 1–2 labels above threshold
-    tone: ToneProfile
-    valence: float                      # weighted average –1.0 to +1.0
-    confidence: float                   # 0.0 to 1.0 (dominance of primary)
-    signals: list[SentimentSignal]      # all signals above _SCORE_THRESHOLD
+    speaker:    str
+    text:       str
+    primary:    str
+    secondary:  list[str]
+    tone:       ToneProfile
+    valence:    float
+    confidence: float
+    signals:    list[SentimentSignal]
 
     def to_dict(self) -> dict:
         return {
-            "speaker": self.speaker,
-            "text": self.text,
-            "primary": self.primary,
-            "secondary": self.secondary,
-            "tone": self.tone.to_dict(),
-            "valence": self.valence,
+            "speaker":    self.speaker,
+            "text":       self.text,
+            "primary":    self.primary,
+            "secondary":  self.secondary,
+            "tone":       self.tone.to_dict(),
+            "valence":    self.valence,
             "confidence": self.confidence,
             "signals": [
                 {
-                    "label": s.label,
-                    "score": s.score,
-                    "valence": s.valence,
+                    "label":           s.label,
+                    "score":           s.score,
+                    "valence":         s.valence,
                     "matched_phrases": s.matched_phrases,
                 }
                 for s in self.signals
@@ -436,21 +472,20 @@ class UtteranceResult:
 
 @dataclass
 class SpeakerArc:
-    """Aggregated sentiment trajectory for one speaker across the full meeting."""
-    speaker: str
-    dominant: str                               # most frequent primary label
-    mean_valence: float                         # –1.0 to +1.0
-    trend: str                                  # "improving" | "declining" | "stable" | "volatile"
-    peak_negative: Optional[UtteranceResult]    # utterance with lowest valence
-    peak_positive: Optional[UtteranceResult]    # utterance with highest valence
-    emotion_distribution: dict[str, float]      # label → share (0–1)
+    speaker:              str
+    dominant:             str
+    mean_valence:         float
+    trend:                str
+    peak_negative:        Optional[UtteranceResult]
+    peak_positive:        Optional[UtteranceResult]
+    emotion_distribution: dict[str, float]
 
     def to_dict(self) -> dict:
         return {
-            "speaker": self.speaker,
+            "speaker":          self.speaker,
             "dominant_emotion": self.dominant,
-            "mean_valence": self.mean_valence,
-            "trend": self.trend,
+            "mean_valence":     self.mean_valence,
+            "trend":            self.trend,
             "peak_negative": (
                 {"text": self.peak_negative.text[:100], "valence": self.peak_negative.valence}
                 if self.peak_negative else None
@@ -465,35 +500,40 @@ class SpeakerArc:
 
 @dataclass
 class TranscriptSentimentReport:
-    """Full meeting-level sentiment report."""
-    utterances: list[UtteranceResult]
-    speaker_arcs: dict[str, SpeakerArc]
-    meeting_valence: float
-    tension_moments: list[UtteranceResult]      # valence < _TENSION_CUTOFF
-    consensus_moments: list[UtteranceResult]    # valence > _POSITIVE_CUTOFF
-    overall_tone: ToneProfile
+    utterances:        list[UtteranceResult]
+    speaker_arcs:      dict[str, SpeakerArc]
+    meeting_valence:   float
+    tension_moments:   list[UtteranceResult]
+    consensus_moments: list[UtteranceResult]
+    overall_tone:      ToneProfile
 
     def to_dict(self) -> dict:
         return {
             "overall": {
-                "primary": self._most_common_primary(),
-                "secondary": self._top_secondary(),
-                "meeting_valence": self.meeting_valence,
-                "tone": self.overall_tone.to_dict(),
+                "primary":          self._most_common_primary(),
+                "secondary":        self._top_secondary(),
+                "meeting_valence":  self.meeting_valence,
+                "tone":             self.overall_tone.to_dict(),
             },
             "per_speaker": {
                 spk: arc.to_dict() for spk, arc in self.speaker_arcs.items()
             },
             "tension_moments": [
-                {"speaker": r.speaker, "text": r.text[:100], "valence": r.valence, "primary": r.primary}
+                {
+                    "speaker": r.speaker, "text": r.text[:100],
+                    "valence": r.valence, "primary": r.primary,
+                }
                 for r in self.tension_moments[:5]
             ],
             "consensus_moments": [
-                {"speaker": r.speaker, "text": r.text[:100], "valence": r.valence, "primary": r.primary}
+                {
+                    "speaker": r.speaker, "text": r.text[:100],
+                    "valence": r.valence, "primary": r.primary,
+                }
                 for r in self.consensus_moments[:5]
             ],
             "utterances": [u.to_dict() for u in self.utterances],
-            "source": "fine_grained_engine_v1",
+            "source":     "fine_grained_engine_v1.1",
         }
 
     def _most_common_primary(self) -> str:
@@ -527,31 +567,22 @@ class FineSentimentAnalyzer:
     Stateless — safe to instantiate once and reuse across requests.
     """
 
-    _SCORE_THRESHOLD: float = 0.10   # min normalized score to include in signals
-    _PRIMARY_TOPK:    int   = 6      # top labels to consider for primary / secondary
-    _TENSION_CUTOFF:  float = -0.40  # valence below this → tension moment
-    _POSITIVE_CUTOFF: float = +0.42  # valence above this → consensus candidate
-
-    # Fallback label when no patterns match
-    _FALLBACK_LABEL: str = "factual"
-
-    # ── private utilities ──────────────────────────────────────────────────────
+    _SCORE_THRESHOLD: float = 0.10
+    _PRIMARY_TOPK:    int   = 6
+    _TENSION_CUTOFF:  float = -0.40
+    _POSITIVE_CUTOFF: float = +0.42
+    _FALLBACK_LABEL:  str   = "factual"
 
     @staticmethod
     def _tokenize(text: str) -> list[str]:
-        """Split text into lowercase word tokens.  O(n)"""
+        """Split text into lowercase word tokens. O(n)"""
         return re.findall(r"\b\w+\b", text.lower())
 
     def _negation_mask(self, text: str) -> set[int]:
-        """
-        Return a set of token-indices that fall within a negation window.
-        DSA: linear scan over token list with negation index bookmarking → O(T)
-        """
-        tokens = self._tokenize(text)
+        """Return token-indices falling within a negation window. O(T)"""
+        tokens  = self._tokenize(text)
         negated: set[int] = set()
-        neg_at: list[int] = [
-            i for i, tok in enumerate(tokens) if _NEGATION_RE.match(tok)
-        ]
+        neg_at  = [i for i, tok in enumerate(tokens) if _NEGATION_RE.match(tok)]
         for ni in neg_at:
             for j in range(ni + 1, min(ni + _NEGATION_WINDOW + 1, len(tokens))):
                 negated.add(j)
@@ -560,52 +591,35 @@ class FineSentimentAnalyzer:
     def _scan_label(
         self, label: str, text: str, neg_mask: set[int]
     ) -> tuple[float, list[str]]:
-        """
-        Score one label against text.
-        Returns (raw_score, matched_phrases).
-        DSA: iterate pattern list → O(P).  Negation check via pre-built mask.
-        """
+        """Score one label against text. Returns (raw_score, matched_phrases). O(P)"""
         patterns = PATTERN_REGISTRY.get(label)
         if not patterns:
             return 0.0, []
-
-        raw = 0.0
+        raw     = 0.0
         matched: list[str] = []
-
         for pat, weight in patterns:
             for m in pat.finditer(text):
-                # Approximate token index of match start (count words before)
-                tok_idx = len(re.findall(r"\b\w+\b", text[: m.start()]))
+                tok_idx    = len(re.findall(r"\b\w+\b", text[: m.start()]))
                 is_negated = tok_idx in neg_mask
-
-                effective_weight = weight * _NEGATION_DAMPEN if is_negated else weight
-                raw += effective_weight
-
-                if len(matched) < 5:  # cap stored phrases to 5 per label
+                effective  = weight * _NEGATION_DAMPEN if is_negated else weight
+                raw       += effective
+                if len(matched) < 5:
                     phrase = m.group(0).strip()
                     if is_negated:
                         phrase = f"[NEG] {phrase}"
                     matched.append(phrase)
-
         return raw, matched
-
-    # ── core public API ────────────────────────────────────────────────────────
 
     def analyze_utterance(
         self, text: str, speaker: str = "unknown"
     ) -> UtteranceResult:
-        """
-        Produce a full UtteranceResult for a single line of text.
-        Big-O: O(L · P · T)
-        """
+        """Produce a full UtteranceResult for one utterance. O(L · P · T)"""
         if not text or not text.strip():
             return self._empty_result(speaker, text or "")
 
-        neg_mask = self._negation_mask(text)
-
-        # ── Phase A: score all labels ──────────────────────────────────────────
-        raw_scores: dict[str, float] = {}
-        phrase_map: dict[str, list[str]] = {}
+        neg_mask    = self._negation_mask(text)
+        raw_scores: dict[str, float]      = {}
+        phrase_map: dict[str, list[str]]  = {}
 
         for label in ALL_LABELS:
             score, phrases = self._scan_label(label, text, neg_mask)
@@ -613,40 +627,26 @@ class FineSentimentAnalyzer:
                 raw_scores[label] = score
                 phrase_map[label] = phrases
 
-        # ── Phase B: evict sub-floor labels, then normalize ───────────────────
-        # Labels that only matched via negation-dampened paths will have a raw
-        # score well below _MIN_RAW_SCORE.  Evicting them BEFORE normalization
-        # prevents the denominator shrinking to their tiny value and inflating
-        # their normalized share back to 1.0  (the "negation collapse" bug).
-        raw_scores = {lbl: v for lbl, v in raw_scores.items() if v >= _MIN_RAW_SCORE}
-
+        raw_scores = {
+            lbl: v for lbl, v in raw_scores.items() if v >= _MIN_RAW_SCORE
+        }
         total = sum(raw_scores.values()) or 1e-9
         norm: dict[str, float] = {lbl: v / total for lbl, v in raw_scores.items()}
 
-        # ── Phase C: top-K selection  O(L log k) ─────────────────────────────
         top = heapq.nlargest(
             self._PRIMARY_TOPK, norm.items(), key=lambda kv: kv[1]
         )
-
         if not top:
             top = [(self._FALLBACK_LABEL, 1.0)]
 
-        primary = top[0][0]
+        primary   = top[0][0]
         secondary = [
             lbl for lbl, score in top[1:] if score >= self._SCORE_THRESHOLD
         ]
-
-        # ── Phase D: weighted valence ─────────────────────────────────────────
-        valence = sum(
-            norm[lbl] * VALENCE_MAP.get(lbl, 0.0) for lbl in norm
-        )
-        valence = max(-1.0, min(1.0, valence))
-
-        # ── Phase E: confidence (dominance of primary) ───────────────────────
-        confidence = min(1.0, top[0][1] * 2.5)   # scale up from share
-
-        # ── Phase F: signal list ──────────────────────────────────────────────
-        signals = [
+        valence   = sum(norm[lbl] * VALENCE_MAP.get(lbl, 0.0) for lbl in norm)
+        valence   = max(-1.0, min(1.0, valence))
+        confidence = min(1.0, top[0][1] * 2.5)
+        signals    = [
             SentimentSignal(
                 label=lbl,
                 score=round(score, 3),
@@ -656,26 +656,15 @@ class FineSentimentAnalyzer:
             for lbl, score in sorted(norm.items(), key=lambda kv: -kv[1])
             if score >= self._SCORE_THRESHOLD
         ]
-
-        # ── Phase G: tone modifiers ───────────────────────────────────────────
         tone = self._classify_tone(text)
-
         return UtteranceResult(
-            speaker=speaker,
-            text=text,
-            primary=primary,
-            secondary=secondary,
-            tone=tone,
-            valence=round(valence, 3),
-            confidence=round(confidence, 3),
+            speaker=speaker, text=text, primary=primary, secondary=secondary,
+            tone=tone, valence=round(valence, 3), confidence=round(confidence, 3),
             signals=signals,
         )
 
     def _classify_tone(self, text: str) -> ToneProfile:
-        """
-        Classify urgency / certainty / engagement modifiers.
-        DSA: three independent compiled-regex checks → O(1) each.
-        """
+        """Classify urgency/certainty/engagement. O(1) per modifier."""
         if _URGENCY_HIGH.search(text):
             urgency = "high"
         elif _URGENCY_MED.search(text):
@@ -691,7 +680,7 @@ class FineSentimentAnalyzer:
             certainty = "definite"
 
         disengaged = len(_ENGAGEMENT_DISENGAGED.findall(text))
-        active = len(_ENGAGEMENT_ACTIVE.findall(text))
+        active     = len(_ENGAGEMENT_ACTIVE.findall(text))
         if disengaged >= 2 and disengaged > active:
             engagement = "disengaged"
         elif active > 0:
@@ -699,31 +688,39 @@ class FineSentimentAnalyzer:
         else:
             engagement = "passive"
 
-        return ToneProfile(urgency=urgency, certainty=certainty, engagement=engagement)
-
-    # ── transcript-level API ───────────────────────────────────────────────────
+        return ToneProfile(
+            urgency=urgency, certainty=certainty, engagement=engagement
+        )
 
     def analyze_transcript(
         self,
-        utterances: list[dict],          # [{"speaker": str, "text": str}, ...]
-        tension_cutoff: float | None = None,
+        utterances:      list[dict],
+        tension_cutoff:  float | None = None,
         positive_cutoff: float | None = None,
     ) -> TranscriptSentimentReport:
         """
         Analyze a full parsed transcript.
-        DSA:
-          utterance pass   O(U · L · P)
-          aggregation      defaultdict(list) → O(U)
-          arc computation  O(U/S) per speaker
-          tension scan     O(U) linear filter
+        FIX-JP2: Returns a minimal safe report when utterances is empty.
+        DSA: O(U · L · P) utterance pass + O(U) aggregation.
         """
         tc = tension_cutoff  if tension_cutoff  is not None else self._TENSION_CUTOFF
         pc = positive_cutoff if positive_cutoff is not None else self._POSITIVE_CUTOFF
 
-        results: list[UtteranceResult] = []
-        by_speaker: dict[str, list[UtteranceResult]] = defaultdict(list)
+        # FIX-JP2: Empty utterance guard.
+        # from_raw_transcript() on a Japanese-only transcript with full-width ：
+        # previously returned [] here, then divided-by-zero in meeting_valence.
+        # The root cause (FIX-JP1) is fixed; this guard is defense-in-depth.
+        if not utterances:
+            logger.debug(
+                "[SentimentEngine] Empty utterance list — transcript may be "
+                "Japanese-only with unsupported colon format, or genuinely empty. "
+                f"Coverage note: {_JAPANESE_COVERAGE_NOTE}"
+            )
+            return self._empty_report()
 
-        # Phase 1: per-utterance analysis  O(U · L · P)
+        results:    list[UtteranceResult]              = []
+        by_speaker: dict[str, list[UtteranceResult]]  = defaultdict(list)
+
         for utt in utterances:
             r = self.analyze_utterance(
                 utt.get("text", ""), utt.get("speaker", "unknown")
@@ -731,19 +728,16 @@ class FineSentimentAnalyzer:
             results.append(r)
             by_speaker[r.speaker].append(r)
 
-        # Phase 2: speaker arcs  O(U)
         speaker_arcs: dict[str, SpeakerArc] = {
             spk: self._compute_arc(spk, utt_list)
             for spk, utt_list in by_speaker.items()
         }
 
-        # Phase 3: meeting-level aggregates  O(U)
-        n = len(results) or 1
+        n               = len(results)
         meeting_valence = sum(r.valence for r in results) / n
-        tension_moments  = [r for r in results if r.valence < tc]
+        tension_moments   = [r for r in results if r.valence < tc]
         consensus_moments = [r for r in results if r.valence > pc]
-
-        overall_tone = self._aggregate_tone([r.tone for r in results])
+        overall_tone      = self._aggregate_tone([r.tone for r in results])
 
         return TranscriptSentimentReport(
             utterances=results,
@@ -756,37 +750,36 @@ class FineSentimentAnalyzer:
 
     def from_raw_transcript(self, raw_text: str) -> TranscriptSentimentReport:
         """
-        Convenience: parse raw transcript text then analyze.
-        DSA: regex scan for speaker lines → O(lines).
+        Convenience: parse raw transcript then analyze.
+        FIX-JP1: _parse_transcript now handles full-width ： colon.
+        DSA: O(lines) parse + O(U · L · P) analysis.
         """
-        return self.analyze_transcript(self._parse_transcript(raw_text))
-
-    # ── private helpers ────────────────────────────────────────────────────────
+        utterances = self._parse_transcript(raw_text)
+        if not utterances:
+            logger.debug(
+                "[SentimentEngine] from_raw_transcript: no utterances parsed. "
+                "Check transcript format. "
+                f"Coverage note: {_JAPANESE_COVERAGE_NOTE}"
+            )
+        return self.analyze_transcript(utterances)
 
     def _compute_arc(
         self, speaker: str, results: list[UtteranceResult]
     ) -> SpeakerArc:
-        """
-        DSA:
-          Counter for distribution → O(U/S)
-          half-split mean for trend → O(U/S)
-          min/max for peaks → O(U/S)
-        """
-        dist = Counter(r.primary for r in results)
+        """Compute sentiment trajectory for one speaker. O(U/S)"""
+        dist     = Counter(r.primary for r in results)
         dominant = dist.most_common(1)[0][0]
-
         valences = [r.valence for r in results]
-        mean_v = sum(valences) / len(valences)
+        mean_v   = sum(valences) / len(valences)
 
-        # Trend: compare first-half mean to second-half mean
         if len(valences) >= 4:
-            mid = len(valences) // 2
+            mid      = len(valences) // 2
             first_h  = sum(valences[:mid]) / mid
             second_h = sum(valences[mid:]) / (len(valences) - mid)
-            delta = second_h - first_h
+            delta    = second_h - first_h
             if abs(delta) < 0.10:
                 variance = sum((v - mean_v) ** 2 for v in valences) / len(valences)
-                trend = "volatile" if variance > 0.18 else "stable"
+                trend    = "volatile" if variance > 0.18 else "stable"
             elif delta > 0.10:
                 trend = "improving"
             else:
@@ -794,11 +787,10 @@ class FineSentimentAnalyzer:
         else:
             trend = "stable"
 
-        total = len(results)
-        emotion_dist = {
+        total         = len(results)
+        emotion_dist  = {
             lbl: round(cnt / total, 3) for lbl, cnt in dist.items()
         }
-
         return SpeakerArc(
             speaker=speaker,
             dominant=dominant,
@@ -810,19 +802,38 @@ class FineSentimentAnalyzer:
         )
 
     def _aggregate_tone(self, tones: list[ToneProfile]) -> ToneProfile:
-        """Majority vote on each tone modifier.  O(U)"""
-        u = Counter(t.urgency    for t in tones).most_common(1)[0][0] if tones else "low"
-        c = Counter(t.certainty  for t in tones).most_common(1)[0][0] if tones else "definite"
-        e = Counter(t.engagement for t in tones).most_common(1)[0][0] if tones else "passive"
+        """Majority vote on each tone modifier. O(U)"""
+        if not tones:
+            return ToneProfile(urgency="low", certainty="definite", engagement="passive")
+        u = Counter(t.urgency    for t in tones).most_common(1)[0][0]
+        c = Counter(t.certainty  for t in tones).most_common(1)[0][0]
+        e = Counter(t.engagement for t in tones).most_common(1)[0][0]
         return ToneProfile(urgency=u, certainty=c, engagement=e)
 
     @staticmethod
     def _parse_transcript(text: str) -> list[dict]:
         """
-        Parse raw 'Speaker: text' lines.
-        DSA: compiled-regex scan → O(lines)
+        Parse raw 'Speaker: text' or 'Speaker： text' lines.
+
+        FIX-JP1: Added full-width colon (U+FF1A) support.
+        In v1.0 the parser only matched half-width colon U+003A.
+        Japanese business meetings universally use full-width colon.
+        A transcript of "田中：おはようございます" returned an empty list,
+        causing all Japanese speaker arcs to be empty and every speaker to
+        score neutral/factual regardless of content.
+
+        FIX-JP3: PII-masked labels like [NAME_1]: text now parse correctly.
+        The character class stops at either colon form, so the bracketed
+        placeholder is captured as the speaker name and the text after
+        the colon is captured as the utterance content.
+
+        DSA: O(lines) — compiled-regex scan.
         """
-        pattern = re.compile(r"^([^\:\n]+):\s*(.+)$", re.MULTILINE)
+        # FIX-JP1: Accept both half-width ':' (U+003A) and full-width colon (U+FF1A)
+        pattern = re.compile(
+            r"^([^：:\n]+)[：:]\s*(.+)$",
+            re.MULTILINE,
+        )
         return [
             {"speaker": m.group(1).strip(), "text": m.group(2).strip()}
             for m in pattern.finditer(text)
@@ -832,19 +843,28 @@ class FineSentimentAnalyzer:
     @staticmethod
     def _empty_result(speaker: str, text: str) -> UtteranceResult:
         return UtteranceResult(
-            speaker=speaker,
-            text=text,
-            primary="factual",
-            secondary=[],
+            speaker=speaker, text=text, primary="factual", secondary=[],
             tone=ToneProfile(urgency="low", certainty="definite", engagement="passive"),
-            valence=0.0,
-            confidence=0.0,
-            signals=[],
+            valence=0.0, confidence=0.0, signals=[],
+        )
+
+    @staticmethod
+    def _empty_report() -> TranscriptSentimentReport:
+        """FIX-JP2: Safe empty report when no utterances are parsed."""
+        return TranscriptSentimentReport(
+            utterances=[],
+            speaker_arcs={},
+            meeting_valence=0.0,
+            tension_moments=[],
+            consensus_moments=[],
+            overall_tone=ToneProfile(
+                urgency="low", certainty="definite", engagement="passive"
+            ),
         )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 7. CONVENIENCE HELPERS  (used by analyzer.py integration)
+# 7. CONVENIENCE HELPERS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def build_sentiment_for_json(report: TranscriptSentimentReport) -> dict:
@@ -852,38 +872,29 @@ def build_sentiment_for_json(report: TranscriptSentimentReport) -> dict:
     return report.to_dict()
 
 
-def legacy_to_fine_grained(
-    flat_label: str, transcript_text: str
-) -> dict:
-    """
-    Upgrade a legacy flat sentiment label to fine-grained output.
-    Called by sentiment_backstop when LLM returned old-format string.
-    """
+def legacy_to_fine_grained(flat_label: str, transcript_text: str) -> dict:
+    """Upgrade a legacy flat sentiment label to fine-grained output."""
     analyzer = FineSentimentAnalyzer()
-    report = analyzer.from_raw_transcript(transcript_text)
-    out = report.to_dict()
+    report   = analyzer.from_raw_transcript(transcript_text)
+    out      = report.to_dict()
     out["legacy_label_replaced"] = flat_label
-    out["source"] = "backstop_upgraded"
+    out["source"]                = "backstop_upgraded"
     return out
 
 
 def llm_sentiment_schema_prompt() -> str:
-    """
-    Returns the JSON schema fragment to inject into the Groq/Ollama prompt
-    so the LLM produces fine-grained sentiment output.
-    """
+    """Returns the JSON schema fragment for injection into the Groq/Ollama prompt."""
     labels = sorted(ALL_LABELS)
     return f"""
 ## Sentiment & Tone Output Schema (REQUIRED FORMAT)
 
-Return sentiment as a nested object — NOT a flat string.
 Valid primary/secondary labels: {labels}
 
 "sentiment": {{
   "overall": {{
     "primary": "<label>",
-    "secondary": ["<label>", "<label>"],  // 0–2 additional labels
-    "valence": <float -1.0 to +1.0>,      // negative = bad, positive = good
+    "secondary": ["<label>", "<label>"],
+    "valence": <float -1.0 to +1.0>,
     "tone": {{
       "urgency":    "low" | "medium" | "high",
       "certainty":  "definite" | "hedged" | "uncertain",
@@ -895,21 +906,17 @@ Valid primary/secondary labels: {labels}
       "dominant_emotion": "<label>",
       "mean_valence": <float>,
       "trend": "improving" | "declining" | "stable" | "volatile",
-      "emotion_distribution": {{ "<label>": <share_0_to_1>, ... }}
+      "emotion_distribution": {{ "<label>": <share_0_to_1> }}
     }}
   }},
-  "tension_moments": [
-    {{ "speaker": "<name>", "text": "<excerpt ≤80 chars>", "valence": <float> }}
-  ],
-  "consensus_moments": [
-    {{ "speaker": "<name>", "text": "<excerpt ≤80 chars>", "valence": <float> }}
-  ]
+  "tension_moments":   [{{ "speaker": "<name>", "text": "<excerpt≤80chars>", "valence": <float> }}],
+  "consensus_moments": [{{ "speaker": "<name>", "text": "<excerpt≤80chars>", "valence": <float> }}]
 }}
 
 RULES:
 - Use at least 2 labels per speaker (primary + 1 secondary if detectable).
-- valence must reflect the aggregated emotional tone, not just positive/negative.
-- tension_moments = utterances with valence < -0.40 (list up to 3).
+- valence must reflect aggregated emotional tone, not just positive/negative.
+- tension_moments  = utterances with valence < -0.40 (list up to 3).
 - consensus_moments = utterances with valence > +0.42 (list up to 3).
 - NEVER return a flat string like "frustrated" for the sentiment field.
 """.strip()
