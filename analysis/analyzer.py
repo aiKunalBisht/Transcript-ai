@@ -1,6 +1,18 @@
-# analysis/analyzer.py — v9.1
+# analysis/analyzer.py — v9.2
 # ──────────────────────────────────────────────────────────────────────────────
-# v9.1 changes (this version):
+# v9.2 changes (this version):
+#   [HIGH] FIX-TR: build_prompt() truncation bug.
+#          detect_speakers() was called inside build_prompt() on the already-
+#          truncated text_for_llm. The module docstring requires the full
+#          non-truncated transcript; speakers appearing only in the middle
+#          section of long meetings were silently missed.
+#          Fix: build_prompt() now accepts an optional speakers_hint param.
+#          Stage 3 in analyze_transcript() pre-extracts speakers from the
+#          full masked_text before truncation, then passes the hint in.
+#          detect_speakers() inside build_prompt() only runs as a fallback
+#          when no hint is provided (e.g. direct callers).
+#
+# v9.1 changes (retained):
 #   [HIGH] WIRE-1: normalize_analysis() now called after _parse(raw).
 #          Function existed in analysis_prompt.py since v8.4 but was never
 #          invoked. Tone sync (tone_primary → tone) and score/valence
@@ -455,15 +467,30 @@ def _recompute_talk_time_pct(
 # SECTION 5 — Prompt builder
 # ══════════════════════════════════════════════════════════════════════════════
 
-def build_prompt(text: str, language: str) -> tuple[str, str]:
+def build_prompt(
+    text: str,
+    language: str,
+    speakers_hint: str | None = None,
+) -> tuple[str, str]:
+    """
+    Build system + user prompts for this analysis call.
+
+    FIX-TR: accepts optional speakers_hint pre-computed from the full
+    (non-truncated) transcript. When provided, skips internal
+    detect_speakers() call so truncation never causes speaker loss.
+    When omitted (direct callers), falls back to detecting on `text`.
+    """
     has_japanese = bool(re.search(r"[\u3040-\u9fff\u4e00-\u9fff]", text))
     has_hinglish = _detect_hinglish(text)
-    try:
-        from utils.speaker_detector import detect_speakers as _ds
-        _sr           = _ds(text)
-        speakers_hint = ", ".join(_sr["names"][:12]) if _sr["names"] else "Not detected"
-    except ImportError:
-        speakers_hint = _extract_speaker_hint(text)
+    if speakers_hint is None:
+        # Fallback path: called without pre-computed hint (e.g. direct callers).
+        # In analyze_transcript(), speakers_hint is always passed in — FIX-TR.
+        try:
+            from utils.speaker_detector import detect_speakers as _ds
+            _sr           = _ds(text)
+            speakers_hint = ", ".join(_sr["names"][:12]) if _sr["names"] else "Not detected"
+        except ImportError:
+            speakers_hint = _extract_speaker_hint(text)
     is_degenerate = _is_degenerate_transcript(text, speakers_hint)
     include_japan = has_japanese or language in ("ja", "mixed")
     system_prompt = build_system_prompt(
@@ -1961,9 +1988,25 @@ async def analyze_transcript(
         logger.error(f"[TRANSCRIPT_AI] MD5 cache read failed: {e}")
         get_cached = set_cache = None
 
-    # ── Stage 3: truncate + prompt
+    # ── Stage 3: speaker detection on FULL text, then truncate for LLM.
+    # FIX-TR: detect_speakers() requires the full non-truncated transcript.
+    # Previously build_prompt() called it internally on text_for_llm (already
+    # truncated), so speakers appearing only in the middle of long meetings
+    # were silently dropped from the prompt context.
+    # Fix: extract here on masked_text (full), pass hint into build_prompt().
+    try:
+        from utils.speaker_detector import detect_speakers as _ds_full
+        _full_sr       = _ds_full(masked_text)
+        _speakers_hint = (
+            ", ".join(_full_sr["names"][:12]) if _full_sr["names"] else "Not detected"
+        )
+    except ImportError:
+        _speakers_hint = _extract_speaker_hint(masked_text)
+
     text_for_llm               = _truncate_transcript(masked_text)
-    system_prompt, user_prompt = build_prompt(text_for_llm, language)
+    system_prompt, user_prompt = build_prompt(
+        text_for_llm, language, speakers_hint=_speakers_hint   # FIX-TR
+    )
 
     words          = len(text_for_llm.split())
     selected_model = _select_model(

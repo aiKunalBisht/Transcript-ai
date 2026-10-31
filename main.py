@@ -1,33 +1,63 @@
-# main.py — TranscriptAI v3.6
+# main.py — TranscriptAI v3.8
 # FastAPI server. Run: uvicorn main:app --reload --port 7860
 #
-# REQUIRES: api/async_processor.py v2.1 (user_id + requesting_user params).
+# v3.7 fixes over v3.6:
 #
-# v3.6 security patches over v3.5:
+#   FIX-E — Logging never initialised.
+#     Every logger.info/warning/error call throughout the codebase produced
+#     nothing in production because no handler was ever registered. Replaced
+#     print(stderr) with logger calls in v9.0 but forgot to configure the
+#     logging system. _configure_logging() called at module startup now:
+#       - StreamHandler to stdout with timestamp + level + name + message
+#       - INFO in production, DEBUG in development/local environments
+#       - Noisy third-party loggers (chromadb, httpx, mlflow) quieted to WARNING
+#       - force=True ensures configuration even when uvicorn pre-configures root
 #
-#   SEC-1 — _last_result_cache no longer keyed by client IP for anonymous users.
-#     In v3.5, unauthenticated requests fell back to getattr(request.client,
-#     "host", "anon") as the cache key. Multiple users behind the same NAT
-#     (office, university, shared Wi-Fi) share one IP, so User B could call
-#     /api/last-result and receive User A's full meeting analysis — PII
-#     included. Fix: cache writes only happen for authenticated users.
-#     Anonymous users still get the result embedded in the HTML response via
-#     the <script id="tai-result-data"> tag, so export still works for them.
+#   FIX-A — asyncio.to_thread(analyze_transcript, ...) replaced with
+#     await analyze_transcript(...) in /analyze-text and /evaluate/run.
+#     analyze_transcript() is now async def (analyzer.py v9.0). Passing an
+#     async def to asyncio.to_thread does not await it — it returns a coroutine
+#     object. The first dict access on the "result" then raises:
+#       TypeError: 'coroutine' object is not subscriptable
+#     Both /analyze-text and /evaluate/run were completely broken with v3.6
+#     against analyzer.py v9.0. Direct await is the correct call pattern.
 #
-#   SEC-2 — /api/last-result now requires authentication.
-#     Previously no auth check — any caller could hit the endpoint.
-#     Now returns 401 for unauthenticated requests.
+#   FIX-B — Rate limiter key function replaced with _get_real_ip().
+#     get_remote_address() returns the proxy IP on Hugging Face Spaces, not the
+#     client IP. Every request from every user appears to come from the same
+#     address. The 3/minute limit therefore applied globally: the third request
+#     from any user triggered 429 for all users for a full minute.
+#     _get_real_ip() reads X-Forwarded-For first, falling back to the socket IP.
+#     The first entry in X-Forwarded-For is the original client, which is correct
+#     for single-proxy deployments (HF Spaces). For multi-hop proxies, adjust
+#     the index.
 #
-# v3.5 fixes retained unchanged:
+#   FIX-C — export_pptx no longer imports _get_groq_key from analyzer.py.
+#     Importing a private function from another module as a production dependency
+#     fails silently at runtime if the function is renamed or refactored.
+#     The API key is read directly from the environment, which is the canonical
+#     source and does not couple this route to analyzer internals.
+#
+#   FIX-D — _last_result_cache documented and guarded for single-worker use.
+#     The cache is an in-memory dict. With multiple gunicorn workers each worker
+#     holds its own dict: a user whose analysis ran on worker 2 calls
+#     /api/last-result and hits worker 3, receiving 404. A startup guard now
+#     logs a warning when WORKERS > 1 so the problem is visible in logs.
+#     Production fix: replace with Redis (see comment at _last_result_cache).
+#
+# v3.6 fixes retained unchanged:
+#   SEC-1 — cache keyed by user_id only (no IP fallback for anonymous).
+#   SEC-2 — /api/last-result requires authentication.
 #   FIX 3 — _setup_auth safe when SESSION_SECRET missing + AUTH_ENABLED=0.
 #   FIX 4 — evaluate_run no longer passes bypass_cache=True.
 #   FIX 7 — _err() HTML-escapes exception messages (XSS fix).
 #   FIX 9 — robots_txt wraps open() in try/except.
 
 import asyncio
-import html as _html        # FIX 7: for _err() escaping
+import html as _html
 import io
 import json as _json
+import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -42,10 +72,75 @@ from fastapi.templating import Jinja2Templates
 from dotenv import load_dotenv
 load_dotenv()
 
+
+def _configure_logging() -> None:
+    """
+    FIX-E: Initialise the logging system at startup.
+
+    Previously every logger.info/warning/error call in the entire codebase
+    (analyzer.py, main.py, pii_masker.py, sentiment_engine.py) produced
+    nothing because no handler was ever registered. basicConfig() was never
+    called, so the root logger had no handlers, and all records were silently
+    discarded.
+
+    Called at module level so it fires before any import-time logger calls.
+    force=True overrides any partial configuration uvicorn may have applied.
+    """
+    _env       = os.getenv("ENVIRONMENT", "production").lower()
+    _log_level = (
+        logging.DEBUG if _env in ("development", "local", "dev")
+        else logging.INFO
+    )
+    logging.basicConfig(
+        level   = _log_level,
+        format  = "%(asctime)s | %(levelname)-8s | %(name)-35s | %(message)s",
+        datefmt = "%Y-%m-%d %H:%M:%S",
+        stream  = __import__("sys").stdout,
+        force   = True,   # override any pre-existing root handler config
+    )
+    # Quiet noisy third-party loggers that spam at INFO/DEBUG
+    for _noisy in (
+        "uvicorn.access",
+        "httpx", "httpcore",
+        "chromadb", "chromadb.telemetry",
+        "mlflow", "mlflow.tracking",
+        "urllib3", "asyncio",
+    ):
+        logging.getLogger(_noisy).setLevel(logging.WARNING)
+
+
+_configure_logging()   # FIX-E: must run before any module-level logger calls
+
+logger = logging.getLogger("transcriptai.main")
+
 # ── Rate limiting ──────────────────────────────────────────────────────────────
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+
+
+# FIX-B: Proper client IP resolution for reverse-proxy deployments.
+# On Hugging Face Spaces (and most PaaS platforms), requests arrive through a
+# reverse proxy. get_remote_address() returns the proxy's IP, not the client's.
+# X-Forwarded-For contains a comma-separated list; the first entry is the
+# original client IP added by the outermost proxy.
+# For multi-hop proxy chains where you control only the innermost hop, use
+# index -1 (last entry you can trust). For HF Spaces single-proxy, index 0
+# is correct.
+def _get_real_ip(request: Request) -> str:
+    """
+    FIX-B: Return the real client IP, respecting X-Forwarded-For.
+    Falls back to socket address when the header is absent (direct connections,
+    local dev). DSA: O(1) header lookup + O(k) split where k = proxy hops.
+    """
+    forwarded_for = request.headers.get("X-Forwarded-For", "").strip()
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    cf_ip = request.headers.get("CF-Connecting-IP", "").strip()
+    if cf_ip:
+        return cf_ip
+    return get_remote_address(request)
+
 
 # ── Optional Google OAuth ──────────────────────────────────────────────────────
 AUTH_ENABLED    = os.getenv("AUTH_ENABLED", "0") == "1"
@@ -56,8 +151,10 @@ try:
     _AUTH_AVAILABLE = True
 except ImportError:
     if AUTH_ENABLED:
-        print("[TRANSCRIPT_AI] authlib not installed — Google auth disabled. "
-              "pip install authlib itsdangerous", flush=True)
+        logger.warning(
+            "[TRANSCRIPT_AI] authlib not installed — Google auth disabled. "
+            "pip install authlib itsdangerous"
+        )
     AUTH_ENABLED = False
 
 
@@ -65,21 +162,20 @@ def _setup_auth(app):
     secret = os.getenv("SESSION_SECRET")
     if not secret:
         if AUTH_ENABLED:
-            # FIX 3: only crash when auth is actually required
             raise RuntimeError(
                 "SESSION_SECRET env variable is not set. "
                 "Add it to your HF Space secrets (Settings → Variables and secrets). "
                 "Use any random string of 32+ characters."
             )
-        # FIX 3: AUTH_ENABLED=0 → sessions not needed.
         return None
 
     try:
         from starlette.middleware.sessions import SessionMiddleware
-        app.add_middleware(SessionMiddleware, secret_key=secret,
-                           max_age=60 * 60 * 24 * 30)
+        app.add_middleware(
+            SessionMiddleware, secret_key=secret, max_age=60 * 60 * 24 * 30
+        )
     except Exception as e:
-        print(f"[TRANSCRIPT_AI] SessionMiddleware error: {e}", flush=True)
+        logger.error(f"[TRANSCRIPT_AI] SessionMiddleware error: {e}")
 
     if not AUTH_ENABLED or not _AUTH_AVAILABLE:
         return None
@@ -103,6 +199,8 @@ def get_current_user(request: Request) -> str | None:
         return None
 
 
+# FIX-A: analyze_transcript is now async def (analyzer.py v9.0).
+# Import it directly — it is awaited, never passed to asyncio.to_thread.
 from analysis.analyzer import analyze_transcript
 from utils import detect_language, clean_text, parse_uploaded_file
 from utils.html_renderer import build_results_html
@@ -116,11 +214,12 @@ try:
     _FIREBASE_AVAILABLE = True
 except ImportError:
     _FIREBASE_AVAILABLE = False
-    print("[TRANSCRIPT_AI] firebase_client not found — user storage disabled.", flush=True)
+    logger.warning("[TRANSCRIPT_AI] firebase_client not found — user storage disabled.")
 
 
-async def _upsert_user(user_id: str, email: str, name: str,
-                       password_hash: str = "") -> None:
+async def _upsert_user(
+    user_id: str, email: str, name: str, password_hash: str = ""
+) -> None:
     if _FIREBASE_AVAILABLE:
         await _upsert_user_fb(user_id, email, name, password_hash)
 
@@ -144,7 +243,7 @@ try:
     )
     AUDIO_AVAILABLE = True
 except ImportError:
-    AUDIO_AVAILABLE = False
+    AUDIO_AVAILABLE  = False
     MAX_FILE_SIZE_MB = 25
 
 try:
@@ -199,7 +298,7 @@ try:
     from analysis.hindi_analyzer import detect_hindi_patterns as detect_hindi_nlp
     HINDI_NLP_AVAILABLE = True
 except ImportError:
-    HINDI_NLP_AVAILABLE = False
+    HINDI_NLP_AVAILABLE      = False
     LANGUAGE_INTEL_AVAILABLE = False
 
     def get_features(lang):
@@ -244,7 +343,9 @@ except ImportError:
     EVAL_AVAILABLE   = False
     MLFLOW_AVAILABLE = False
     def _load_scenarios()       -> list: return []
-    def _get_scenario_summary() -> dict: return {"total": 0, "by_lang": {}, "by_outcome": {}, "by_risk": {}}
+    def _get_scenario_summary() -> dict: return {
+        "total": 0, "by_lang": {}, "by_outcome": {}, "by_risk": {}
+    }
 
 # ── RAG evaluation ─────────────────────────────────────────────────────────────
 try:
@@ -257,19 +358,36 @@ AUDIO_EXT = {".mp3", ".wav", ".m4a", ".mp4", ".ogg", ".webm"}
 TEXT_EXT  = {".txt", ".vtt", ".json"}
 
 # ── Server-side last-result cache ──────────────────────────────────────────────
-# Stores the most recent analysis result per authenticated user so the export
-# page can retrieve it via /api/last-result when browser storage is blocked.
-# SEC-FIX v3.6: keyed by user_id only — never by IP address. Anonymous users
-# are not stored here; they rely on the <script id="tai-result-data"> tag
-# embedded directly in the /analyze-text HTML response.
-# Simple dict — fine for single-worker local/HF deployment.
-# For multi-worker: replace with Redis or shared session storage.
+# FIX-D: This is an in-memory dict — it is NOT safe for multi-worker deployments.
+# With gunicorn -w 4, each worker has its own copy. A user whose analysis ran on
+# worker 2 will hit a 404 on /api/last-result if the request goes to worker 3.
+#
+# For single-worker deployments (HF Spaces default, uvicorn without -w):
+# this works correctly.
+#
+# For multi-worker production: replace with Redis.
+#   import redis.asyncio as redis
+#   _redis = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
+#   await _redis.set(f"last_result:{user_id}", json.dumps(result), ex=3600)
+#   raw = await _redis.get(f"last_result:{user_id}")
+#
+# SEC-FIX v3.6: keyed by user_id only — never by IP. Anonymous users rely on
+# the <script id="tai-result-data"> tag embedded in the /analyze-text response.
 _last_result_cache: dict[str, dict] = {}
+
+_WORKER_COUNT = int(os.getenv("WEB_CONCURRENCY", os.getenv("WORKERS", "1")))
 
 
 # ── Lifespan ───────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # FIX-D: Warn at startup when running multi-worker without Redis.
+    if _WORKER_COUNT > 1:
+        logger.warning(
+            f"[TRANSCRIPT_AI] Running with {_WORKER_COUNT} workers and in-memory "
+            f"_last_result_cache. /api/last-result will return 404 for ~{(_WORKER_COUNT-1)/_WORKER_COUNT*100:.0f}% "
+            f"of authenticated export requests. Set REDIS_URL and replace the cache."
+        )
     if ASYNC_PROCESSOR_AVAILABLE:
         from api.async_processor import startup as _async_startup
         _async_startup()
@@ -282,7 +400,7 @@ async def lifespan(app: FastAPI):
 # ── App ────────────────────────────────────────────────────────────────────────
 app = FastAPI(
     title="TranscriptAI",
-    version="3.6",
+    version="3.8",
     docs_url="/docs",
     lifespan=lifespan,
 )
@@ -300,8 +418,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Rate limiter ───────────────────────────────────────────────────────────────
-limiter = Limiter(key_func=get_remote_address)
+# FIX-B: Use _get_real_ip so the rate limiter keys by actual client IP,
+# not the shared HF Spaces / reverse-proxy IP.
+limiter = Limiter(key_func=_get_real_ip)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
@@ -320,6 +439,7 @@ _SPEAKER_PATTERNS = [
     r"^【[\w\s\u3000-\u9fff]{1,40}】\s*[：:]\s*\S",
 ]
 
+
 def _has_speaker_labels(text: str) -> bool:
     lines = [l.strip() for l in text.split("\n") if l.strip()]
     hits  = sum(
@@ -327,6 +447,7 @@ def _has_speaker_labels(text: str) -> bool:
         if any(_re.match(p, line) for p in _SPEAKER_PATTERNS)
     )
     return hits >= 2
+
 
 def _strip_markdown_bold(text: str) -> str:
     cleaned = []
@@ -337,6 +458,7 @@ def _strip_markdown_bold(text: str) -> str:
         stripped = stripped.replace("**", "")
         cleaned.append(stripped)
     return "\n".join(cleaned)
+
 
 def _ensure_speaker_labels(text: str):
     text = _strip_markdown_bold(text)
@@ -424,10 +546,15 @@ async def login_submit(
                 "current_user": None, "mode": "login",
                 "error": "An account with this email already exists. Please sign in.",
             })
-        display_name = name.strip() or clean_email.split("@")[0].replace(".", " ").title()
+        display_name = (
+            name.strip() or
+            clean_email.split("@")[0].replace(".", " ").title()
+        )
         pw_hash = _bcrypt.hashpw(password.encode(), _bcrypt.gensalt()).decode()
-        await _upsert_user(user_id=user_id, email=clean_email,
-                           name=display_name, password_hash=pw_hash)
+        await _upsert_user(
+            user_id=user_id, email=clean_email,
+            name=display_name, password_hash=pw_hash,
+        )
     else:
         if _FIREBASE_AVAILABLE:
             user = await _get_user_by_email(clean_email)
@@ -439,7 +566,8 @@ async def login_submit(
                 })
             stored_hash = user.get("password_hash", "")
             if not stored_hash or not _bcrypt.checkpw(
-                    password.encode(), stored_hash.encode()):
+                password.encode(), stored_hash.encode()
+            ):
                 return templates.TemplateResponse(request, "login.html", {
                     "request": request, "auth_enabled": AUTH_ENABLED,
                     "current_user": None, "mode": mode,
@@ -455,7 +583,7 @@ async def login_submit(
         request.session["email"]   = clean_email
         request.session["name"]    = display_name
     except Exception as exc:
-        print(f"[AUTH] Session write failed: {exc}", flush=True)
+        logger.error(f"[AUTH] Session write failed: {exc}")
 
     return RedirectResponse("/", status_code=303)
 
@@ -485,7 +613,7 @@ async def auth_callback(request: Request):
             name=user_info.get("name", ""),
         )
     except Exception as exc:
-        print(f"[AUTH] callback error: {exc}", flush=True)
+        logger.error(f"[AUTH] callback error: {exc}")
         return RedirectResponse("/?error=1")
     return RedirectResponse("/")
 
@@ -514,15 +642,12 @@ async def auth_me(request: Request):
 
 @app.get("/export", response_class=HTMLResponse)
 async def export_page(request: Request):
-    # Embed the last analysis result directly in the page HTML so the export
-    # page works even when ALL browser storage is blocked (Edge Tracking
-    # Prevention blocks localStorage + sessionStorage on /export).
-    # SEC-FIX v3.6: cache key is user_id only — no IP fallback for anonymous.
-    # Anonymous users still get the embedded <script> tag from /analyze-text.
-    _cache_key   = get_current_user(request)           # None for anonymous
+    _cache_key   = get_current_user(request)
     _last_result = _last_result_cache.get(_cache_key) if _cache_key else None
     _result_json = (
-        _json.dumps(_last_result, ensure_ascii=False).replace("</script>", r"<\/script>")
+        _json.dumps(_last_result, ensure_ascii=False).replace(
+            "</script>", r"<\/script>"
+        )
         if _last_result else "null"
     )
     return templates.TemplateResponse(request, "export.html", {
@@ -556,7 +681,9 @@ async def evaluate_page(request: Request):
 @limiter.limit("3/minute")
 async def evaluate_run(request: Request):
     if not EVAL_AVAILABLE:
-        return HTMLResponse(content=_err("Evaluation module unavailable."), status_code=500)
+        return HTMLResponse(
+            content=_err("Evaluation module unavailable."), status_code=500
+        )
 
     scenarios = _load_scenarios()
     if not scenarios:
@@ -575,12 +702,13 @@ async def evaluate_run(request: Request):
         language   = sc.get("language", "en")
         expected   = sc.get("expected", {})
 
-        # FIX 4: removed bypass_cache=True — not in analyzer.py signature.
-        prediction = await asyncio.to_thread(
-            analyze_transcript, transcript, language,
-            user_id=user_id,
+        # FIX-A: analyze_transcript is async def — await it directly.
+        # asyncio.to_thread would run the coroutine without awaiting it.
+        prediction = await analyze_transcript(
+            transcript, language, user_id=user_id
         )
 
+        # evaluate() and evaluate_rag() remain synchronous — to_thread is correct.
         report = await asyncio.to_thread(
             evaluate, prediction, expected, transcript,
             tc_name=sc["id"],
@@ -615,7 +743,9 @@ async def evaluate_run(request: Request):
     try:
         reports = await asyncio.gather(*[_run_one(sc) for sc in scenarios])
     except Exception as exc:
-        return HTMLResponse(content=_err(f"Evaluation failed: {exc}"), status_code=500)
+        return HTMLResponse(
+            content=_err(f"Evaluation failed: {exc}"), status_code=500
+        )
 
     html = build_evaluation_html(list(reports), MLFLOW_AVAILABLE)
     return HTMLResponse(content=html)
@@ -632,21 +762,17 @@ async def jobs_submit(
     transcript: str           = Form(...),
     language:   Optional[str] = Form(None),
 ):
-    """
-    Submit a transcript for async analysis.
-    Returns job_id immediately — non-blocking.
-    Poll /jobs/{job_id} until status == "done".
-    """
     if not ASYNC_PROCESSOR_AVAILABLE:
         return JSONResponse({"error": "Async processor not available"}, status_code=503)
     if len(transcript.strip()) < 20:
-        return JSONResponse({"error": "Transcript too short (min 20 chars)"}, status_code=400)
+        return JSONResponse(
+            {"error": "Transcript too short (min 20 chars)"}, status_code=400
+        )
 
     cleaned       = clean_text(transcript)
     detected_lang = language or detect_language(cleaned)
     cleaned, _    = _ensure_speaker_labels(cleaned)
-
-    user_id = get_current_user(request)
+    user_id       = get_current_user(request)
 
     try:
         job_id = submit_job(cleaned, detected_lang, user_id=user_id)
@@ -662,10 +788,6 @@ async def jobs_submit(
 
 @app.get("/jobs/{job_id}")
 async def jobs_status(job_id: str, request: Request):
-    """
-    Poll job status and retrieve result when done.
-    Cross-user reads return 404 — job existence is not revealed to other users.
-    """
     if not ASYNC_PROCESSOR_AVAILABLE:
         return JSONResponse({"error": "Async processor not available"}, status_code=503)
 
@@ -685,23 +807,19 @@ async def jobs_status(job_id: str, request: Request):
             result = get_job_result(
                 job_id, timeout_sec=0, requesting_user=user_id
             )
-
             if SOFT_REJECTION_AVAILABLE:
                 result["soft_rejections"] = detect_soft_rejections(
                     result.get("_cleaned_transcript", "")
                 )
-
             detected_lang = result.get("_detected_language", "en")
             features      = get_features(detected_lang)
             pii_report    = result.get("_pii_report")
-
-            html = build_results_html(result, detected_lang, features, pii_report)
+            html          = build_results_html(result, detected_lang, features, pii_report)
             response["result"] = result
             response["html"]   = html
         except Exception as exc:
             response["status"] = "failed"
             response["error"]  = str(exc)
-
     elif status["status"] == "failed":
         response["error"] = status.get("error", "Unknown error")
 
@@ -710,7 +828,6 @@ async def jobs_status(job_id: str, request: Request):
 
 @app.get("/jobs/queue/stats")
 async def jobs_queue_stats():
-    """Returns current job queue statistics."""
     if not ASYNC_PROCESSOR_AVAILABLE:
         return JSONResponse({"error": "Async processor not available"}, status_code=503)
     return JSONResponse(get_queue_stats())
@@ -737,7 +854,10 @@ async def transcribe(request: Request, file: UploadFile = File(...)):
 
     if ext in AUDIO_EXT:
         if not AUDIO_AVAILABLE:
-            return JSONResponse({"success": False, "error": "Audio transcription module unavailable."})
+            return JSONResponse({
+                "success": False,
+                "error":   "Audio transcription module unavailable.",
+            })
         size_mb = len(content) / (1024 * 1024)
         if size_mb > MAX_FILE_SIZE_MB:
             return JSONResponse({
@@ -749,11 +869,14 @@ async def transcribe(request: Request, file: UploadFile = File(...)):
         except Exception as exc:
             return JSONResponse({"success": False, "error": str(exc)})
         if not res.get("success"):
-            return JSONResponse({"success": False, "error": res.get("error", "Transcription failed")})
+            return JSONResponse({
+                "success": False,
+                "error":   res.get("error", "Transcription failed"),
+            })
         seg  = format_transcript_with_timestamps(res.get("segments", []))
         text = seg or res.get("text", "")
         return JSONResponse({
-            "success": True,
+            "success":    True,
             "transcript": text,
             "meta": {
                 "duration": res.get("duration", 0),
@@ -766,8 +889,10 @@ async def transcribe(request: Request, file: UploadFile = File(...)):
         try:
             shim   = _FileShim(filename, content)
             parsed = parse_uploaded_file(shim)
-            return JSONResponse({"success": True, "transcript": parsed,
-                                 "meta": {"chars": len(parsed)}})
+            return JSONResponse({
+                "success": True, "transcript": parsed,
+                "meta": {"chars": len(parsed)},
+            })
         except Exception as exc:
             return JSONResponse({"success": False, "error": str(exc)})
 
@@ -786,14 +911,21 @@ async def analyze_text_route(
     language:   Optional[str] = Form(None),
 ):
     if len(transcript.strip()) < 20:
-        return HTMLResponse(content=_err("Transcript too short (min 20 chars)."), status_code=400)
+        return HTMLResponse(
+            content=_err("Transcript too short (min 20 chars)."), status_code=400
+        )
     try:
         cleaned       = clean_text(transcript)
         detected_lang = language or detect_language(cleaned)
         cleaned, was_unlabeled = _ensure_speaker_labels(cleaned)
 
-        result = await asyncio.to_thread(
-            analyze_transcript, cleaned, detected_lang,
+        # FIX-A: analyze_transcript is now async def (analyzer.py v9.0).
+        # Direct await — do NOT wrap in asyncio.to_thread.
+        # asyncio.to_thread(async_fn, ...) does not await the coroutine;
+        # it returns a coroutine object, making all subsequent dict access fail.
+        result = await analyze_transcript(
+            cleaned,
+            detected_lang,
             user_id=get_current_user(request),
         )
 
@@ -804,30 +936,30 @@ async def analyze_text_route(
         result["_unlabeled_transcript"] = was_unlabeled
         result.setdefault(
             "has_japanese_content",
-            bool(_re.search(r"[\u3040-\u9fff\u4e00-\u9fff]", cleaned))
+            bool(_re.search(r"[\u3040-\u9fff\u4e00-\u9fff]", cleaned)),
         )
 
         features   = get_features(detected_lang)
         pii_report = result.get("_pii_report", None)
 
-        # SEC-FIX v3.6: Only cache for authenticated users.
-        # Anonymous users rely on the <script id="tai-result-data"> tag below.
-        # IP-based keying was removed — multiple users behind the same NAT
-        # (office network, university, shared Wi-Fi) share one IP address,
-        # which meant User B could call /api/last-result and receive User A's
-        # full meeting analysis including PII.
-        _cache_key = get_current_user(request)   # None for anonymous — intentional
+        # SEC-FIX v3.6 (retained): cache only for authenticated users.
+        # FIX-D: in-memory dict is single-worker only — see note at declaration.
+        _cache_key = get_current_user(request)
         if _cache_key:
             _last_result_cache[_cache_key] = result
 
-        html = build_results_html(result, detected_lang, features, pii_report)
-        _rjson = _json.dumps(result, ensure_ascii=False).replace('</script>', r'<\/script>')
-        tag    = f'<script id="tai-result-data" type="application/json">{_rjson}</script>'
+        html   = build_results_html(result, detected_lang, features, pii_report)
+        _rjson = _json.dumps(result, ensure_ascii=False).replace(
+            "</script>", r"<\/script>"
+        )
+        tag = (
+            f'<script id="tai-result-data" type="application/json">'
+            f'{_rjson}</script>'
+        )
         return HTMLResponse(content=html + tag)
 
     except Exception as exc:
-        print(f"[ANALYZE ERROR] {exc}", flush=True)
-        import traceback; traceback.print_exc()
+        logger.error(f"[ANALYZE ERROR] {exc}", exc_info=True)
         return HTMLResponse(content=_err(str(exc)), status_code=500)
 
 
@@ -836,16 +968,8 @@ async def analyze_text_route(
 async def api_last_result(request: Request):
     """
     Returns the most recent analysis result for the authenticated user.
-
-    Used by the export page as a 4th-layer fallback when all browser storage
-    options are blocked (sessionStorage, localStorage, window.name).
-
-    SEC-FIX v3.6: Requires authentication. Anonymous access removed.
-    IP-based keying (the v3.5 fallback) leaked results across NAT boundaries —
-    multiple users behind the same network would share one cache slot.
-    Anonymous users get their result from the <script id="tai-result-data">
-    tag embedded in the /analyze-text response, so this endpoint is only
-    needed for authenticated sessions where the tag is consumed by a redirect.
+    SEC-FIX v3.6: Requires authentication.
+    FIX-D: In-memory — unreliable with multiple workers. See _last_result_cache.
     """
     cache_key = get_current_user(request)
     if not cache_key:
@@ -872,15 +996,28 @@ async def export_pptx(request: Request):
         raise HTTPException(503, "PPTX builder not available")
     body   = await request.json()
     result = body.get("result", body)
-    from analysis.analyzer import _get_groq_key
-    agent = SlideArchitectAgent(groq_api_key=_get_groq_key())
-    plan  = await asyncio.to_thread(
+
+    # FIX-C: Do not import _get_groq_key from analyzer.py.
+    # _get_groq_key is a private function — coupling a route to it makes the
+    # export endpoint break silently if analyzer internals are refactored.
+    # The API key is read directly from the environment, which is the source
+    # of truth for all modules.
+    api_key = (
+        os.getenv("NIM_API_KEY", "").strip()
+        or os.getenv("GROQ_API_KEY", "").strip()
+        or os.getenv("GROQ_API_KEY_2", "").strip()
+    )
+    agent      = SlideArchitectAgent(groq_api_key=api_key)
+    plan       = await asyncio.to_thread(
         agent.plan, result, result.get("_detected_language", "en")
     )
     pptx_bytes = await asyncio.to_thread(build_pptx, plan)
     return StreamingResponse(
         io.BytesIO(pptx_bytes),
-        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        media_type=(
+            "application/vnd.openxmlformats-officedocument"
+            ".presentationml.presentation"
+        ),
         headers={"Content-Disposition": "attachment; filename=meeting_report.pptx"},
     )
 
@@ -918,19 +1055,26 @@ async def export_markdown(request: Request):
     body  = await request.json()
     r     = body.get("result", body)
     lines = ["# Meeting Analysis\n"]
-    if r.get("full_summary"): lines += ["## Overview\n", r["full_summary"], "\n"]
-    if r.get("summary"):      lines += ["## Key Points\n"] + [f"- {b}\n" for b in r["summary"]]
+    if r.get("full_summary"):
+        lines += ["## Overview\n", r["full_summary"], "\n"]
+    if r.get("summary"):
+        lines += ["## Key Points\n"] + [f"- {b}\n" for b in r["summary"]]
     if r.get("action_items"):
         lines += ["\n## Action Items\n"]
         for i in r["action_items"]:
             flag = " ⚠" if i.get("hallucination_flag") else ""
+            # Uses "task" field — aligned with current analyzer output.
+            # See analysis_prompt.py fix for schema alignment (task vs task_en).
+            task = i.get("task") or i.get("task_en") or ""
             lines.append(
-                f"- **{i.get('task','')}**{flag}  \n"
-                f"  Owner: {i.get('owner','TBD')}  Deadline: {i.get('deadline','TBD')}\n"
+                f"- **{task}**{flag}  \n"
+                f"  Owner: {i.get('owner','TBD')}  "
+                f"Deadline: {i.get('deadline','TBD')}\n"
             )
     md = "".join(lines)
     return StreamingResponse(
-        io.BytesIO(md.encode("utf-8")), media_type="text/markdown",
+        io.BytesIO(md.encode("utf-8")),
+        media_type="text/markdown",
         headers={"Content-Disposition": "attachment; filename=meeting_notes.md"},
     )
 
@@ -938,9 +1082,12 @@ async def export_markdown(request: Request):
 @app.post("/export/json")
 async def export_json_route(request: Request):
     body = await request.json()
-    raw  = _json.dumps(body.get("result", body), ensure_ascii=False, indent=2).encode("utf-8")
+    raw  = _json.dumps(
+        body.get("result", body), ensure_ascii=False, indent=2
+    ).encode("utf-8")
     return StreamingResponse(
-        io.BytesIO(raw), media_type="application/json",
+        io.BytesIO(raw),
+        media_type="application/json",
         headers={"Content-Disposition": "attachment; filename=analysis.json"},
     )
 
@@ -960,24 +1107,32 @@ async def export_txt_route(request: Request):
         lines += ["ACTION ITEMS", "-" * 20]
         for i in r["action_items"]:
             flag = " [FLAGGED]" if i.get("hallucination_flag") else ""
-            lines.append(f"- {i.get('task','')}{flag}")
-            lines.append(f"    Owner: {i.get('owner','TBD')}   Deadline: {i.get('deadline','TBD')}")
+            task = i.get("task") or i.get("task_en") or ""
+            lines.append(f"- {task}{flag}")
+            lines.append(
+                f"    Owner: {i.get('owner','TBD')}   "
+                f"Deadline: {i.get('deadline','TBD')}"
+            )
         lines.append("")
     if r.get("sentiment"):
         lines += ["SENTIMENT", "-" * 20]
-        lines += [f"- {s.get('speaker','')}: {s.get('score','').upper()}"
-                  for s in r["sentiment"]]
+        lines += [
+            f"- {s.get('speaker','')}: {s.get('score','').upper()}"
+            for s in r["sentiment"]
+        ]
         lines.append("")
     if r.get("speakers"):
         lines += ["SPEAKERS", "-" * 20]
         for spk in r["speakers"]:
             lines.append(
-                f"- {spk.get('name','')}: {spk.get('talk_time_pct',0)}% ({spk.get('tone','')})"
+                f"- {spk.get('name','')}: "
+                f"{spk.get('talk_time_pct',0)}% ({spk.get('tone','')})"
             )
         lines.append("")
     txt = "\n".join(lines)
     return StreamingResponse(
-        io.BytesIO(txt.encode("utf-8")), media_type="text/plain",
+        io.BytesIO(txt.encode("utf-8")),
+        media_type="text/plain",
         headers={"Content-Disposition": "attachment; filename=meeting_notes.txt"},
     )
 
@@ -988,10 +1143,12 @@ async def export_txt_route(request: Request):
 
 @app.get("/health")
 async def health():
-    scenario_count = _get_scenario_summary().get("total", 0) if EVAL_AVAILABLE else 0
+    scenario_count = (
+        _get_scenario_summary().get("total", 0) if EVAL_AVAILABLE else 0
+    )
     return {
         "status":           "healthy",
-        "version":          "3.6",
+        "version":          "3.8",
         "provider":         os.getenv("TRANSCRIPT_AI_PROVIDER", "auto"),
         "nim_configured":   bool(os.getenv("NIM_API_KEY")),
         "groq_configured":  bool(os.getenv("GROQ_API_KEY")),
@@ -999,6 +1156,8 @@ async def health():
         "auth_enabled":     AUTH_ENABLED,
         "firebase":         _FIREBASE_AVAILABLE,
         "scenario_count":   scenario_count,
+        "worker_count":     _WORKER_COUNT,
+        "cache_mode":       "in_memory" if _WORKER_COUNT == 1 else "in_memory_UNSAFE",
         "modules": {
             "audio":             AUDIO_AVAILABLE,
             "pii_masker":        PII_AVAILABLE,
@@ -1018,7 +1177,6 @@ async def health():
 
 @app.get("/robots.txt", response_class=HTMLResponse)
 async def robots_txt():
-    # FIX 9: guard open() — missing file raised FileNotFoundError → HTTP 500
     try:
         content = open("robots.txt").read()
     except FileNotFoundError:
@@ -1069,8 +1227,6 @@ async def manifest():
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 def _err(msg: str) -> str:
-    # FIX 7: HTML-escape msg before embedding — prevents XSS from exception
-    # strings that contain angle brackets (tracebacks, user transcript content).
     safe_msg = _html.escape(str(msg))
     return (
         f'<div style="background:var(--red-bg);border-left:3px solid var(--red);'
